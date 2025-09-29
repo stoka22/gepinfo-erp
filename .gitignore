@@ -1,19 +1,44 @@
+# Laravel
 /vendor/
 /node_modules/
-/public/storage
+/.env
+/.env.*
+/storage/
 /storage/*.key
-/storage/app/*
-!/storage/app/public
-/storage/framework/*
-!/storage/framework/.gitignore
-/storage/logs/*
-.env
-.phpunit.result.cache
-Homestead.yaml
+/public/storage/
+/vendor/
+/homestead.yaml
 Homestead.json
-/.idea
-/.vscode/*
-!.vscode/extensions.json
+/.idea/
+/.vscode/
+/*.log
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
+.DS_Store
+/.phpunit.result.cache
 
+# Build / assets
+/public/hot
+/public/mix-manifest.json
+/public/css/
+/public/js/
+/public/build/
+/public/_nuxt/
+
+# Node / tooling
+/.pids
+/.sass-cache
+/.parcel-cache
+/.turbo
+/.next
+/.vercel
+/build/
+/dist/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Git LFS attrs (if used)
+.gitattributes
