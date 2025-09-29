@@ -1,0 +1,29 @@
+<?php
+
+// app/Http/Controllers/TaskDependencyController.php
+namespace App\Http\Controllers;
+
+use App\Http\Requests\StoreTaskDependencyRequest;
+use App\Models\TaskDependency;
+use App\Services\Scheduling\DependencyValidator;
+
+class TaskDependencyController extends Controller
+{
+    public function store(StoreTaskDependencyRequest $req, DependencyValidator $dv)
+    {
+        $data = $req->validated();
+
+        if ($dv->wouldCreateCycle($data['predecessor_id'], $data['successor_id'])) {
+            return response()->json(['error' => 'Ciklus jönne létre a feladatok között.'], 422);
+        }
+
+        $dep = TaskDependency::create([
+            'predecessor_id' => $data['predecessor_id'],
+            'successor_id'   => $data['successor_id'],
+            'type'           => $data['type'] ?? 'FS',
+            'lag_minutes'    => $data['lag_minutes'] ?? 0,
+        ]);
+
+        return response()->json($dep, 201);
+    }
+}

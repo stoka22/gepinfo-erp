@@ -1,0 +1,95 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\PendingDeviceController;
+use App\Http\Controllers\MachineController;
+use App\Models\Machine;
+use App\Models\Device;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Carbon;
+
+//Route::view('/', 'welcome');
+
+Route::get('/', function () {
+    $d = today();
+    $y22 = $d->copy()->subDay()->setTime(22,0);
+    $t06 = $d->copy()->setTime(6,0);
+    $t14 = $d->copy()->setTime(14,0);
+    $t22 = $d->copy()->setTime(22,0);
+    $t00 = $d->copy()->startOfDay();
+    $t24 = $d->copy()->addDay()->startOfDay();
+
+    // ❶ perc-alapú cache (50 mp), kulcs: aktuális perc
+    $machines = Cache::remember('dash:'.now()->format('YmdHi'), 50, function () use ($y22,$t06,$t14,$t22,$t00,$t24) {
+        // összes gép műszak-összegei egy query-ben
+        $rows = DB::select(<<<SQL
+            SELECT
+              m.id, m.name,
+              SUM(CASE WHEN pl.created_at >= ? AND pl.created_at < ? THEN pl.qty ELSE 0 END) AS ej,
+              SUM(CASE WHEN pl.created_at >= ? AND pl.created_at < ? THEN pl.qty ELSE 0 END) AS de,
+              SUM(CASE WHEN pl.created_at >= ? AND pl.created_at < ? THEN pl.qty ELSE 0 END) AS du,
+              SUM(CASE WHEN pl.created_at >= ? AND pl.created_at < ? THEN pl.qty ELSE 0 END) AS ossz,
+              GREATEST(
+                COALESCE(MAX(pl.created_at), '1970-01-01'),
+                COALESCE(MAX(p.created_at),  '1970-01-01')
+              ) AS last_at
+            FROM machines m
+            LEFT JOIN production_logs pl
+              ON pl.machine_id = m.id
+             AND pl.created_at >= ?
+             AND pl.created_at <  ?
+            LEFT JOIN devices d  ON d.machine_id = m.id
+            LEFT JOIN pulses  p  ON p.device_id  = d.id
+            WHERE m.active = 1
+            GROUP BY m.id, m.name
+            ORDER BY m.name
+        SQL, [
+            $y22, $t06,
+            $t06, $t14,
+            $t14, $t22,
+            $t00, $t24,
+            $y22, $t24,
+        ]);
+
+        // szín státusz (zöld<5p, narancs 5–15p, fekete>15p)
+        return collect($rows)->map(function ($r) {
+            $diff = $r->last_at ? Carbon::parse($r->last_at)->diffInMinutes(now()) : PHP_INT_MAX;
+            $status = $diff < 5 ? 'green' : ($diff <= 15 ? 'orange' : 'black');
+
+            return (object)[
+                'id'       => $r->id,
+                'name'     => $r->name,
+                'shift_ej' => (int)$r->ej,
+                'shift_de' => (int)$r->de,
+                'shift_du' => (int)$r->du,
+                'osszesen' => (int)$r->ossz,
+                'status'   => $status,
+            ];
+        });
+    });
+
+    return response()
+        ->view('welcome', ['machines' => $machines])
+        ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        ->header('Pragma', 'no-cache');
+});
+
+
+Route::view('dashboard', 'livewire.dashboard')
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
+
+Route::view('profile', 'profile')
+    ->middleware(['auth'])
+    ->name('profile');
+Route::middleware(['auth'])->group(function () {
+    Route::view('/devices','livewire.devices.index')->name('devices.index');
+    // vagy hagyományos Controlleres route-ok (create/store/edit/update)
+    Route::post('/devices/approve/{pending}', [PendingDeviceController::class,'approve'])
+        ->name('devices.approve');
+    Route::resource('machines', MachineController::class);
+});
+
+require __DIR__.'/auth.php';

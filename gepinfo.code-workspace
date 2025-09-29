@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "gepinfo",
+			"path": "."
+		},
+		{
+			"name": "DataLog-OTA-UNIFIED",
+			"path": "../../Documents/PlatformIO/Projects/DataLog-OTA-UNIFIED"
+		}
+	],
+	"settings": {}
+}

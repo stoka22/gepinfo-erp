@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Carbon\Carbon;
+use App\Models\Device;
+use App\Models\Pulse;
+
+class DevicePulseController extends Controller
+{
+    public function store(Request $request): JsonResponse
+    {
+        /** @var Device|null $device */
+        $device = $request->attributes->get('device');
+        if (!$device) {
+            return response()->json(['error' => 'Unauthorized (device missing)'], 401, ['Connection' => 'close']);
+        }
+
+        // --- 1) Heartbeat/telemetria frissítés (rssi/ssid opcionális) ---
+        $rssi = $request->input('rssi');               // int|null
+        $ssid = $request->input('ssid');               // string|null
+
+        $dirty = false;
+        if ($rssi !== null) { $device->rssi = (int) $rssi; $dirty = true; }
+        if ($ssid !== null) { $device->ssid = $ssid;       $dirty = true; }
+
+        $device->last_seen_at = now();
+        $device->last_ip      = $request->ip();
+        $device->save();
+
+        // --- 2) Mintavétel adatok vannak? (sample_id + count) ---
+        $hasSample = $request->filled('sample_id') && $request->filled('count');
+
+        if (!$hasSample) {
+            // Csak heartbeat jött – ennyi elég az ESP mostani firmware-éhez
+            return response()->json(['ok' => true], 200, ['Connection' => 'close']);
+        }
+
+        // Validáció csak a mintavételi mezőkre
+        $validated = $request->validate([
+            'sample_id' => ['required','integer','min:1'],
+            'count'     => ['required','integer','min:0'],
+            'ts'        => ['nullable','string'],  // ISO dátum vagy epoch string – rugalmasan kezeljük
+        ]);
+
+        $sampleId = (int) $validated['sample_id'];
+        $count    = (int) $validated['count'];
+
+        // Idempotencia: ugyanazzal a sample_id-vel ne duplikáljunk
+        $exists = Pulse::where('device_id', $device->id)
+            ->where('sample_id', $sampleId)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'ok'        => true,
+                'duplicate' => true,
+                'sample_id' => $sampleId,
+            ], 200, ['Connection' => 'close']);
+        }
+
+        // Időbélyeg rugalmas parse (ISO vagy UNIX epoch)
+        $sampleTime = now();
+        if (!empty($validated['ts'])) {
+            $ts = $validated['ts'];
+            try {
+                if (is_numeric($ts)) {
+                    $sampleTime = Carbon::createFromTimestamp((int) $ts);
+                } else {
+                    $sampleTime = Carbon::parse($ts);
+                }
+            } catch (\Throwable $e) {
+                // ha rossz a formátum, marad 'now()'
+            }
+        }
+
+        // Előző minta a delta számításhoz (legutóbbi rekord)
+        $last = Pulse::where('device_id', $device->id)
+            ->orderByDesc('id')
+            ->first();
+
+        // Egyszerű delta: nem negatív; overflow/újraindulás esetén a teljes count-ot vesszük
+        $delta = $last ? max(0, $count - (int) $last->count) : $count;
+
+        // Mentés
+        $pulse = Pulse::create([
+            'device_id'   => $device->id,
+            'sample_id'   => $sampleId,
+            'sample_time' => $sampleTime,
+            'count'       => $count,
+            'delta'       => $delta,
+        ]);
+
+        return response()->json([
+            'ok'        => true,
+            'saved_id'  => $pulse->id,
+            'sample_id' => $sampleId,
+            'delta'     => $delta,
+        ], 201, ['Connection' => 'close']);
+    }
+}
