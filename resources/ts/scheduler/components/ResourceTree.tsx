@@ -1,4 +1,3 @@
-// ResourceTree.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { useScheduler } from '../store'
 import type { Resource, RowItem, TreeNode } from '../types'
@@ -65,8 +64,11 @@ export default function ResourceTree() {
     const rows: RowItem[] = []
     const collapsed: Record<string, true> = {}
 
-    const pushGroupRow = (type: GroupType, label: string) => {
-      rows.push({ key: `group:${type}:${label}`, kind: 'group', label, groupType: type })
+    const pushGroupRow = (type: GroupType, label: string, extra?: Partial<RowItem>) => {
+      const key = type === 'process' && (extra as any)?.processNodeId
+        ? `group:${type}:${(extra as any).processNodeId}`
+        : `group:${type}:${label}`
+      rows.push({ key, kind: 'group', label, groupType: type, ...(extra || {}) } as RowItem)
     }
 
     const pushResourceRow = (rid: number, processId?: string) => {
@@ -106,12 +108,12 @@ export default function ResourceTree() {
       }
 
       if (n.type === 'process') {
-        pushGroupRow('process', n.name)
+        // ⬅ process sor: azonosító is bekerül, hogy az aggregált hasábot tudjuk hova rajzolni
+        pushGroupRow('process', n.name, { processNodeId: n.id })
         if (!isOpen) { collapsed[`group:process:${n.name}`] = true; return }
         n.children?.forEach(c => {
           if (c.type === 'machine' && c.resourceId != null) {
             pushResourceRow(Number(c.resourceId), n.id)
-            //pushResourceRow(Number(c.resourceId))
           }
         })
       }
@@ -130,8 +132,6 @@ export default function ResourceTree() {
 
   return (
     <div>
-      
-
       <div style={{ padding: '6px 8px' }}>
         {tree.map(n => (
           <NodeView
@@ -278,7 +278,7 @@ function MachineRow({ node, productNodeId, processNodeId, ratePph, defaultQty = 
       title: `${node.name} • ${defaultQty} db`,
       qty: defaultQty,
       ratePph,
-    })
+    } as any)
   }
   return (
     <>
@@ -303,12 +303,9 @@ function ProcessRow({ node, productNodeId, productSumQty }: {
   productSumQty: number
 }) {
   const tasks = useScheduler(s => s.tasks)
-  const plannedQty = useMemo(
-    () => tasks
-      .filter(t => t.processNodeId === node.id && t.productNodeId === productNodeId)
-      .reduce((acc, t) => acc + (t.qtyTotal ?? 0), 0),
-    [tasks, node.id, productNodeId]
-  )
+  const plannedQty = (tasks as any[])
+    .filter(t => t.processNodeId === node.id && t.productNodeId === productNodeId)
+    .reduce((acc, t) => acc + (t.qtyTotal ?? 0), 0)
 
   return (
     <>

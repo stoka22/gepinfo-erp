@@ -9,10 +9,12 @@ import { TIMELINE_H } from '../utils/constants'
 const MIN_LEFT = 220
 const MAX_LEFT = 640
 const LS_KEY_LEFT = 'scheduler.leftWidth'
+const TOP_SCROLL_H = 12
 
 type ViewMode = 'week' | 'month'
 const WEEK_MS  = 7 * 24 * 60 * 60 * 1000
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000
+
 
 export default function SchedulerShell() {
   const from            = useScheduler(s => s.from)
@@ -28,6 +30,7 @@ export default function SchedulerShell() {
   const snapWindowToNow = useScheduler(s => s.snapWindowToNow)
   const setFromTo       = useScheduler(s => s.setFromTo)
   const setWindowToShiftForDate = useScheduler(s => s.setWindowToShiftForDate)
+  const shift           = useScheduler(s => s.shift)
 
   const [view, setView] = useState<ViewMode>('week')
   const viewMs = view === 'week' ? WEEK_MS : MONTH_MS
@@ -193,8 +196,11 @@ export default function SchedulerShell() {
       <div className="flex-1 min-h-0">
         <div className="grid h-full" style={{ gridTemplateColumns: `${leftWidth}px 6px minmax(0,1fr)` }}>
           {/* Bal fa */}
-          <aside className="border-r border-neutral-700/50 bg-neutral-900 min-h-0"  style={{ paddingTop: TIMELINE_H/2 }}>
-            <div className="h-full overflow-y-auto overflow-x-hidden" style={{ paddingTop: TIMELINE_H }}>
+          <aside className="border-r border-neutral-700/50 bg-neutral-900 min-h-0">
+            <div
+              className="h-full overflow-y-auto overflow-x-hidden"
+              style={{ paddingTop: TOP_SCROLL_H + TIMELINE_H }}
+            >
               <ResourceTree />
             </div>
           </aside>
@@ -218,15 +224,26 @@ export default function SchedulerShell() {
           <section className="min-h-0 flex flex-col">
             {/* Felső vízszintes scroll csak a jobb oszlopon */}
             <div className="border-b border-neutral-700/50">
-              <div ref={topScrollRef} className="overflow-x-auto overflow-y-hidden" style={{ height: 12 }}>
+              <div ref={topScrollRef} className="overflow-x-auto overflow-y-hidden" style={{ height: TOP_SCROLL_H }}>
                 <div style={{ width: contentWidth, height: 1 }} />
               </div>
             </div>
 
-            <div ref={rightScrollRef} className="flex-1 min-h-0 overflow-auto relative" style={gridBg}>
+            <div
+            ref={rightScrollRef}
+            className="flex-1 min-h-0 overflow-auto relative"
+            style={{ ...gridBg, paddingTop: TIMELINE_H }}
+          >
+            {/* Timeline overlay – ne tolja le a tartalmat */}
+            <div
+              className="sticky top-0 z-10 pointer-events-none"
+              style={{ height: TIMELINE_H, marginTop: -TIMELINE_H }}
+              aria-hidden
+            >
               <Timeline />
-              <BarsLayer readOnlyBeforeTs={Date.now()} />
             </div>
+            <BarsLayer readOnlyBeforeTs={shift?.startTs ?? 0} />
+          </div>
           </section>
         </div>
       </div>

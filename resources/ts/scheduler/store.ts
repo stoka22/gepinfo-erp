@@ -1,9 +1,11 @@
+// src/scheduler/store.ts
 import { create } from 'zustand'
 import type { Resource, Task, RowItem, TreeNode } from './types'
 import { fetchResources, fetchTasks, fetchTree } from './api'
 import { addMinutes, format } from 'date-fns'
 
 type CollapsedMap = Record<string, true>
+type ShiftWindow = { startTs: number; endTs: number }
 
 export type SchedulerState = {
   resources: Resource[]
@@ -31,10 +33,13 @@ export type SchedulerState = {
   setWindow: (from: Date, to: Date) => void
   setPxPerHour: (v: number) => void
 
-  /** Igazítás egész órára: from le, to fel a következő egész órára */
+  /** Egész órára igazítás: from le, to fel a következő egész órára */
   alignWindowToHours: () => void
 
-  /** (opcionális) – műszak tábla alapján állítja az ablakot az adott napra */
+  /** Műszak-ablak (DB-ből) az aktuális nézethez */
+  shift?: ShiftWindow
+
+  /** (opcionális) – műszak tábla alapján állítja az ablakot és a shift state-et az adott napra */
   setWindowToShiftForDate?: (isoDate: string) => Promise<void>
 
   loadAll: (opts?: { resourceId?: number | string }) => Promise<void>
@@ -60,6 +65,7 @@ export type SchedulerState = {
   }) => void
 }
 
+/* ---------------- helpers ---------------- */
 function makeId() {
   try {
     return `tmp-${(crypto as any)?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`
@@ -84,6 +90,16 @@ function annotateTreeWithPlannedBars(tree: TreeNode[], tasks: Task[]): TreeNode[
   return tree.map(walk)
 }
 
+/** elfogad "HH:mm[:ss]" vagy teljes ISO-t is */
+function parseShiftEdge(edge: string, isoDate: string) {
+  // ha teljes ISO (tartalmaz 'T' vagy zóna jelet), azt használd közvetlenül
+  if (/[Tt]/.test(edge) || /[Z\+\-]\d{2}:?\d{2}$/.test(edge)) return new Date(edge)
+  // különben HH:mm(:ss) → illeszd a dátumhoz
+  const hhmmss = edge.length <= 5 ? `${edge}:00` : edge
+  return new Date(`${isoDate}T${hhmmss}`)
+}
+
+/* ---------------- store ---------------- */
 export const useScheduler = create<SchedulerState>()((set, get) => ({
   resources: [],
   tasks: [],
@@ -96,7 +112,7 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   from: new Date(),
   to:   new Date(Date.now() + 86400000),
   pxPerHour: 60,
-  rowHeight: 28,
+  rowHeight: 40,
   loading: false,
   error: undefined,
 
@@ -119,39 +135,42 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
 
   // egész órára igazítás
   alignWindowToHours: () => {
-  const { from, to } = get()
+    const { from, to } = get()
 
-  const f = new Date(from)
-  const t = new Date(to)
+    const f = new Date(from)
+    const t = new Date(to)
 
-  const alignedF = new Date(f); alignedF.setMinutes(0, 0, 0)
+    const alignedF = new Date(f); alignedF.setMinutes(0, 0, 0)
 
-  const alignedT = new Date(t)
-  const tNeedsAlign =
-    t.getMinutes() !== 0 || t.getSeconds() !== 0 || t.getMilliseconds() !== 0
-  if (tNeedsAlign) {
-    alignedT.setMinutes(0, 0, 0)
-    alignedT.setHours(alignedT.getHours() + 1)
-  }
+    const alignedT = new Date(t)
+    const tNeedsAlign =
+      t.getMinutes() !== 0 || t.getSeconds() !== 0 || t.getMilliseconds() !== 0
+    if (tNeedsAlign) {
+      alignedT.setMinutes(0, 0, 0)
+      alignedT.setHours(alignedT.getHours() + 1)
+    }
 
-  // ⬇️ nincs érdemi változás → ne set-eljünk (különben loop)
-  if (+alignedF === +from && +alignedT === +to) return
+    // nincs érdemi változás → ne set-eljünk (különben loop)
+    if (+alignedF === +from && +alignedT === +to) return
 
-  set({ from: alignedF, to: alignedT })
-},
+    set({ from: alignedF, to: alignedT })
+  },
 
   // (opcionális) műszak tábla alapján – ha van backend endpointod hozzá
   setWindowToShiftForDate: async (isoDate: string) => {
     try {
       const resp = await fetch(`/api/scheduler/shift-window?date=${isoDate}`)
       if (!resp.ok) return
-      const { start, end } = await resp.json() as { start: string; end: string }
-      const startDt = new Date(`${isoDate}T${start}`)
-      let   endDt   = new Date(`${isoDate}T${end}`)
-      if (endDt <= startDt) endDt = new Date(+endDt + 24 * 3600_000) // éjfél átlógás
-      set({ from: startDt, to: endDt })
+      // támogatjuk: {start:"06:00:00", end:"14:00:00"} VAGY {start:"2025-09-29T06:00:00+02:00", end:"..."}
+      const { start, end } = (await resp.json()) as { start: string; end: string }
+
+      const startDt = parseShiftEdge(start, isoDate)
+      let   endDt   = parseShiftEdge(end,   isoDate)
+      if (+endDt <= +startDt) endDt = new Date(+endDt + 24 * 3600_000) // éjfél átlógás
+
+      set({ from: startDt, to: endDt, shift: { startTs: +startDt, endTs: +endDt } })
     } catch {
-      // csendben elnyeljük – opcionális feature
+      // opcionális feature → csendben elnyeljük
     }
   },
 
@@ -216,7 +235,7 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
 
     const task: Task = {
       id: makeId(),
-      resourceId: machineId,
+      resourceId: machineId as any,
       title,
       start: toLocalISO(startDate),
       end: toLocalISO(endDate),
