@@ -1,31 +1,47 @@
 name: Deploy to DotRoll
 on:
   push:
-    branches: [ master, main ]    # bármelyikre pusholsz, fut
-  workflow_dispatch: {}            # kézzel is indítható
+    branches: [ master, main ]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      REMOTE_PATH: ${{ secrets.REMOTE_PATH }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup SSH
+        shell: bash
         run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"   # ha üres, legyen 22
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          # privát kulcs beírása + Windows CR törlése
+          printf '%s' "${{ secrets.SSH_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
-          # kapcsolat teszt + célmappa létrehozása
-          ssh -vv -p "${{ secrets.SSH_PORT }}" -o BatchMode=yes \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "mkdir -p '${{ secrets.REMOTE_PATH }}' && echo 'SSH OK on ' \$(hostname)"
+          echo "Using host: $SSH_HOST, user: $SSH_USER, port: $PORT"
+          ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -vv -p "$PORT" -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$REMOTE_PATH' && echo 'SSH OK on ' \$(hostname)"
 
       - name: Upload (SCP tarball)
+        shell: bash
         run: |
-          tar -czf site.tgz --exclude='.git' --exclude='.github' --exclude='.env' .
-          scp -vv -P "${{ secrets.SSH_PORT }}" site.tgz \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_PATH }}/
-          ssh -p "${{ secrets.SSH_PORT }}" ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "\
-            cd '${{ secrets.REMOTE_PATH }}' && tar -xzf site.tgz && rm -f site.tgz && ls -la \
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          ARCHIVE="/tmp/site.tgz"                # <-- NEM a projekt gyökérbe!
+          # Archívum készítése /tmp-be (nem csomagolja bele önmagát)
+          tar --warning=no-file-changed -czf "$ARCHIVE" \
+              --exclude='.git' --exclude='.github' --exclude='.env' .
+          # Feltöltés
+          scp -vv -P "$PORT" "$ARCHIVE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH/site.tgz"
+          # Kibontás a szerveren, majd takarítás és listázás
+          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "\
+            cd '$REMOTE_PATH' && tar -xzf site.tgz && rm -f site.tgz && ls -la \
           "
+
