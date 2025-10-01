@@ -1,0 +1,31 @@
+name: Deploy to DotRoll
+on:
+  push:
+    branches: [ master, main ]    # bármelyikre pusholsz, fut
+  workflow_dispatch: {}            # kézzel is indítható
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          # kapcsolat teszt + célmappa létrehozása
+          ssh -vv -p "${{ secrets.SSH_PORT }}" -o BatchMode=yes \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p '${{ secrets.REMOTE_PATH }}' && echo 'SSH OK on ' \$(hostname)"
+
+      - name: Upload (SCP tarball)
+        run: |
+          tar -czf site.tgz --exclude='.git' --exclude='.github' --exclude='.env' .
+          scp -vv -P "${{ secrets.SSH_PORT }}" site.tgz \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_PATH }}/
+          ssh -p "${{ secrets.SSH_PORT }}" ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "\
+            cd '${{ secrets.REMOTE_PATH }}' && tar -xzf site.tgz && rm -f site.tgz && ls -la \
+          "
