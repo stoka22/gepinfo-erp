@@ -2,7 +2,9 @@ name: Deploy to DotRoll
 
 on:
   push:
-    branches: [ master, main ]
+    branches:
+      - master
+      - main
   workflow_dispatch:
 
 jobs:
@@ -16,7 +18,8 @@ jobs:
 
     steps:
       - name: Marker
-        run: echo "WORKFLOW VERSION: 2025-10-01-01"
+        run: |
+          echo "WORKFLOW VERSION: 2025-10-01-02"
 
       - uses: actions/checkout@v4
 
