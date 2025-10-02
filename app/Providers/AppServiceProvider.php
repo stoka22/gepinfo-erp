@@ -6,6 +6,7 @@ namespace App\Providers;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
+use Illuminate\Support\Facades\Schema; 
 
 use App\Models\Employee;
 use App\Policies\EmployeePolicy;
@@ -46,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(DeviceFile::class, DeviceFilePolicy::class);
         Gate::policy(TimeEntry::class, TimeEntryPolicy::class);
         Gate::policy(Partner::class, PartnerPolicy::class);
+        Schema::defaultStringLength(191);
     }
 
     

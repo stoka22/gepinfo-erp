@@ -1,0 +1,6 @@
+Adatbázis létrehozva
+Itt vannak az új adatbázis csatlakozási adatai. A csatlakozási adatokat biztonságos helyen vagy a weboldal konfigurációjában kell tárolni, mivel csak egyszer jelennek meg.
+Kiszolgálónév:localhost
+Adatbázis:stoka22wsda_ERP
+Felhasználónév:stoka22wsda_ERP
+Jelszó:ugkVkAfTrU5TbjSA7VeE

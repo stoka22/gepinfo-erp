@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Scheduler;
 use App\Models\Machine;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Http\Request;
 
 class PlanSegmentController extends Controller
 {
