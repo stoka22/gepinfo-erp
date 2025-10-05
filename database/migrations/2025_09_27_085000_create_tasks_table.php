@@ -14,8 +14,8 @@ return new class extends Migration {
             $t->unsignedBigInteger('machine_id')->nullable();
 
             $t->string('name');
-            $t->timestamp('starts_at');
-            $t->timestamp('ends_at');
+            $t->datetime('starts_at');
+            $t->datetime('ends_at')->nullable();
             $t->unsignedInteger('setup_minutes')->default(0);
 
             $t->timestamps();

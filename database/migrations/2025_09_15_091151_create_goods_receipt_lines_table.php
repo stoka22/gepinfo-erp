@@ -8,7 +8,7 @@ return new class extends Migration {
     public function up(): void
     {
         // Feltételezi, hogy a goods_receipts és items táblák már léteznek.
-        Schema::create('goods_receipt_lines', function (Blueprint $table) {
+        Schema::table('goods_receipt_lines', function (Blueprint $table) {
             $table->id();
 
             $table->foreignId('goods_receipt_id')

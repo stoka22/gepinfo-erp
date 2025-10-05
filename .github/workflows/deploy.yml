@@ -2,27 +2,89 @@ name: Deploy to DotRoll
 
 on:
   push:
-    branches:
-      - master
-      - main
-  workflow_dispatch: {} 
+    branches: [ master, main ]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT }}
       REMOTE_PATH: ${{ secrets.REMOTE_PATH }}
+      PHP_BIN: ${{ secrets.PHP_BIN }} # ha üres, a script 'php'-ra esik vissza
+      RELEASE: ${{ github.sha }}
+      RELEASES_TO_KEEP: "3"
 
     steps:
       - name: Marker
+        shell: bash
         run: |
-          echo "WORKFLOW VERSION: 2025-10-01-02"
+          echo "WORKFLOW VERSION: 2025-10-05"
 
       - uses: actions/checkout@v4
 
+      # PHP + Composer a CI-n (DotRollon nem kell composer futtatás)
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, intl, pdo_mysql, bcmath, gd
+          tools: composer
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('**/composer.lock') }}
+
+      - name: Composer install (prod)
+        run: |
+          composer install \
+            --no-dev --optimize-autoloader --prefer-dist \
+            --no-interaction --no-progress
+
+      # Node build a CI-n (DotRollon nem kell node)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: NPM ci + build
+        run: |
+          npm ci
+          npm run build
+
+      # Csomag összeállítása (csak ami kell élesre)
+      - name: Build deploy bundle
+        run: |
+          set -euo pipefail
+          mkdir -p deploy
+          rsync -a --delete \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "node_modules" \
+            --exclude "vendor/bin" \
+            --exclude "tests" \
+            --exclude "storage/framework/cache/data/*" \
+            --exclude "storage/framework/sessions/*" \
+            --exclude "storage/framework/testing/*" \
+            --exclude "storage/logs/*" \
+            --exclude ".env" \
+            ./ deploy/
+          # vendor és buildelt assetek is mennek
+          rsync -a vendor/ deploy/vendor/
+          # Vite (Laravel) -> public/build tartalom
+          if [ -d public/build ]; then
+            mkdir -p deploy/public/build
+            rsync -a public/build/ deploy/public/build/
+          fi
+
+      # SSH kulcs és host felvétele
       - name: Setup SSH (decode key, add host)
         shell: bash
         run: |
@@ -32,15 +94,86 @@ jobs:
           echo "${{ secrets.SSH_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
-          ssh -p "$PORT" -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
-            "mkdir -p '$REMOTE_PATH' && echo 'SSH OK'"
+          ssh -p "$PORT" -o BatchMode=yes "$SSH_USER@$SSH_HOST" "echo 'SSH OK'"
 
-      - name: Upload (streaming tar over SSH)
+      # shared/.env feltöltése, ha hiányzik
+      - name: Ensure shared/.env (safe upload)
         shell: bash
         run: |
           set -euo pipefail
           PORT="${SSH_PORT:-22}"
-          tar -cz --warning=no-file-changed \
-            --exclude='.git' --exclude='.github' --exclude='.env' . \
-          | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
-              "cd '$REMOTE_PATH' && tar -xzf - && ls -la"
+          R="$REMOTE_PATH"
+          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
+          if ! ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "[ -s '$R/shared/.env' ]"; then
+            printf "%s" "${{ secrets.ENV_PROD }}" \
+            | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
+          fi
+
+      # Release feltöltése
+      - name: Upload release (tar over SSH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          R="$REMOTE_PATH"
+          REL="$RELEASE"
+          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/releases/$REL'"
+          tar -C deploy -czf - . \
+            | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "tar -C '$R/releases/$REL' -xzf -"
+
+      # Aktiválás + artisan + takarítás
+      - name: Activate release & run post-deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          SSH="ssh -p $PORT $SSH_USER@$SSH_HOST"
+          REM="$REMOTE_PATH"
+          REL="$RELEASE"
+          KEEP="${RELEASES_TO_KEEP:-3}"
+          PRUNE_START=$(( KEEP + 1 ))
+          PHP="${PHP_BIN:-php}"
+
+          $SSH bash -lc '
+            set -euo pipefail
+            cd "'"$REM"'"
+
+            # shared struktúra
+            mkdir -p shared/storage/app \
+                     shared/storage/framework/{cache,sessions,testing} \
+                     shared/bootstrap/cache
+
+            # release -> shared symlinkek (idempotens)
+            rm -rf "releases/'"$REL"'/storage"
+            ln -sfn ../../shared/storage "releases/'"$REL"'/storage"
+            rm -rf "releases/'"$REL"'/bootstrap/cache"
+            ln -sfn ../../shared/bootstrap/cache "releases/'"$REL"'/bootstrap/cache"
+
+            # public/storage
+            cd "releases/'"$REL"'"
+            [ -L public/storage ] || '"$PHP"' artisan storage:link || true
+
+            # jogosultságok a shared mappákon
+            chmod -R u+rwX,go-rwx "'"$REM"'/shared/storage" "'"$REM"'/shared/bootstrap/cache" || true
+
+            # cachek + migráció
+            '"$PHP"' artisan down || true
+            '"$PHP"' artisan optimize:clear || true
+            '"$PHP"' artisan config:cache || true
+            '"$PHP"' artisan route:cache || true
+            '"$PHP"' artisan view:cache || true
+            '"$PHP"' artisan migrate --force || true
+
+            # atomikus váltás
+            ln -sfn "'"$REM"'/releases/'"$REL"'" "'"$REM"'/current"
+
+            # régi release-ek törlése
+            cd "'"$REM"'"
+            ls -1dt releases/* | tail -n +'$PRUNE_START' | xargs -r rm -rf --
+
+            '"$PHP"' artisan up || true
+          '
+
+      - name: Done
+        shell: bash
+        run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"

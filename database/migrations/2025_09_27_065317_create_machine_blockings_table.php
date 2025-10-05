@@ -15,8 +15,8 @@ return new class extends Migration
         Schema::create('machine_blockings', function (Blueprint $t) {
             $t->id();
             $t->foreignId('machine_id')->constrained()->cascadeOnDelete();
-            $t->timestamp('starts_at');
-            $t->timestamp('ends_at');
+            $t->dateTime('starts_at');
+            $t->dateTime('ends_at')->nullable();
             $t->string('reason')->nullable(); // pl. karbantartás
             $t->timestamps();
             $t->index(['machine_id','starts_at','ends_at']);
