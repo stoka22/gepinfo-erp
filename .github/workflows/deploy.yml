@@ -14,19 +14,18 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT }}
       REMOTE_PATH: ${{ secrets.REMOTE_PATH }}   # pl. /home/USER/web-server/web2
-      PHP_BIN: ${{ secrets.PHP_BIN }}           # pl. /usr/local/bin/php83 (ha üres: autodetekció)
+      PHP_BIN: ${{ secrets.PHP_BIN }}           # pl. /usr/local/bin/php83 (ha üres: autodetekció a TÁVOLIN)
       RELEASE: ${{ github.sha }}
       RELEASES_TO_KEEP: "3"
 
     steps:
       - name: Marker
         shell: bash
-        run: | 
-         echo "WORKFLOW VERSION: 2025-10-05-4"
+        run: |
+         echo "WORKFLOW VERSION: 2025-10-05-5"
 
       - uses: actions/checkout@v4
 
-      # PHP + Composer a CI-n
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -41,7 +40,6 @@ jobs:
           path: ~/.composer/cache/files
           key: composer-${{ hashFiles('**/composer.lock') }}
 
-      # Biztonságból, de --no-scripts mellett nem kötelező
       - name: Prepare Laravel cache dirs
         shell: bash
         run: |
@@ -58,7 +56,6 @@ jobs:
           set -euo pipefail
           composer install --no-dev --optimize-autoloader --prefer-dist --no-scripts
 
-      # Node build
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -72,7 +69,6 @@ jobs:
           npm ci
           npm run build
 
-      # Csomag összeállítása
       - name: Build deploy bundle
         shell: bash
         run: |
@@ -96,7 +92,6 @@ jobs:
             rsync -a public/build/ deploy/public/build/
           fi
 
-      # SSH kulcs + host
       - name: Setup SSH (decode key, add host)
         shell: bash
         run: |
@@ -108,8 +103,7 @@ jobs:
           ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -p "$PORT" -o BatchMode=yes "$SSH_USER@$SSH_HOST" "echo 'SSH OK'"
 
-      # shared/.env mindig a Secretből
-      - name: Ensure shared/.env (safe upload)
+      - name: Ensure shared/.env (safe upload, always overwrite)
         shell: bash
         env:
           ENV_PROD: ${{ secrets.ENV_PROD }}
@@ -118,11 +112,9 @@ jobs:
           PORT="${SSH_PORT:-22}"
           R="$REMOTE_PATH"
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
-          # ne expandáljuk a $-jeleket; CRLF eltávolítás
           printf '%s' "$ENV_PROD" | sed 's/\r$//' \
             | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
 
-      # Release feltöltése
       - name: Upload release (tar over SSH)
         shell: bash
         run: |
@@ -134,7 +126,6 @@ jobs:
           tar -C deploy -czf - . \
             | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "tar -C '$R/releases/$REL' -xzf -"
 
-      # Aktiválás + artisan + takarítás (idézőbiztos here-doc)
       - name: Activate release & run post-deploy
         shell: bash
         run: |
@@ -143,21 +134,22 @@ jobs:
           REM="$REMOTE_PATH"
           REL="$RELEASE"
           KEEP="${RELEASES_TO_KEEP:-3}"
-          PRUNE_START=$(( KEEP + 1 ))
-          PHP="${PHP_BIN:-}"
-          if [ -z "$PHP" ]; then
-            PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
-          fi
 
-          # Környezeti változók átadása a távoli bash-nak,
-          # a script tartalmát 'EOSSH' single-quoted here-doc-kal küldjük (nincs lokális expand).
+          # környezeti változók átadása; a script tartalma single-quoted here-doc (nincs lokális expand)
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
-            REM="$REM" REL="$REL" KEEP="$KEEP" PRUNE_START="$PRUNE_START" PHP="$PHP" \
+            REM="$REM" REL="$REL" KEEP="$KEEP" PHP_BIN="${PHP_BIN:-}" \
             'bash -s' <<'EOSSH'
           set -euo pipefail
 
-          # VÁLTOZÓK a környezetből: $REM, $REL, $KEEP, $PRUNE_START, $PHP
-          cd "$REM"
+          # --- bejövő változók: REM, REL, KEEP, PHP_BIN ---
+
+          # távoli PHP autodetekció (ha nincs explicit PHP_BIN)
+          if [ -n "${PHP_BIN:-}" ]; then
+            PHP="$PHP_BIN"
+          else
+            PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
+          fi
+          $PHP -v >/dev/null 2>&1 || { echo "PHP not found on remote"; exit 127; }
 
           # shared struktúra
           mkdir -p "$REM/shared/storage/framework/cache" \
@@ -165,37 +157,37 @@ jobs:
                   "$REM/shared/storage/framework/views" \
                   "$REM/shared/bootstrap/cache"
 
-          # release -> shared ABSZOLÚT linkek
+          # abszolút symlinkek az új release-ben
           rm -rf "$REM/releases/$REL/storage" "$REM/releases/$REL/bootstrap/cache"
           ln -sfn "$REM/shared/storage"         "$REM/releases/$REL/storage"
           ln -sfn "$REM/shared/bootstrap/cache" "$REM/releases/$REL/bootstrap/cache"
+          ln -sfn "$REM/shared/.env"            "$REM/releases/$REL/.env"
 
-          # .env link az új release gyökerébe
-          ln -sfn "$REM/shared/.env" "$REM/releases/$REL/.env"
-
-          # public/storage (idempotens)
+          # public/storage
           cd "$REM/releases/$REL"
           [ -L public/storage ] || "$PHP" artisan storage:link || true
 
-          # jogosultságok
+          # jogosultságok a shared mappákon
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
 
-          # cachek (a symlinkek után!)
+          # cachek (symlinkek után!)
           "$PHP" artisan optimize:clear || true
           "$PHP" artisan config:cache  || true
           "$PHP" artisan route:cache   || true
-          # view:cache opcionális; ha gond lenne vele, nyugodtan vedd ki
           "$PHP" artisan view:cache    || true
-          # migrációt hagyd benne, ha kell; ha nem, töröld a következő sort
+          # ha nem kell migráció minden deploynál, töröld a következő sort:
           "$PHP" artisan migrate --force || true
 
-          # current felülírása biztosan (ha korábban könyvtár volt, akkor is)
+          # current felülírása biztosan
           [ -L "$REM/current" ] || rm -rf "$REM/current"
           ln -sfnT "$REM/releases/$REL" "$REM/current"
 
-          # régi release-ek takarítása
-          cd "$REM"
-          ls -1dt releases/* | tail -n +"$PRUNE_START" | xargs -r rm -rf --
+          # régi release-ek takarítása (8..∞-t törlünk, ha KEEP=3)
+          cd "$REM/releases"
+          TO_DELETE="$(ls -1dt * 2>/dev/null | awk "NR>$KEEP")"
+          if [ -n "$TO_DELETE" ]; then
+            echo "$TO_DELETE" | xargs -r -I{} rm -rf -- "$REM/releases/{}"
+          fi
 
           "$PHP" artisan up || true
           EOSSH
