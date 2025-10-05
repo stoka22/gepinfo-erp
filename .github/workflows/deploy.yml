@@ -14,15 +14,16 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT }}
       REMOTE_PATH: ${{ secrets.REMOTE_PATH }}   # pl. /home/USER/web-server/web2
-      PHP_BIN: ${{ secrets.PHP_BIN }}           # pl. /usr/local/bin/php83 (ha üres: autodetekció a TÁVOLIN)
+      PHP_BIN: ${{ secrets.PHP_BIN }}           # pl. /usr/local/bin/php83 (ha üres: autodetekció a távolin)
+      RUN_MIGRATIONS: ${{ secrets.RUN_MIGRATIONS || 'false' }}
       RELEASE: ${{ github.sha }}
       RELEASES_TO_KEEP: "3"
 
     steps:
       - name: Marker
         shell: bash
-        run: |
-         echo "WORKFLOW VERSION: 2025-10-05-5"
+        run: | 
+         echo "WORKFLOW VERSION: 2025-10-05-6"
 
       - uses: actions/checkout@v4
 
@@ -134,16 +135,17 @@ jobs:
           REM="$REMOTE_PATH"
           REL="$RELEASE"
           KEEP="${RELEASES_TO_KEEP:-3}"
+          RUN_MIGRATIONS="${RUN_MIGRATIONS}"
 
-          # környezeti változók átadása; a script tartalma single-quoted here-doc (nincs lokális expand)
+          # átadjuk a változókat a távolira; single-quoted here-doc: nincs lokális expand
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
-            REM="$REM" REL="$REL" KEEP="$KEEP" PHP_BIN="${PHP_BIN:-}" \
+            REM="$REM" REL="$REL" KEEP="$KEEP" RUN_MIGRATIONS="$RUN_MIGRATIONS" PHP_BIN="${PHP_BIN:-}" \
             'bash -s' <<'EOSSH'
           set -euo pipefail
 
-          # --- bejövő változók: REM, REL, KEEP, PHP_BIN ---
+          # --- környezeti változók a távolin: REM, REL, KEEP, RUN_MIGRATIONS, PHP_BIN ---
 
-          # távoli PHP autodetekció (ha nincs explicit PHP_BIN)
+          # PHP autodetekció a TÁVOLIN
           if [ -n "${PHP_BIN:-}" ]; then
             PHP="$PHP_BIN"
           else
@@ -151,13 +153,15 @@ jobs:
           fi
           $PHP -v >/dev/null 2>&1 || { echo "PHP not found on remote"; exit 127; }
 
+          ART="$REM/releases/$REL/artisan"
+
           # shared struktúra
           mkdir -p "$REM/shared/storage/framework/cache" \
                   "$REM/shared/storage/framework/sessions" \
                   "$REM/shared/storage/framework/views" \
                   "$REM/shared/bootstrap/cache"
 
-          # abszolút symlinkek az új release-ben
+          # ABSZOLÚT symlinkek az új release-ben
           rm -rf "$REM/releases/$REL/storage" "$REM/releases/$REL/bootstrap/cache"
           ln -sfn "$REM/shared/storage"         "$REM/releases/$REL/storage"
           ln -sfn "$REM/shared/bootstrap/cache" "$REM/releases/$REL/bootstrap/cache"
@@ -165,31 +169,36 @@ jobs:
 
           # public/storage
           cd "$REM/releases/$REL"
-          [ -L public/storage ] || "$PHP" artisan storage:link || true
+          [ -L public/storage ] || "$PHP" "$ART" storage:link || true
 
-          # jogosultságok a shared mappákon
+          # jogosultságok
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
 
-          # cachek (symlinkek után!)
-          "$PHP" artisan optimize:clear || true
-          "$PHP" artisan config:cache  || true
-          "$PHP" artisan route:cache   || true
-          "$PHP" artisan view:cache    || true
-          # ha nem kell migráció minden deploynál, töröld a következő sort:
-          "$PHP" artisan migrate --force || true
+          # cachek (mindig ABSZOLÚT artisan úttal)
+          "$PHP" "$ART" optimize:clear || true
+          "$PHP" "$ART" config:cache  || true
+          "$PHP" "$ART" route:cache   || true
+          "$PHP" "$ART" view:cache    || true
+
+          # migráció opcionális
+          if [ "${RUN_MIGRATIONS}" = "true" ]; then
+            "$PHP" "$ART" migrate --force || true
+          fi
 
           # current felülírása biztosan
           [ -L "$REM/current" ] || rm -rf "$REM/current"
           ln -sfnT "$REM/releases/$REL" "$REM/current"
 
-          # régi release-ek takarítása (8..∞-t törlünk, ha KEEP=3)
+          # régi release-ek takarítása
           cd "$REM/releases"
-          TO_DELETE="$(ls -1dt * 2>/dev/null | awk "NR>$KEEP")"
-          if [ -n "$TO_DELETE" ]; then
-            echo "$TO_DELETE" | xargs -r -I{} rm -rf -- "$REM/releases/{}"
+          # ha több mint KEEP van, a  (KEEP+1)..∞ kerül törlésre
+          COUNT=$(ls -1dt * 2>/dev/null | wc -l | awk '{print $1}')
+          if [ "$COUNT" -gt "$KEEP" ]; then
+            ls -1dt * | awk "NR>$KEEP" | xargs -r -I{} rm -rf -- "$REM/releases/{}"
           fi
 
-          "$PHP" artisan up || true
+          # vissza az appba; up (ABSZOLÚT artisan)
+          "$PHP" "$ART" up || true
           EOSSH
 
                 - name: Done
