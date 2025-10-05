@@ -46,6 +46,7 @@ jobs:
           composer install \
             --no-dev --optimize-autoloader --prefer-dist \
             --no-interaction --no-progress
+            --no-scripts
 
       # Node build a CI-n (DotRollon nem kell node)
       - name: Setup Node
