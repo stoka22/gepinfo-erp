@@ -14,7 +14,7 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT }}
       REMOTE_PATH: ${{ secrets.REMOTE_PATH }}
-      PHP_BIN: ${{ secrets.PHP_BIN }} # ha üres, a script 'php'-ra esik vissza
+      PHP_BIN: ${{ secrets.PHP_BIN }}
       RELEASE: ${{ github.sha }}
       RELEASES_TO_KEEP: "3"
 
@@ -22,11 +22,11 @@ jobs:
       - name: Marker
         shell: bash
         run: |
-          echo "WORKFLOW VERSION: 2025-10-05"
+          echo "WORKFLOW VERSION: 2025-10-05-2"
 
       - uses: actions/checkout@v4
 
-      # PHP + Composer a CI-n (DotRollon nem kell composer futtatás)
+      # PHP + Composer a CI-n
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -40,12 +40,13 @@ jobs:
         with:
           path: ~/.composer/cache/files
           key: composer-${{ hashFiles('**/composer.lock') }}
-      
+
+      # (óvatosságból készítünk cache könyvtárakat, bár --no-scripts miatt nem kötelező)
       - name: Prepare Laravel cache dirs
         run: |
           mkdir -p bootstrap/cache
           mkdir -p storage/framework/{cache,sessions,views}
-      
+
       - name: Composer install (prod, no scripts)
         shell: bash
         env:
@@ -56,7 +57,7 @@ jobs:
           set -euo pipefail
           composer install --no-dev --optimize-autoloader --prefer-dist --no-scripts
 
-      # Node build a CI-n (DotRollon nem kell node)
+      # Node build a CI-n
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -68,8 +69,9 @@ jobs:
           npm ci
           npm run build
 
-      # Csomag összeállítása (csak ami kell élesre)
+      # Csomag összeállítása
       - name: Build deploy bundle
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p deploy
@@ -87,7 +89,6 @@ jobs:
             ./ deploy/
           # vendor és buildelt assetek is mennek
           rsync -a vendor/ deploy/vendor/
-          # Vite (Laravel) -> public/build tartalom
           if [ -d public/build ]; then
             mkdir -p deploy/public/build
             rsync -a public/build/ deploy/public/build/
@@ -105,7 +106,7 @@ jobs:
           ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -p "$PORT" -o BatchMode=yes "$SSH_USER@$SSH_HOST" "echo 'SSH OK'"
 
-      # shared/.env feltöltése, ha hiányzik
+      # shared/.env feltöltése (MINDIG a Secretből)
       - name: Ensure shared/.env (safe upload)
         shell: bash
         env:
@@ -114,17 +115,11 @@ jobs:
           set -euo pipefail
           PORT="${SSH_PORT:-22}"
           R="$REMOTE_PATH"
-
-          # shared létezik-e?
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
+          # ne expandáljuk a $-jeleket; CRLF eltávolítás
+          printf '%s' "$ENV_PROD" | sed 's/\r$//' \
+            | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
 
-          # csak ha hiányzik vagy üres az .env
-          if ! ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "[ -s '$R/shared/.env' ]"; then
-            # Nem engedjük, hogy a $JELEK expandálódjanak: csak a $ENV_PROD változót bontjuk ki.
-            # CRLF-t is levesszük, ha véletlen Windows sorvég került bele.
-            printf '%s' "$ENV_PROD" | sed 's/\r$//' \
-              | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
-          fi
       # Release feltöltése
       - name: Upload release (tar over SSH)
         shell: bash
@@ -148,43 +143,49 @@ jobs:
           REL="$RELEASE"
           KEEP="${RELEASES_TO_KEEP:-3}"
           PRUNE_START=$(( KEEP + 1 ))
-          PHP="${PHP_BIN:-php}"
+          # PHP autodetekció, ha nincs megadva
+          PHP="${PHP_BIN:-}"
+          if [ -z "$PHP" ]; then
+            PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
+          fi
 
           $SSH bash -lc '
             set -euo pipefail
             cd "'"$REM"'"
 
-            # shared struktúra
-            mkdir -p shared/storage/app \
-                     shared/storage/framework/{cache,sessions,testing} \
-                     shared/bootstrap/cache
+            # shared struktúra (idempotens)
+            mkdir -p "'"$REM"'/shared/storage/framework/"{cache,sessions,views} \
+                     "'"$REM"'/shared/bootstrap/cache"
 
-            # release -> shared symlinkek (idempotens)
-            rm -rf "releases/'"$REL"'/storage"
-            ln -sfn ../../shared/storage "releases/'"$REL"'/storage"
-            rm -rf "releases/'"$REL"'/bootstrap/cache"
-            ln -sfn ../../shared/bootstrap/cache "releases/'"$REL"'/bootstrap/cache"
+            # release -> shared ABSZOLÚT linkek
+            rm -rf "'"$REM"'/releases/'"$REL"'/storage' \
+                   "'"$REM"'/releases/'"$REL"'/bootstrap/cache"
+            ln -sfn "'"$REM"'/shared/storage"         "'"$REM"'/releases/'"$REL"'/storage"
+            ln -sfn "'"$REM"'/shared/bootstrap/cache" "'"$REM"'/releases/'"$REL"'/bootstrap/cache"
+
+            # .env link az új release gyökerébe
             ln -sfn "'"$REM"'/shared/.env" "'"$REM"'/releases/'"$REL"'/.env"
 
             # public/storage
-            cd "releases/'"$REL"'"
+            cd "'"$REM"'/releases/'"$REL"'"
             [ -L public/storage ] || '"$PHP"' artisan storage:link || true
 
             # jogosultságok a shared mappákon
-            chmod -R u+rwX,go-rwx "'"$REM"'/shared/storage" "'"$REM"'/shared/bootstrap/cache" || true
+            chmod -R u+rwX,go-rwx "'"$REM"'/shared/storage" "'"$REM"'/shared/bootstrap" || true
 
-            # cachek + migráció
-            '"$PHP"' artisan down || true
+            # cachek (MINDIG a symlinkek után)
             '"$PHP"' artisan optimize:clear || true
-            '"$PHP"' artisan config:cache || true
-            '"$PHP"' artisan route:cache || true
-            '"$PHP"' artisan view:cache || true
+            '"$PHP"' artisan config:cache  || true
+            '"$PHP"' artisan route:cache   || true
+            '"$PHP"' artisan view:cache    || true
+            # migrációt hagyd benne, ha kell; ha nem, vedd ki
             '"$PHP"' artisan migrate --force || true
 
-            # atomikus váltás
-            ln -sfn "'"$REM"'/releases/'"$REL"'" "'"$REM"'/current"
+            # current felülírása biztosan
+            [ -L "'"$REM"'/current" ] || rm -rf "'"$REM"'/current"
+            ln -sfnT "'"$REM"'/releases/'"$REL"'" "'"$REM"'/current"
 
-            # régi release-ek törlése
+            # régi release-ek takarítása
             cd "'"$REM"'"
             ls -1dt releases/* | tail -n +'$PRUNE_START' | xargs -r rm -rf --
 
