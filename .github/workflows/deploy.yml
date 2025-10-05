@@ -13,8 +13,8 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT }}
-      REMOTE_PATH: ${{ secrets.REMOTE_PATH }}   # pl. /home/USER/web-server/web2
-      PHP_BIN: ${{ secrets.PHP_BIN }}           # pl. /usr/local/bin/php83 (ha üres: autodetekció a távolin)
+      REMOTE_PATH: ${{ secrets.REMOTE_PATH }}     # pl. /home/USER/web-server/web2
+      PHP_BIN: ${{ secrets.PHP_BIN }}             # pl. /usr/local/bin/php83 (ha üres: autodetekció a távolin)
       RUN_MIGRATIONS: ${{ secrets.RUN_MIGRATIONS || 'false' }}
       RELEASE: ${{ github.sha }}
       RELEASES_TO_KEEP: "3"
@@ -22,8 +22,8 @@ jobs:
     steps:
       - name: Marker
         shell: bash
-        run: | 
-         echo "WORKFLOW VERSION: 2025-10-05-6"
+        run: |
+          echo "WORKFLOW VERSION: 2025-10-05-7"
 
       - uses: actions/checkout@v4
 
@@ -113,6 +113,7 @@ jobs:
           PORT="${SSH_PORT:-22}"
           R="$REMOTE_PATH"
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
+          # CRLF eltávolítás; NEM expandálunk helyben
           printf '%s' "$ENV_PROD" | sed 's/\r$//' \
             | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
 
@@ -137,13 +138,13 @@ jobs:
           KEEP="${RELEASES_TO_KEEP:-3}"
           RUN_MIGRATIONS="${RUN_MIGRATIONS}"
 
-          # átadjuk a változókat a távolira; single-quoted here-doc: nincs lokális expand
+          # Változók átadása a távolinak; single-quoted here-doc = nincs lokális expanzió
           ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
             REM="$REM" REL="$REL" KEEP="$KEEP" RUN_MIGRATIONS="$RUN_MIGRATIONS" PHP_BIN="${PHP_BIN:-}" \
             'bash -s' <<'EOSSH'
           set -euo pipefail
 
-          # --- környezeti változók a távolin: REM, REL, KEEP, RUN_MIGRATIONS, PHP_BIN ---
+          # --- távoli env: REM, REL, KEEP, RUN_MIGRATIONS, PHP_BIN ---
 
           # PHP autodetekció a TÁVOLIN
           if [ -n "${PHP_BIN:-}" ]; then
@@ -151,7 +152,7 @@ jobs:
           else
             PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
           fi
-          $PHP -v >/dev/null 2>&1 || { echo "PHP not found on remote"; exit 127; }
+          "$PHP" -v >/dev/null 2>&1 || { echo "PHP not found on remote"; exit 127; }
 
           ART="$REM/releases/$REL/artisan"
 
@@ -174,7 +175,7 @@ jobs:
           # jogosultságok
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
 
-          # cachek (mindig ABSZOLÚT artisan úttal)
+          # cachek (ABSZOLÚT artisan úttal)
           "$PHP" "$ART" optimize:clear || true
           "$PHP" "$ART" config:cache  || true
           "$PHP" "$ART" route:cache   || true
@@ -191,16 +192,15 @@ jobs:
 
           # régi release-ek takarítása
           cd "$REM/releases"
-          # ha több mint KEEP van, a  (KEEP+1)..∞ kerül törlésre
           COUNT=$(ls -1dt * 2>/dev/null | wc -l | awk '{print $1}')
           if [ "$COUNT" -gt "$KEEP" ]; then
             ls -1dt * | awk "NR>$KEEP" | xargs -r -I{} rm -rf -- "$REM/releases/{}"
           fi
 
-          # vissza az appba; up (ABSZOLÚT artisan)
+          # vissza az appba
           "$PHP" "$ART" up || true
           EOSSH
 
-                - name: Done
-                  shell: bash
-                  run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"
+      - name: Done
+        shell: bash
+        run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"
