@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import react from '@vitejs/plugin-react'
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
     
@@ -10,11 +11,15 @@ export default defineConfig({
                 'resources/css/app.css', 
                 'resources/js/app.js',
                 'resources/ts/scheduler/main.tsx',
-                'resources/css/filament/user/theme.css',
-                'resources/css/filament/admin/theme.css',
+                
             ],
             refresh: true,
         }),
     react(),
     ],
+    resolve: {
+    alias: {
+      vendor: path.resolve(process.cwd(), 'vendor'),
+    },
+  },
 });
