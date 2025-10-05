@@ -32,6 +32,7 @@ class UserPanelProvider extends PanelProvider
             ->brandName('Gepinfo')
             ->login()
             ->sidebarCollapsibleOnDesktop()
+            ->viteTheme('resources/css/filament/user/theme.css') 
 
             // csak a Vezérlőpult marad a főoldalnak
             ->pages([

@@ -6,7 +6,13 @@ export default defineConfig({
     
     plugins: [
         laravel({
-            input: ['resources/css/app.css', 'resources/js/app.js','resources/ts/scheduler/main.tsx'],
+            input: [
+                'resources/css/app.css', 
+                'resources/js/app.js',
+                'resources/ts/scheduler/main.tsx',
+                'resources/css/filament/user/theme.css',
+                'resources/css/filament/admin/theme.css',
+            ],
             refresh: true,
         }),
     react(),
