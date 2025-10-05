@@ -105,16 +105,23 @@ jobs:
       # shared/.env feltöltése, ha hiányzik
       - name: Ensure shared/.env (safe upload)
         shell: bash
+        env:
+          ENV_PROD: ${{ secrets.ENV_PROD }}
         run: |
           set -euo pipefail
           PORT="${SSH_PORT:-22}"
           R="$REMOTE_PATH"
-          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
-          if ! ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "[ -s '$R/shared/.env' ]"; then
-            printf "%s" "${{ secrets.ENV_PROD }}" \
-            | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
-          fi
 
+          # shared létezik-e?
+          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$R/shared'"
+
+          # csak ha hiányzik vagy üres az .env
+          if ! ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "[ -s '$R/shared/.env' ]"; then
+            # Nem engedjük, hogy a $JELEK expandálódjanak: csak a $ENV_PROD változót bontjuk ki.
+            # CRLF-t is levesszük, ha véletlen Windows sorvég került bele.
+            printf '%s' "$ENV_PROD" | sed 's/\r$//' \
+              | ssh -p "$PORT" "$SSH_USER@$SSH_HOST" "install -m 600 /dev/stdin '$R/shared/.env'"
+          fi
       # Release feltöltése
       - name: Upload release (tar over SSH)
         shell: bash
