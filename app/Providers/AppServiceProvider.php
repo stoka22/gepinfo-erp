@@ -23,6 +23,8 @@ use App\Policies\TimeEntryPolicy;
 use App\Models\Partner;
 use App\Policies\PartnerPolicy;
 
+use Illuminate\Support\Facades\URL;
+
 class AppServiceProvider extends ServiceProvider
 {
     
@@ -40,7 +42,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-                
+        if (app()->environment('production')) {
+            URL::forceScheme('https');
+        }        
         // Policy-k regisztrálása
         Gate::policy(Employee::class, EmployeePolicy::class);
         Gate::policy(Firmware::class, FirmwarePolicy::class);

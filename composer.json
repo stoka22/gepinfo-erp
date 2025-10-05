@@ -11,6 +11,7 @@
         "filament/filament": "3.3",
         "filament/support": "3.3",
         "laravel/framework": "^12.0",
+        "laravel/pail": "^1.2",
         "laravel/tinker": "^2.10.1",
         "livewire/livewire": "^3.6.4",
         "livewire/volt": "^1.7.0",
@@ -20,7 +21,6 @@
     "require-dev": {
         "fakerphp/faker": "^1.23",
         "laravel/breeze": "^2.3",
-        "laravel/pail": "^1.2.2",
         "laravel/pint": "^1.13",
         "laravel/sail": "^1.41",
         "mockery/mockery": "^1.6",
