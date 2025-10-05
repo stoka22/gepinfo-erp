@@ -1,46 +1,47 @@
 # Laravel
 
-/vendor/
-/node_modules/
-/.env
-/.env.*
-/storage/
-/storage/*.key
-/public/storage/
-/vendor/
-/homestead.yaml
-Homestead.json
-/.idea/
-/.vscode/
-/*.log
-npm-debug.log
-yarn-error.log
-pnpm-debug.log
-.DS_Store
-/.phpunit.result.cache
-
-# Build / assets
-/public/hot
-/public/mix-manifest.json
-/public/css/
-/public/js/
-/public/build/
-/public/_nuxt/
-
-# Node / tooling
-/.pids
-/.sass-cache
-/.parcel-cache
-/.turbo
-/.next
-/.vercel
-/build/
-/dist/
-
-# OS
-Thumbs.db
-Desktop.ini
-
-# Git LFS attrs (if used)
-.gitattributes
+# --- Környezet / lockok ---
 .env
+.env.*
+.phpunit.result.cache
+
+# A lock fájlok MARADJANAK verziókövetve!
+# (ezeket NE vedd fel ide)
+# composer.lock
+# package-lock.json / pnpm-lock.yaml / yarn.lock
+
+# --- PHP / Composer ---
+/vendor/
+
+# --- Node / Vite ---
+/node_modules/
+/public/hot
+/public/build
+
+# Ha valaha publikáltál vendor asseteket:
+# (Filamentnél 3.x-ben ritka, de nem árt)
+#/public/vendor/
+
+# --- Laravel cache / storage ---
+/bootstrap/cache/*.php
+# (hagyj bent egy üres tartót)
+!/bootstrap/cache/.gitignore
+!/bootstrap/cache/.gitkeep
+
+/storage/*
+!/storage/.gitignore
+!/storage/app
+!/storage/app/public
+!/storage/framework
+!/storage/framework/cache
+!/storage/framework/cache/data
+!/storage/framework/sessions
+!/storage/framework/testing
+!/storage/framework/views
+!/storage/logs
+
+# --- IDE / OS szemét ---
+/.idea/
+.vscode/
+.DS_Store
+Thumbs.db
