@@ -46,12 +46,15 @@ jobs:
           mkdir -p bootstrap/cache
           mkdir -p storage/framework/{cache,sessions,views}
       
-      - name: Composer install (prod)
+      - name: Composer install (prod, no scripts)
+        shell: bash
+        env:
+          COMPOSER_NO_INTERACTION: "1"
+          COMPOSER_NO_AUDIT: "1"
+          COMPOSER_PROCESS_TIMEOUT: "0"
         run: |
-          composer install \
-            --no-dev --optimize-autoloader --prefer-dist \
-            --no-interaction --no-progress \
-            --no-scripts
+          set -euo pipefail
+          composer install --no-dev --optimize-autoloader --prefer-dist --no-scripts
 
       # Node build a CI-n (DotRollon nem kell node)
       - name: Setup Node
@@ -161,6 +164,7 @@ jobs:
             ln -sfn ../../shared/storage "releases/'"$REL"'/storage"
             rm -rf "releases/'"$REL"'/bootstrap/cache"
             ln -sfn ../../shared/bootstrap/cache "releases/'"$REL"'/bootstrap/cache"
+            ln -sfn "'"$REM"'/shared/.env" "'"$REM"'/releases/'"$REL"'/.env"
 
             # public/storage
             cd "releases/'"$REL"'"
