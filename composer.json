@@ -42,11 +42,8 @@
     },
     "scripts": {
         "post-autoload-dump": [
-            "@php -r \"if (getenv('CI')) { exit(0);} \"",
-            "@php artisan config:clear || true",
-            "@php artisan clear-compiled || true",
-            "@php artisan package:discover --ansi || true",
-            "@php artisan filament:upgrade || true"
+           "@php -r \"if (!file_exists('artisan')) exit(0);\"",
+           "@php -r \"try { passthru('php artisan package:discover --ansi'); } catch (Throwable $e) {}\""
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
@@ -61,7 +58,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names=server,queue,vite"
         ],
         "test": [
             "@php artisan config:clear --ansi",
