@@ -40,7 +40,12 @@ jobs:
         with:
           path: ~/.composer/cache/files
           key: composer-${{ hashFiles('**/composer.lock') }}
-
+      
+      - name: Prepare Laravel cache dirs
+        run: |
+          mkdir -p bootstrap/cache
+          mkdir -p storage/framework/{cache,sessions,views}
+      
       - name: Composer install (prod)
         run: |
           composer install \
