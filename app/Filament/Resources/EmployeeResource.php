@@ -28,7 +28,16 @@ use Filament\Forms\Components\ViewField;
 use Filament\Forms\Components\Tabs;
 use App\Models\Position;
 use Filament\Forms\Components\Actions\Action as FormsAction;
+use Carbon\Carbon;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Tables\Columns\IconColumn\IconSize as TableIconSize;
+use Filament\Tables\Filters\TernaryFilter;
+use Filament\Support\Enums\ActionSize;
+use Filament\Tables\Enums\ActionsPosition;
 
+use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\TimePicker;
 
 class EmployeeResource extends Resource
 {
@@ -171,18 +180,8 @@ class EmployeeResource extends Resource
 
                 Forms\Components\TextInput::make('email')->email(),
                 Forms\Components\TextInput::make('phone'),
-                Forms\Components\DatePicker::make('hired_at')->label('Felvétel dátuma'),
-
-                Forms\Components\Select::make('shift')
-                    ->label('Műszak')
-                    ->options([
-                        Shift::Morning->value   => 'Délelőtt',
-                        Shift::Afternoon->value => 'Délután',
-                        Shift::Night->value     => 'Éjszaka',
-                    ])
-                    ->required()
-                    ->native(false),
-            ])->columns(4),
+                // ───── ÚJ: Jelenlét oszlop nagy ikonnal ─────
+           ])->columns(4),
 
             // ⬇️ Skill-ek – táblázatos kijelzés (ViewField)
       /*      Forms\Components\Section::make('Skill-ek')->schema([
@@ -232,155 +231,208 @@ class EmployeeResource extends Resource
         ]);
     }
 
-    public static function table(Tables\Table $table): Tables\Table
-    {
-        return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('name')->label('Név')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('position.name')->label('Pozíció')->sortable(),
 
-                BadgeColumn::make('shift')
-                    ->label('Műszak')
-                    ->state(fn ($record) =>
-                        $record->shift instanceof \BackedEnum ? $record->shift->value : $record->shift
-                    )
-                    ->formatStateUsing(fn (?string $state) => match ($state) {
-                        'morning'   => 'Délelőtt',
-                        'afternoon' => 'Délután',
-                        'night'     => 'Éjszaka',
-                        default     => ($state ? ucfirst($state) : '—'),
-                    })
-                    ->color(fn (?string $state) => match ($state) {
-                        'morning'   => 'warning',
-                        'afternoon' => 'info',
-                        'night'     => 'danger',
-                        default     => 'gray',
-                    })
-                    ->sortable(
-                        query: fn (Builder $q, string $direction) =>
-                            $q->orderByRaw("FIELD(shift,'morning','afternoon','night') {$direction}")
-                    ),
+public static function table(Tables\Table $table): Tables\Table
+{
+    return $table
+        ->columns([
+            Tables\Columns\TextColumn::make('name')->label('Név')->searchable()->sortable(),
+            Tables\Columns\TextColumn::make('position.name')->label('Pozíció')->sortable(),
+            Tables\Columns\TextColumn::make('phone')->label('Telefon')->searchable()->toggleable(),
 
-                Tables\Columns\TextColumn::make('created_at')->since()->label('Létrehozva')->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('updated_at')->since()->label('Módosítva')->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('deleted_at')->since()->label('Archiválva')->toggleable(isToggledHiddenByDefault: true),
-            ])
-            ->filters([
-                Tables\Filters\TrashedFilter::make(),
-                SelectFilter::make('shift')
-                    ->label('Műszak')
-                    ->options([
-                        'morning'   => 'Délelőtt',
-                        'afternoon' => 'Délután',
-                        'night'     => 'Éjszaka',
+            BadgeColumn::make('shift')
+                ->label('Műszak')
+                ->state(fn ($record) => $record->shift instanceof \BackedEnum ? $record->shift->value : $record->shift)
+                ->formatStateUsing(fn (?string $state) => match ($state) {
+                    'morning'   => 'Délelőtt',
+                    'afternoon' => 'Délután',
+                    'night'     => 'Éjszaka',
+                    default     => ($state ? ucfirst($state) : '—'),
+                })
+                ->color(fn (?string $state) => match ($state) {
+                    'morning' => 'warning', 'afternoon' => 'info', 'night' => 'danger', default => 'gray',
+                })
+                ->sortable(query: fn (Builder $q, string $dir) => $q->orderByRaw("FIELD(shift,'morning','afternoon','night') {$dir}")),
+        ])
+        ->filters([
+            Tables\Filters\TrashedFilter::make(),
+            SelectFilter::make('shift')
+                ->label('Műszak')
+                ->options(['morning'=>'Délelőtt','afternoon'=>'Délután','night'=>'Éjszaka']),
+            // Jelenlét szűrő
+            // Jelenlét szűrő – end_time alapján (ha nincs oszlop, visszaesik end_date-re)
+           TernaryFilter::make('present')
+    ->label('Jelenlét')
+    ->placeholder('Mind')
+    ->trueLabel('Bejelentkezve')
+    ->falseLabel('Nincs bejelentkezve')
+    ->queries(
+        true: fn (Builder $q) => $q->whereExists(function ($s) {
+            $s->select(DB::raw(1))
+              ->from('time_entries as te')
+              ->whereColumn('te.employee_id', 'employees.id')
+              ->whereNull('te.end_time')
+              ->whereNull('te.end_date');
+        }),
+        false: fn (Builder $q) => $q->whereNotExists(function ($s) {
+            $s->select(DB::raw(1))
+              ->from('time_entries as te')
+              ->whereColumn('te.employee_id', 'employees.id')
+              ->whereNull('te.end_time')
+              ->whereNull('te.end_date');
+        }),
+    )
+        ])
+
+        // <<< EZ A LÉNYEG: a sor-akciók külön oszlopba kerülnek, nagy ikongombként
+        ->actionsPosition(ActionsPosition::AfterColumns)
+
+        ->actions([
+            // ───── Bejelentkezés ─────
+            Tables\Actions\Action::make('checkIn')
+                ->label('') // csak ikon
+                ->icon('heroicon-o-arrow-right-on-rectangle')
+                ->iconButton()
+                ->size(ActionSize::Large)
+                ->color('success')
+                ->tooltip('Bejelentkezés')
+                ->visible(function (Employee $record) {
+                    if (! Schema::hasTable('time_entries')) return false;
+
+                    return ! DB::table('time_entries')
+                        ->where('employee_id', $record->id)
+                        ->whereNull('end_time')
+                        ->whereNull('end_date')
+                        ->exists();
+                })
+                ->modalWidth('sm') 
+                ->form([
+                    Grid::make(1)->schema([                        // ⬅️ külön sorban
+                        DatePicker::make('date')
+                            ->label('Dátum')
+                            ->default(now())
+                            ->native(false)
+                            ->required(),
+                        TimePicker::make('time')
+                            ->label('Idő')
+                            ->default(now())
+                            ->seconds(false)
+                            ->minutesStep(5)
+                            ->required(),
                     ]),
-            ])
-            ->actions([
-                Tables\Actions\Action::make('presence')
-                    ->label('Jelenlét')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->action(function (Employee $record) {
-                        if (! Schema::hasTable('time_entries')) {
-                            throw new \RuntimeException('Hiányzik a time_entries tábla.');
-                        }
-                        $uid   = Filament::auth()->id() ?? Auth::id();
-                        $today = now()->toDateString();
+                ])
+                ->action(function (Employee $record, array $data) {
+                if (! Schema::hasTable('time_entries')) {
+                    throw new \RuntimeException('Hiányzik a time_entries tábla.');
+                }
 
-                        $shift = $record->shift instanceof \BackedEnum ? $record->shift->value : ($record->shift ?? null);
-                        $shiftHu = match ($shift) {
-                            'morning'   => 'Délelőtt',
-                            'afternoon' => 'Délután',
-                            'night'     => 'Éjszaka',
-                            default     => 'Ismeretlen',
-                        };
+                $date = Carbon::parse($data['date'])->toDateString();
+                $time = Carbon::parse($data['time'])->format('H:i');
 
-                        $companyId = Schema::hasColumn('employees', 'company_id')
-                            ? $record->company_id
-                            : optional($record->owner)->company_id;
+                $uid  = Filament::auth()->id() ?? Auth::id();
+                $companyId = Schema::hasColumn('employees', 'company_id')
+                    ? $record->company_id
+                    : optional($record->owner)->company_id;
 
-                        DB::table('time_entries')->updateOrInsert(
-                            [
-                                'employee_id' => $record->id,
-                                'start_date'  => $today,
-                                'type'        => TimeEntryType::Regular->value,
-                            ],
-                            [
-                                'company_id'   => $companyId,
-                                'end_date'     => $today,
-                                'hours'        => 8.0,
-                                'status'       => 'approved',
-                                'note'         => 'Jelenlét rögzítve – műszak: '.$shiftHu,
-                                'requested_by' => $uid,
-                                'approved_by'  => $uid,
-                                'updated_at'   => now(),
-                                'created_at'   => now(),
-                            ]
-                        );
-                    })
-                    ->successNotificationTitle('Jelenlét rögzítve (8 óra ma)'),
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
-                Tables\Actions\RestoreAction::make()->label(''),
-                Tables\Actions\ForceDeleteAction::make()
+                DB::table('time_entries')->insert([
+                    'employee_id'  => $record->id,
+                    'company_id'   => $companyId,
+                    'type'         => enum_exists(TimeEntryType::class) ? TimeEntryType::Regular->value : 'work',
+                    'start_date'   => $date,          // ⬅️ külön tároljuk a dátumot
+                    'end_date'     => null,
+                    'hours'        => null,
+                    'status'       => 'open',
+                    'note'         => 'check-in='.$time, // ⬅️ az idő a megjegyzésben
+                    'requested_by' => $uid,
+                    'approved_by'  => $uid,
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+                })
+                ->successNotificationTitle('Bejelentkezve'),
+
+            // ───── Kijelentkezés ─────
+            Tables\Actions\Action::make('checkOut')
+                ->label('')
+                ->icon('heroicon-o-arrow-left-on-rectangle')
+                ->iconButton()
+                ->size(ActionSize::Large)
+                ->color('warning')
+                ->tooltip('Kijelentkezés')
+                ->visible(function (Employee $record) {
+                    if (! Schema::hasTable('time_entries')) return false;
+
+                    return DB::table('time_entries')
+                        ->where('employee_id', $record->id)
+                        ->whereNull('end_time')
+                        ->whereNull('end_date')
+                        ->exists();
+                })
+                ->modalWidth('sm')
+                ->form([
+                    Grid::make(1)->schema([
+                        DatePicker::make('date')->label('Dátum')->default(now())->native(false)->required(),
+                        TimePicker::make('time')->label('Idő')->default(now())->seconds(false)->minutesStep(5)->required(),
+                    ]),
+                ])
+                ->action(function (Employee $record, array $data) {
+                    if (! Schema::hasTable('time_entries')) {
+                        throw new \RuntimeException('Hiányzik a time_entries tábla.');
+                    }
+
+                    $date = Carbon::parse($data['date'])->toDateString();
+                    $time = Carbon::parse($data['time'])->format('H:i');
+                    $out  = Carbon::parse("{$date} {$time}");
+
+                    // Nyitott jelenlét (legutolsó)
+                    $open = DB::table('time_entries')
+                        ->where('employee_id', $record->id)
+                        ->whereNull('end_time')   // ⬅ mindkettő kell
+                        ->whereNull('end_date')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if (! $open) {
+                        throw new \RuntimeException('Nincs nyitott jelenlét rögzítve.');
+                    }
+
+                    // belépés dátum+idő (fallback 08:00, ha a time nincs kitöltve)
+                    $in = Carbon::parse(
+                        "{$open->start_date} " . (($open->start_time ?? null) ?: '08:00')
+                    );
+
+                    $hours = max(0, round($in->diffInMinutes($out) / 60, 2));
+
+                    DB::table('time_entries')->where('id', $open->id)->update([
+                        'end_date'   => $date,
+                        'end_time'   => $time,   // ⬅️ ÚJ
+                        'hours'      => $hours,
+                        'status'     => 'approved',
+                        'updated_at' => now(),
+                    ]);
+                })
+                ->successNotificationTitle('Kijelentkezve'),
+            Tables\Actions\EditAction::make()->label(''),
+            Tables\Actions\DeleteAction::make()->label(''),
+            Tables\Actions\RestoreAction::make()->label(''),
+            Tables\Actions\ForceDeleteAction::make()
+                ->label('Végleges törlés')
+                ->visible(fn ($record) => ($record?->trashed() ?? false)
+                    && (Filament::auth()->user()?->role ?? null) === 'admin'),
+        ])
+        ->bulkActions([
+            Tables\Actions\BulkActionGroup::make([
+                Tables\Actions\DeleteBulkAction::make()->label('Archiválás'),
+                Tables\Actions\RestoreBulkAction::make()->label('Visszaállítás'),
+                Tables\Actions\ForceDeleteBulkAction::make()
                     ->label('Végleges törlés')
-                    ->visible(fn ($record) => ($record?->trashed() ?? false)
-                        && (Filament::auth()->user()?->role ?? null) === 'admin'),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\BulkAction::make('presenceBulk')
-                        ->label('Jelenlét rögzítése (ma, 8 óra)')
-                        ->icon('heroicon-o-check-circle')
-                        ->color('success')
-                        ->requiresConfirmation()
-                        ->action(function (array $records) {
-                            $uid = Filament::auth()->id() ?? Auth::id();
-                            $today = now()->toDateString();
-                            foreach ($records as $record) {
-                                /** @var Employee $record */
-                                $shift = $record->shift instanceof \BackedEnum ? $record->shift->value : ($record->shift ?? null);
-                                $shiftHu = match ($shift) {
-                                    'morning' => 'Délelőtt',
-                                    'afternoon' => 'Délután',
-                                    'night' => 'Éjszaka',
-                                    default => 'Ismeretlen',
-                                };
-                                $companyId = Schema::hasColumn('employees', 'company_id')
-                                    ? $record->company_id
-                                    : optional($record->owner)->company_id;
+                    ->visible(fn () => (Filament::auth()->user()?->role ?? null) === 'admin'),
+            ]),
+        ])
+        ->defaultSort('name');
+}
 
-                                DB::table('time_entries')->updateOrInsert(
-                                    [
-                                        'employee_id' => $record->id,
-                                        'start_date'  => $today,
-                                        'type'        => 'work',
-                                    ],
-                                    [
-                                        'company_id'   => $companyId,
-                                        'end_date'     => $today,
-                                        'hours'        => 8.0,
-                                        'status'       => 'approved',
-                                        'note'         => 'Jelenlét rögzítve – műszak: ' . $shiftHu,
-                                        'requested_by' => $uid,
-                                        'approved_by'  => $uid,
-                                        'updated_at'   => now(),
-                                        'created_at'   => now(),
-                                    ]
-                                );
-                            }
-                        })
-                        ->successNotificationTitle('Jelenlét rögzítve a kijelöltekre'),
-                    Tables\Actions\DeleteBulkAction::make()->label('Archiválás'),
-                    Tables\Actions\RestoreBulkAction::make()->label('Visszaállítás'),
-                    Tables\Actions\ForceDeleteBulkAction::make()
-                        ->label('Végleges törlés')
-                        ->visible(fn () => (Filament::auth()->user()?->role ?? null) === 'admin'),
-                ]),
-            ])
-            ->defaultSort('name');
-    }
+
 
     public static function getPages(): array
     {
