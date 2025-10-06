@@ -26,6 +26,9 @@ use App\Filament\Resources\EmployeeResource\RelationManagers\VacationAllowancesR
 use App\Filament\Resources\EmployeeResource\RelationManagers\SkillsRelationManager;
 use Filament\Forms\Components\ViewField;
 use Filament\Forms\Components\Tabs;
+use App\Models\Position;
+use Filament\Forms\Components\Actions\Action as FormsAction;
+
 
 class EmployeeResource extends Resource
 {
@@ -120,14 +123,40 @@ class EmployeeResource extends Resource
 
                 Forms\Components\Select::make('position_id')
                     ->label('Pozíció')
+                    ->native(false)
+                    ->required()
+                    ->searchable()
+                    ->preload()
+
+                    // hol és hogyan keressen:
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $cid = Filament::auth()->user()?->company_id;
+
+                        return Position::query()
+                            ->when($cid, fn ($q) => $q->where('company_id', $cid))
+                            ->where('active', true)
+                            ->where(function ($q) use ($search) {
+                                $q->where('name', 'like', "%{$search}%")
+                                ->orWhere('code', 'like', "%{$search}%");
+                            })
+                            ->orderBy('name')
+                            ->limit(50)
+                            ->pluck('name', 'id')   // [id => label]
+                            ->toArray();
+                    })
+
+                    // kiválasztott érték címkéje (ha nem preloadolta):
+                    ->getOptionLabelUsing(fn ($value) => Position::find($value)?->name)
+
+                    // a mentés/binding a belongsTo kapcsolaton menjen:
                     ->relationship(
                         name: 'position',
                         titleAttribute: 'name',
-                        modifyQueryUsing: function (Builder $query) {
-                            if ($cid = Filament::auth()->user()?->company_id) {
-                                $query->where('company_id', $cid)->where('active', true);
-                            }
-                            $query->orderBy('name');
+                        modifyQueryUsing: function (Builder $q) {
+                            $cid = Filament::auth()->user()?->company_id;
+                            $q->when($cid, fn ($q) => $q->where('company_id', $cid))
+                            ->where('active', true)
+                            ->orderBy('name');
                         }
                     )
                     ->createOptionForm([
@@ -136,14 +165,9 @@ class EmployeeResource extends Resource
                         Forms\Components\Toggle::make('active')->label('Aktív')->default(true),
                         Forms\Components\Hidden::make('company_id')
                             ->default(fn () => Filament::auth()->user()?->company_id)
-                            ->dehydrated(),
+                            ->dehydrated(true),
                     ])
-                    ->createOptionAction(function (Forms\Components\Actions\Action $action) {
-                        $action->label('Új pozíció létrehozása');
-                    })
-                    ->required()
-                    ->preload()
-                    ->searchable(),
+                    ->createOptionAction(fn (FormsAction $action) => $action->label('Új pozíció létrehozása')),
 
                 Forms\Components\TextInput::make('email')->email(),
                 Forms\Components\TextInput::make('phone'),
@@ -185,17 +209,22 @@ class EmployeeResource extends Resource
                 Forms\Components\Select::make('workflows')
                     ->label('Workflows')
                     ->multiple()
+                    ->native(false)
                     ->relationship(
-                        name: 'workflows',
-                        titleAttribute: 'name',
-                        modifyQueryUsing: function (Builder $q) {
-                            $cid = static::currentUser()?->company_id;
-                            if ($cid && Schema::hasColumn('workflows', 'company_id')) {
-                                $q->where('company_id', $cid);
-                            }
-                            $q->orderBy('name');
+                    name: 'workflows',
+                    titleAttribute: 'name',
+                    modifyQueryUsing: function (Builder $q) {
+                        // csak akkor szűrjünk cégre, ha tényleg van ilyen oszlop
+                        if (
+                            ($cid = static::currentUser()?->company_id) &&
+                            \Illuminate\Support\Facades\Schema::hasColumn('workflows', 'company_id')
+                        ) {
+                            $q->where('workflows.company_id', $cid);
                         }
-                    )
+
+                        $q->orderBy('name');
+                    }
+                )
                     ->preload()
                     ->searchable()
                     ->hint('Mely workflow-kban vehet részt'),

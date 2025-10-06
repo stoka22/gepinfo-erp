@@ -12,6 +12,9 @@ class EmployeeVacationStats extends BaseWidget
 {
     public ?Model $record = null; // az Edit oldaltól kapjuk
 
+        protected static bool $isLazy = true;
+    protected static bool $deferLoading = true;
+
     protected function getCards(): array
     {
         $year = now()->year;

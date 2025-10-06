@@ -47,10 +47,7 @@ class Employee extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    public function position(): BelongsTo
-    {
-        return $this->belongsTo(Position::class);
-    }
+    public function position(): BelongsTo { return $this->belongsTo(Position::class); }
 
     public function skills(): BelongsToMany
     {
@@ -84,6 +81,6 @@ class Employee extends Model
 
     public function vacationAllowances(): HasMany
     {
-        return $this->hasMany(\App\Models\VacationAllowance::class);
+        return $this->hasMany(VacationAllowance::class);
     }
 }

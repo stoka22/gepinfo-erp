@@ -11,6 +11,9 @@ use App\Filament\Resources\EmployeeResource\Widgets\EmployeeVacationStats;
 use App\Filament\Resources\EmployeeResource\RelationManagers\SkillsRelationManager;
 use App\Filament\Resources\EmployeeResource\RelationManagers\TimeEntriesRelationManager;
 use App\Filament\Resources\EmployeeResource\RelationManagers\VacationAllowancesRelationManager;
+use App\Filament\Resources\EmployeeResource\Widgets\EmployeeLeaveCard;
+use App\Filament\Resources\EmployeeResource\Widgets\EmployeeOvertimeCard;
+use App\Filament\Resources\EmployeeResource\Widgets\EmployeeMonthlyHoursChart;
 
 class EditEmployee extends EditRecord
 {
@@ -103,9 +106,9 @@ class EditEmployee extends EditRecord
     protected function getHeaderWidgets(): array
     {
         return [
-            \App\Filament\Resources\EmployeeResource\Widgets\EmployeeLeaveCard::class,
-            \App\Filament\Resources\EmployeeResource\Widgets\EmployeeOvertimeCard::class,
-            \App\Filament\Resources\EmployeeResource\Widgets\EmployeeMonthlyHoursChart::class,
+           EmployeeLeaveCard::class,
+           EmployeeOvertimeCard::class,
+           EmployeeMonthlyHoursChart::class,
         ];
     }
 

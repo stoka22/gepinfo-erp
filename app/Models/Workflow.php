@@ -9,7 +9,7 @@ use App\Models\Pivots\WorkflowSkill;
 
 class Workflow extends Model
 {
-    protected $fillable = ['name','description'];
+    protected $fillable = ['name','description','company_id'];
 
     public function skills(): BelongsToMany
     {
@@ -29,4 +29,6 @@ class Workflow extends Model
            
             ->withTimestamps();
     }
+
+    public function company() { return $this->belongsTo(\App\Models\Company::class); }
 }
