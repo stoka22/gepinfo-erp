@@ -18,6 +18,8 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
 
     protected static bool $isLazy = true;
 
+    
+
     // milyen type érték számít túlórának
     private const OVERTIME_TYPES = ['overtime', 'tulora'];
 
@@ -31,6 +33,12 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
     {
         $eid = $this->record?->id ?? 0;
         $y   = now()->year;
+
+        $tightCentered = [
+            // kisebb padding + egységes magasság + teljes középre igazítás
+            'class' => 'p-2 h-24 flex flex-col items-center justify-center text-center gap-y-1
+                        [&_.fi-stat-value]:leading-none [&_.fi-stat-value]:whitespace-nowrap',
+        ];
 
         $yearly  = 0.0;
         $monthly = 0.0;
@@ -67,8 +75,8 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
         }
 
         return [
-            Stat::make("Összes éves ({$y})", number_format($yearly, 1)),
-            Stat::make('Aktuális havi', number_format($monthly, 1)),
+            Stat::make("Összes éves ({$y})", number_format($yearly, 1))->extraAttributes($tightCentered),
+            Stat::make('Aktuális havi', number_format($monthly, 1))->extraAttributes($tightCentered),
         ];
     }
 }

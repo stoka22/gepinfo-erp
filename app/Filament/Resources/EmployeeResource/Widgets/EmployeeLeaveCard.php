@@ -34,6 +34,12 @@ class EmployeeLeaveCard extends StatsOverviewWidget
         $entitled = 0.0;
         $usedDays = 0.0;
 
+        $tightCentered = [
+            // kisebb padding + egységes magasság + teljes középre igazítás
+            'class' => 'p-2 h-24 flex flex-col items-center justify-center text-center gap-y-1
+                        [&_.fi-stat-value]:leading-none [&_.fi-stat-value]:whitespace-nowrap',
+        ];
+
         if (Schema::hasTable('vacation_balances')) {
             $vb = VacationBalance::query()
                 ->where('employee_id', $eid)
@@ -72,9 +78,9 @@ class EmployeeLeaveCard extends StatsOverviewWidget
         $available = max(0, round($entitled - $usedDays, 2));
 
         return [
-            Stat::make("Keret ({$year})", number_format($entitled, 1)),
-            Stat::make('Felhasznált', number_format($usedDays, 1)),
-            Stat::make('Kivehető', number_format($available, 1)),
+            Stat::make("Keret ({$year})", number_format($entitled, 1)) ->extraAttributes($tightCentered),
+            Stat::make('Felhasznált', number_format($usedDays, 1))->extraAttributes($tightCentered),
+            Stat::make('Kivehető', number_format($available, 1))->extraAttributes($tightCentered),
         ];
     }
 }
