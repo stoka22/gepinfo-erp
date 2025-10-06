@@ -31,7 +31,9 @@ class AdminPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->pages([
-                 \Filament\Pages\Dashboard::class,             ])
+                 \Filament\Pages\Dashboard::class, 
+                 \App\Filament\Pages\CapabilityMatrix::class,
+                 ])
             ->homeUrl(fn () => route('filament.admin.pages.dashboard'))
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->middleware([

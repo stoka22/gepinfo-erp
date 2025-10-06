@@ -38,6 +38,8 @@ use Filament\Tables\Enums\ActionsPosition;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TimePicker;
+use App\Models\ShiftPattern;
+
 
 class EmployeeResource extends Resource
 {
@@ -180,6 +182,36 @@ class EmployeeResource extends Resource
 
                 Forms\Components\TextInput::make('email')->email(),
                 Forms\Components\TextInput::make('phone'),
+                Forms\Components\Select::make('shift_pattern_id')
+                    ->label('Műszak')
+                    ->native(false)
+                    ->searchable()
+                    ->preload()
+                    ->visible(fn () => \Illuminate\Support\Facades\Schema::hasTable('shift_patterns')
+                                && \Illuminate\Support\Facades\Schema::hasColumn('employees','shift_pattern_id'))
+                    ->relationship(
+                        name: 'shiftPattern',
+                        titleAttribute: 'name',
+                        modifyQueryUsing: fn ($q) => $q->orderBy('name')
+                    )
+                    // Egyedi opció címke: név + időtartam + napok
+                    ->getOptionLabelUsing(function ($value) {
+                        $p = ShiftPattern::find($value);
+                        return $p
+                            ? "{$p->name} ({$p->start_time}–{$p->end_time}, {$p->days_label})"
+                            : null;
+                    })
+                    // Legördülő listában is informatív címkék:
+                    ->options(function () {
+                        return ShiftPattern::query()
+                            ->orderBy('name')
+                            ->get()
+                            ->mapWithKeys(fn ($p) => [
+                                $p->id => "{$p->name} ({$p->start_time}–{$p->end_time}, {$p->days_label})"
+                            ])->toArray();
+                    })
+                    ->hint('Válaszd ki a dolgozó műszakmintáját')
+                    ->columnSpan(2),
                 // ───── ÚJ: Jelenlét oszlop nagy ikonnal ─────
            ])->columns(4),
 
@@ -240,48 +272,45 @@ public static function table(Tables\Table $table): Tables\Table
             Tables\Columns\TextColumn::make('position.name')->label('Pozíció')->sortable(),
             Tables\Columns\TextColumn::make('phone')->label('Telefon')->searchable()->toggleable(),
 
-            BadgeColumn::make('shift')
-                ->label('Műszak')
-                ->state(fn ($record) => $record->shift instanceof \BackedEnum ? $record->shift->value : $record->shift)
-                ->formatStateUsing(fn (?string $state) => match ($state) {
-                    'morning'   => 'Délelőtt',
-                    'afternoon' => 'Délután',
-                    'night'     => 'Éjszaka',
-                    default     => ($state ? ucfirst($state) : '—'),
-                })
-                ->color(fn (?string $state) => match ($state) {
-                    'morning' => 'warning', 'afternoon' => 'info', 'night' => 'danger', default => 'gray',
-                })
-                ->sortable(query: fn (Builder $q, string $dir) => $q->orderByRaw("FIELD(shift,'morning','afternoon','night') {$dir}")),
+            Tables\Columns\TextColumn::make('shiftPattern.name')
+                ->label('Műszak minta')
+                ->toggleable()
+                ->sortable()
+                ->searchable(),
+            Tables\Columns\TextColumn::make('shiftPatternInfo')
+                ->label('Idő / Napok')
+                ->getStateUsing(fn (Employee $record) =>
+                    $record->shiftPattern
+                        ? "{$record->shiftPattern->start_time}–{$record->shiftPattern->end_time} • {$record->shiftPattern->days_label}"
+                        : '—'
+                )
+                ->toggleable(),
         ])
         ->filters([
             Tables\Filters\TrashedFilter::make(),
-            SelectFilter::make('shift')
-                ->label('Műszak')
-                ->options(['morning'=>'Délelőtt','afternoon'=>'Délután','night'=>'Éjszaka']),
-            // Jelenlét szűrő
+           
             // Jelenlét szűrő – end_time alapján (ha nincs oszlop, visszaesik end_date-re)
            TernaryFilter::make('present')
-    ->label('Jelenlét')
-    ->placeholder('Mind')
-    ->trueLabel('Bejelentkezve')
-    ->falseLabel('Nincs bejelentkezve')
-    ->queries(
-        true: fn (Builder $q) => $q->whereExists(function ($s) {
-            $s->select(DB::raw(1))
-              ->from('time_entries as te')
-              ->whereColumn('te.employee_id', 'employees.id')
-              ->whereNull('te.end_time')
-              ->whereNull('te.end_date');
-        }),
-        false: fn (Builder $q) => $q->whereNotExists(function ($s) {
-            $s->select(DB::raw(1))
-              ->from('time_entries as te')
-              ->whereColumn('te.employee_id', 'employees.id')
-              ->whereNull('te.end_time')
-              ->whereNull('te.end_date');
-        }),
-    )
+                ->label('Jelenlét')
+                ->placeholder('Mind')
+                ->trueLabel('Bejelentkezve')
+                ->falseLabel('Nincs bejelentkezve')
+                ->queries(
+                    true: fn (Builder $q) => $q->whereExists(function ($s) {
+                        $s->select(DB::raw(1))
+                        ->from('time_entries as te')
+                        ->whereColumn('te.employee_id', 'employees.id')
+                        ->whereNull('te.end_time')
+                        ->whereNull('te.end_date');
+                    }),
+                    false: fn (Builder $q) => $q->whereNotExists(function ($s) {
+                        $s->select(DB::raw(1))
+                        ->from('time_entries as te')
+                        ->whereColumn('te.employee_id', 'employees.id')
+                        ->whereNull('te.end_time')
+                        ->whereNull('te.end_date');
+                    }),
+                )
         ])
 
         // <<< EZ A LÉNYEG: a sor-akciók külön oszlopba kerülnek, nagy ikongombként

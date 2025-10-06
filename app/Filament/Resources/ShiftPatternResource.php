@@ -23,16 +23,29 @@ class ShiftPatternResource extends Resource
     {
         return $form->schema([
             Forms\Components\TextInput::make('name')->label('Név')->required(),
-            Forms\Components\CheckboxList::make('days')
-            ->label('Érvényes napok')
-            ->options([
-                0=>'Vasárnap', 1=>'Hétfő', 2=>'Kedd', 3=>'Szerda',
-                4=>'Csütörtök', 5=>'Péntek', 6=>'Szombat',
-            ])
-            ->columns(4)
-            ->default([1,2,3,4,5]) // H–P
-            // a 'days' virtuális attribútumot a modell get/set kezeli -> days_mask
-            ->dehydrated(true),
+            Forms\Components\CheckboxList::make('days_mask')   // ← ugyanaz a név, mint a DB oszlop
+                ->label('Napok')
+                ->options(\App\Models\ShiftPattern::dayMap())
+                ->columns(3)
+
+                // DB -> űrlap (int -> tömb)
+                ->afterStateHydrated(function ($component, $state) {
+                    $mask = (int) ($state ?? 0);
+                    $selected = [];
+                    foreach (\App\Models\ShiftPattern::dayMap() as $bit => $label) {
+                        if (($mask & (int)$bit) === (int)$bit) {
+                            $selected[] = (string)$bit;
+                        }
+                    }
+                    $component->state($selected);
+                })
+
+                // űrlap -> DB (tömb -> int)
+                ->dehydrateStateUsing(function ($state) {
+                    return array_reduce($state ?? [], fn ($sum, $bit) => $sum + (int)$bit, 0);
+                })
+                ->dehydrated(true),
+                
             Forms\Components\TimePicker::make('start_time')
                 ->label('Műszak kezdete')->seconds(false)->required(),
 
@@ -61,14 +74,8 @@ class ShiftPatternResource extends Resource
             Tables\Columns\TextColumn::make('name')->label('Név')->searchable(),
              Tables\Columns\TextColumn::make('days_mask')
                 ->label('Napok')
-                ->formatStateUsing(function ($state, $record) {
-                    $map = ['Vas','Hét','Ked','Sze','Csü','Pén','Szo'];
-                    $out = [];
-                    for ($i=0;$i<=6;$i++){
-                        if (($record->days_mask & (1<<$i))!==0) $out[] = $map[$i];
-                    }
-                    return implode(', ', $out);
-                }),
+                ->getStateUsing(fn (\App\Models\ShiftPattern $record) => $record->days_label)
+                ,
             Tables\Columns\TextColumn::make('start_time')->label('Kezdés'),
             Tables\Columns\TextColumn::make('end_time')->label('Vége'),
         ])->actions([

@@ -27,8 +27,15 @@ class PartnerResource extends Resource
     protected static ?string $pluralLabel = 'Partnerek';
     protected static ?string $modelLabel = 'Partner';
 
+    protected static function currentUser(): ?\App\Models\User
+    {
+        return \Filament\Facades\Filament::auth()->user();
+    }
+
     public static function form(Form $form): Form
     {
+        $admin = (Filament::auth()->user()?->isAdmin()) ?? false;
+
         return $form->schema([
             Forms\Components\Section::make('Alapadatok')->schema([
                 Forms\Components\TextInput::make('name')->label('Név')->required()->maxLength(255),
@@ -46,10 +53,27 @@ class PartnerResource extends Resource
                     ->relationship(name: 'ownerCompany', titleAttribute: 'name')
                     ->searchable()
                     ->preload()
-                    ->helperText('Admin láthatja/állíthatja. Mentéskor a saját cég lesz beállítva, ha nem admin.')
-                    ->visible(fn()=> Filament::auth()->user()?->isAdmin() ?? false), // <-- ITT
-            ]),
-        ]);
+                    ->visible($admin),
+
+                // NEM ADMIN – csak nézet
+                Forms\Components\Placeholder::make('owner_company_name')
+                    ->label('Tulajdonos cég')
+                    ->content(function (?Partner $record) {
+                        // 1) meglévő rekordhoz az ownerCompany nevét
+                        if ($record?->ownerCompany) return $record->ownerCompany->name;
+
+                        // 2) új rekordnál a bejelentkezett user cégének neve
+                        $u = Filament::auth()->user();
+                        return $u?->company?->name ?? '—';
+                    })
+                    ->visible(! $admin),
+
+                // NEM ADMIN – rejtett mező, hogy mentődjön az ID
+                Forms\Components\Hidden::make('owner_company_id')
+                    ->default(fn () => Filament::auth()->user()?->company_id)
+                    ->dehydrated(! $admin),
+                        ]),
+                    ]);
     }
 
     public static function table(Table $table): Table
@@ -67,16 +91,16 @@ class PartnerResource extends Resource
                     ->label('Tulaj cég')
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
-                TextColumn::make('companies_count')
-                    ->counts('companies')
+
+                // ← itt már a query tölti fel: withCount('companies')
+          /*      TextColumn::make('companies_count')
                     ->label('Hozzárendelt cégek')
-                    ->color('primary'),
+                    ->sortable(),*/
             ])
-            ->filters([
+           ->filters([
                 Tables\Filters\TernaryFilter::make('is_supplier')->label('Beszállító'),
                 Tables\Filters\TernaryFilter::make('is_customer')->label('Vevő'),
 
-                // Admin: „mind / csoport 1..3” szűrő
                 Tables\Filters\SelectFilter::make('company_group')
                     ->label('Cégcsoport')
                     ->options([
@@ -85,34 +109,51 @@ class PartnerResource extends Resource
                         '2'   => 'Felhasználói csoport 2',
                         '3'   => 'Felhasználói csoport 3',
                     ])
-                    ->visible(fn()=> $user?->isAdmin() ?? false)
+                    ->visible(fn () => (bool) static::currentUser()?->isAdmin())
                     ->query(function (Builder $q, array $data) {
                         $val = $data['value'] ?? null;
                         if (!$val || $val === 'all') return $q;
-                        // partner akkor jelenjen meg, ha bármelyik hozzá rendelt cég a kiválasztott csoportban van
-                        return $q->whereHas('companies', fn($qq)=>$qq->where('group', (int)$val));
+                        return $q->whereExists(function ($sub) use ($val) {
+                            $sub->selectRaw('1')
+                                ->from('company_partner as cp')
+                                ->join('companies as c', 'c.id', '=', 'cp.company_id')
+                                ->whereColumn('cp.partner_id', 'partners.id')
+                                ->where('c.group', (int) $val);
+                        });
                     }),
 
-                // Normál felhasználónál segéd-szűrő: csak a saját cég partnerei vs mind, ami megosztott (ha van erre jog)
-                Tables\Filters\SelectFilter::make('visibility')->label('Láthatóság')
+                Tables\Filters\SelectFilter::make('visibility')
+                    ->label('Láthatóság')
                     ->options([
                         'mine'   => 'Saját cég partnerei',
                         'shared' => 'Megosztott (nem a saját cég tulaj)',
                     ])
-                    ->visible(fn()=> !($user?->isAdmin()))
-                    ->query(function (Builder $q, array $data) use ($user) {
-                        if (! $user?->company) return $q->whereRaw('1=0');
-                        return match ($data['value'] ?? 'mine') {
-                            'shared' => $q->where(function($qq) use ($user){
-                                $qq->whereHas('companies', fn($q2)=>$q2->where('companies.id', $user->company_id))
-                                   ->where(function($q3) use ($user) {
-                                       $q3->whereNull('owner_company_id')
-                                          ->orWhere('owner_company_id','<>',$user->company_id);
-                                   });
-                            }),
-                            default => $q->whereHas('companies', fn($q2)=>$q2->where('companies.id', $user->company_id)),
+                    ->visible(fn () => ! (static::currentUser()?->isAdmin()))
+                    ->query(function (Builder $q, array $data) {
+                        $user = static::currentUser();
+                        $companyId = $user?->company_id;
+                        if (!$companyId) return $q->whereRaw('1=0');
+
+                        $mode = $data['value'] ?? 'mine';
+
+                        $existsMine = function ($sub) use ($companyId) {
+                            $sub->selectRaw('1')
+                                ->from('company_partner as cp')
+                                ->whereColumn('cp.partner_id', 'partners.id')
+                                ->where('cp.company_id', $companyId);
                         };
-                    }),
+                        
+                        if ($mode === 'shared') {
+                            return $q->whereExists($existsMine)
+                                    ->where(function ($qq) use ($companyId) {
+                                        $qq->whereNull('owner_company_id')
+                                            ->orWhere('owner_company_id', '<>', $companyId);
+                                    });
+                        }
+
+                        // mine
+                        return $q->whereExists($existsMine);
+                        }),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -126,20 +167,29 @@ class PartnerResource extends Resource
     /** Lista megjelenítési jogosultság + szűrés */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-        $user = Filament::auth()->user(); // <-- ITT
+        $q = parent::getEloquentQuery()
+            ->select('*') // biztosítsuk, hogy Eloquent marad
+            ->withCount('companies');
+
+        $user = static::currentUser();
 
         if ($user?->isAdmin()) {
-            return $query; // admin mindent lát
+            return $q;
         }
 
-        // normál user: csak a saját céghez rendelt partnerek
-        if ($user?->company) {
-            return $query->whereHas('companies', fn($q)=>$q->where('companies.id', $user->company_id));
+        if ($user?->company_id) {
+            $companyId = $user->company_id;
+
+            // company_partner = pivot tábla (ha más a neve, írd át!)
+            return $q->whereExists(function ($sub) use ($companyId) {
+                $sub->selectRaw('1')
+                    ->from('company_partner as cp')
+                    ->whereColumn('cp.partner_id', 'partners.id')
+                    ->where('cp.company_id', $companyId);
+            });
         }
 
-        // ha valamiért nincs cég, ne lásson semmit
-        return $query->whereRaw('1=0');
+        return $q->whereRaw('1=0');
     }
 
     public static function getRelations(): array

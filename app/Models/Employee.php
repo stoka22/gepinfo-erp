@@ -83,4 +83,8 @@ class Employee extends Model
     {
         return $this->hasMany(VacationAllowance::class);
     }
+    public function shiftPattern()
+    {
+        return $this->belongsTo(\App\Models\ShiftPattern::class, 'shift_pattern_id');
+    }
 }

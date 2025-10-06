@@ -24,7 +24,8 @@ class Partner extends Model
     }
 
     public function companies(): BelongsToMany {
-        return $this->belongsToMany(Company::class)->withTimestamps();
+        //return $this->belongsToMany(Company::class)->withTimestamps();
+        return $this->belongsToMany(\App\Models\Company::class, 'company_partner'); // pivot neve nálatok
     }
 
     public function locations(): HasMany {
@@ -42,4 +43,5 @@ class Partner extends Model
         // ha a tábla neve partner_orders és a FK partner_id, ez jó
         return $this->hasMany(PartnerOrder::class, 'partner_id');
     }
+    
 }

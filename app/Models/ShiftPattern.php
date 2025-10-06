@@ -7,7 +7,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShiftPattern extends Model
 {
-    protected $fillable = ['name','dow','start_time','end_time'];
+    protected $fillable = ['name', 'start_time', 'end_time', 'days_mask']; // ← add ide!
+    protected $casts = ['days_mask' => 'integer'];
+
+    public static function dayMap(): array {
+        // 1<<0=1=H, 1<<1=2=K, … 1<<6=64=V
+        return [1=>'H', 2=>'K', 4=>'Sze', 8=>'Cs', 16=>'P', 32=>'Szo', 64=>'V'];
+    }
 
     public function assignments(): HasMany
     {
@@ -44,5 +50,18 @@ class ShiftPattern extends Model
     public function appliesToDow(int $dow): bool
     {
         return ($this->days_mask & (1 << $dow)) !== 0;
+    }
+
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
+
+    public function getDaysLabelAttribute(): string {
+        $labels = [];
+        foreach (self::dayMap() as $bit => $label) {
+            if (($this->days_mask & $bit) === $bit) $labels[] = $label;
+        }
+        return $labels ? implode(', ', $labels) : '—';
     }
 }

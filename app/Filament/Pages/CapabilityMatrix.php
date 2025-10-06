@@ -2,10 +2,11 @@
 
 namespace App\Filament\Pages;
 
-use Filament\Pages\Page;
-use App\Models\Employee;
 use App\Models\Skill;
+use App\Models\Employee;
 use App\Models\Workflow;
+use Filament\Pages\Page;
+use Illuminate\Support\Facades\Auth;
 
 class CapabilityMatrix extends Page
 {
@@ -37,7 +38,7 @@ class CapabilityMatrix extends Page
 
     public static function shouldRegisterNavigation(): bool
     {
-        $u = auth()->user();
+        $u = Auth::user();
         return $u?->hasRole('admin') || $u?->can('view capability matrix') || $u?->can('manage workflows');
     }
 }
