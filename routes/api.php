@@ -1,29 +1,25 @@
-<?php //routes/api.php
+<?php // routes/api.php
 
-use App\Models\Command;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
-use App\Http\Controllers\PlanningController;
-use App\Http\Controllers\SchedulerController;
-use App\Http\Controllers\TaskDependencyController;
-use App\Http\Controllers\Api\DeviceHelloController;
 
-use App\Http\Controllers\Api\DevicePulseController;
+use App\Http\Controllers\Api\DeviceHelloController;
 use App\Http\Controllers\Api\DeviceAuthHelloController;
+use App\Http\Controllers\Api\DevicePulseController;
 
 use App\Http\Controllers\Scheduler\ResourceController;
 use App\Http\Controllers\Scheduler\TreeController;
 use App\Http\Controllers\Scheduler\TaskController;
 
+// -----------------------------
+// DEVICE endpoints
+// -----------------------------
 Route::prefix('device')->group(function () {
     Route::post('/hello', [DeviceHelloController::class, 'store'])
         ->middleware('throttle:30,1');
 
     Route::middleware('auth.device')->group(function () {
-
         Route::post('/hello-auth', [DeviceAuthHelloController::class, 'store']);
         Route::post('/pulse', [DevicePulseController::class, 'store']);
 
@@ -41,27 +37,23 @@ Route::prefix('device')->group(function () {
                 ->limit(10)
                 ->get(['id', 'cmd', 'args']);
 
-            // → alakítsuk át a sémát az ESP elvárására: id, type, params
             $out = $cmds->map(function ($c) {
                 $type   = $c->cmd;
                 $params = $c->args ?? [];
 
-                // OTA URL legyen abszolút
                 if ($type === 'ota' && !empty($params['url']) && !str_starts_with($params['url'], 'http')) {
-                    $params['url'] = \Illuminate\Support\Facades\Storage::url($params['url']);
+                    $params['url'] = Storage::url($params['url']);
                 }
 
                 return [
-                    'id'     => (string)$c->id,    // az ESP String-ként is tudja olvasni
-                    'type'   => $type,             // ← EZ a kulcsnév kell a firmware-nek
-                    'params' => $params,           // ← EZ a kulcsnév kell a firmware-nek
+                    'id'     => (string) $c->id,
+                    'type'   => $type,
+                    'params' => $params,
                 ];
             });
 
-            // VAGY: adj vissza közvetlenül TÖMBÖT (ez a legegyszerűbb/legtisztább)
             return response()->json($out->values(), 200, ['Connection' => 'close']);
         });
-
 
         Route::post('/cmd/ack', function (Request $r) {
             $device = $r->attributes->get('device');
@@ -72,11 +64,18 @@ Route::prefix('device')->group(function () {
             ]);
 
             $cmd = \App\Models\Command::where('device_id', $device->id)->find($data['id']);
-            if (!$cmd) return response()->json(['ok' => false, 'error' => 'not_found'], 404);
+            if (!$cmd) {
+                return response()->json(['ok' => false, 'error' => 'not_found'], 404);
+            }
 
-            $status = in_array($data['status'] ?? 'done', ['done', 'failed', 'cancelled'], true) ? $data['status'] : 'done';
+            $status = in_array($data['status'] ?? 'done', ['done', 'failed', 'cancelled'], true)
+                ? $data['status']
+                : 'done';
+
             $cmd->status = $status;
-            if (!empty($data['detail'])) $cmd->result = ['message' => $data['detail']];
+            if (!empty($data['detail'])) {
+                $cmd->result = ['message' => $data['detail']];
+            }
             $cmd->save();
 
             return response()->json(['ok' => true]);
@@ -84,21 +83,33 @@ Route::prefix('device')->group(function () {
     });
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    // Scheduler – READ
-    Route::get('/scheduler/resources', [ResourceController::class, 'index']);
-    Route::get('/scheduler/tree',      [TreeController::class, 'index']);
-    Route::get('/scheduler/tasks',     [TaskController::class, 'index']);
-    Route::get('/scheduler/shift-window', [\App\Http\Controllers\Scheduler\ShiftController::class, 'window']);
+// -----------------------------
+// SCHEDULER endpoints (ONE group)
+// -----------------------------
+// Ha globálisan rá van rakva 'auth:sanctum' az API csoportra, itt explicit levesszük:
+Route::prefix('scheduler')
+    ->withoutMiddleware(['auth:sanctum'])
+    ->group(function () {
+        // Olvasások
+        Route::get('tasks',      [TaskController::class, 'index']);
+        Route::get('occupancy',  [TaskController::class, 'occupancy']);
 
+        // Írások – adunk enyhe rate limitet
+        Route::post('tasks',     [TaskController::class, 'store'])->middleware('throttle:60,1');
+        Route::patch('tasks/{task}', [TaskController::class, 'update'])->middleware('throttle:60,1');
+        Route::delete('tasks/{task}',[TaskController::class, 'destroy'])->middleware('throttle:60,1');
 
-    // Scheduler – WRITE (plural: tasks)
-    Route::post  ('/scheduler/tasks',               [TaskController::class, 'store']);
-    Route::patch ('/scheduler/tasks/{task}',        [TaskController::class, 'update']);
-    Route::post  ('/scheduler/tasks/{task}/move',   [TaskController::class, 'move']);   // gép/idő változás
-    Route::post  ('/scheduler/tasks/{task}/resize', [TaskController::class, 'resize']); // időtartam
-    Route::delete('/scheduler/tasks/{task}',        [TaskController::class, 'destroy']);
-    
-});
+        Route::post('tasks/{task}/move',   [TaskController::class, 'move'])->middleware('throttle:60,1');
+        Route::post('tasks/{task}/resize', [TaskController::class, 'resize'])->middleware('throttle:60,1');
 
+        // Draft split létrehozás / módosítás
+        Route::post('splits',    [TaskController::class, 'storeSplit'])->middleware('throttle:60,1');
 
+        // TEMP DEBUG: nézd meg, milyen middleware-ek vannak ténylegesen ezen az útvonalon
+        Route::get('_debug/mw', function (Request $r) {
+            return response()->json([
+                'route' => $r->route()->uri(),
+                'middleware' => $r->route()->computedMiddleware(),
+            ]);
+        });
+    });

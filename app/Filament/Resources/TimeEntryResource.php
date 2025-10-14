@@ -6,13 +6,13 @@ use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Filament\Resources\TimeEntryResource\Pages;
 use App\Models\TimeEntry;
+use App\Models\Employee;
 use Filament\Forms;
 use Filament\Tables;
 use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
-use App\Models\Employee;
 
 class TimeEntryResource extends Resource
 {
@@ -27,7 +27,6 @@ class TimeEntryResource extends Resource
         return $form->schema([
             Forms\Components\Section::make()->schema([
 
-                // ⬇️ Céghez kötés – automatikus kitöltés
                 Forms\Components\Hidden::make('company_id')
                     ->default(fn () => Auth::user()?->company_id)
                     ->dehydrated(fn ($state) => filled($state)),
@@ -43,7 +42,7 @@ class TimeEntryResource extends Resource
 
                         if ($cid) {
                             $q->join('users', 'users.id', '=', 'employees.user_id')
-                            ->where('users.company_id', $cid);
+                              ->where('users.company_id', $cid);
                         }
 
                         return $q->pluck('employees.name', 'employees.id');
@@ -55,12 +54,36 @@ class TimeEntryResource extends Resource
                 Forms\Components\Select::make('type')
                     ->label('Típus')
                     ->options([
+                        TimeEntryType::Presence->value  => 'Jelenlét',
                         TimeEntryType::Vacation->value  => 'Szabadság',
                         TimeEntryType::Overtime->value  => 'Túlóra',
                         TimeEntryType::SickLeave->value => 'Táppénz',
                     ])
+                    ->default(TimeEntryType::Presence->value)
                     ->required()
                     ->live(),
+
+                // ⬇ EGY mező: a type-tól függően tölti fel az opciókat
+                Forms\Components\Select::make('status')
+                    ->label(fn (Forms\Get $get) => $get('type') === TimeEntryType::Presence->value
+                        ? 'Jelenlét státusz'
+                        : 'Jóváhagyási státusz')
+                    ->options(function (Forms\Get $get) {
+                        return $get('type') === TimeEntryType::Presence->value
+                            ? [
+                                TimeEntryStatus::CheckedIn->value  => 'Bejelentkezve',
+                                TimeEntryStatus::CheckedOut->value => 'Kijelentkezve',
+                              ]
+                            : [
+                                TimeEntryStatus::Pending->value  => 'Függőben',
+                                TimeEntryStatus::Approved->value => 'Jóváhagyva',
+                                TimeEntryStatus::Rejected->value => 'Elutasítva',
+                              ];
+                    })
+                    ->default(fn (Forms\Get $get) => $get('type') === TimeEntryType::Presence->value
+                        ? TimeEntryStatus::CheckedIn->value
+                        : TimeEntryStatus::Pending->value)
+                    ->required(),
 
                 Forms\Components\DatePicker::make('start_date')
                     ->label('Kezdet')
@@ -68,7 +91,9 @@ class TimeEntryResource extends Resource
 
                 Forms\Components\DatePicker::make('end_date')
                     ->label('Vége')
-                    ->visible(fn (Forms\Get $get) => $get('type') !== TimeEntryType::Overtime->value)
+                    ->visible(fn (Forms\Get $get) =>
+                        $get('type') !== TimeEntryType::Overtime->value
+                        && $get('type') !== TimeEntryType::Presence->value)
                     ->afterOrEqual('start_date'),
 
                 Forms\Components\TextInput::make('hours')
@@ -77,16 +102,6 @@ class TimeEntryResource extends Resource
                     ->minValue(0.25)
                     ->step(0.25)
                     ->visible(fn (Forms\Get $get) => $get('type') === TimeEntryType::Overtime->value),
-
-                Forms\Components\Select::make('status')
-                    ->label('Státusz')
-                    ->options([
-                        TimeEntryStatus::Pending->value  => 'Függőben',
-                        TimeEntryStatus::Approved->value => 'Jóváhagyva',
-                        TimeEntryStatus::Rejected->value => 'Elutasítva',
-                    ])
-                    ->default(TimeEntryStatus::Pending->value)
-                    ->required(),
 
                 Forms\Components\Textarea::make('note')
                     ->label('Megjegyzés')
@@ -101,57 +116,125 @@ class TimeEntryResource extends Resource
     public static function table(Tables\Table $table): Tables\Table
     {
         return $table
+            // opcionális: műszak szerinti bal szegély színezés – maradhat, ha használod
+            ->recordClasses(function (TimeEntry $record) {
+                $shift = optional($record->employee)->shift ?? null;
+                $v = $shift instanceof \BackedEnum ? $shift->value : $shift;
+                return match ($v) {
+                    'morning'   => 'border-l-4 border-l-amber-500/70',
+                    'afternoon' => 'border-l-4 border-l-emerald-500/70',
+                    'night'     => 'border-l-4 border-l-indigo-500/70',
+                    default     => 'border-l-4 border-l-slate-500/40',
+                };
+            })
             ->columns([
                 Tables\Columns\TextColumn::make('employee.name')
                     ->label('Dolgozó')
                     ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(),
 
                 Tables\Columns\BadgeColumn::make('type')
                     ->label('Típus')
-                    ->color(fn (string|\BackedEnum|null $state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
+                    ->color(fn ($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
+                        'presence'   => 'primary',
                         'vacation'   => 'warning',
                         'overtime'   => 'info',
                         'sick_leave' => 'danger',
                         default      => 'gray',
                     })
-                    ->formatStateUsing(fn (string|\BackedEnum|null $state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
+                    ->formatStateUsing(fn ($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
+                        'presence'   => 'Jelenlét',
                         'vacation'   => 'Szabadság',
                         'overtime'   => 'Túlóra',
                         'sick_leave' => 'Táppénz',
                         default      => (string) ($state instanceof \BackedEnum ? $state->value : $state),
-                    }),
+                    })
+                    ->toggleable(),
 
-                Tables\Columns\TextColumn::make('start_date')->date()->label('Kezdet')->sortable(),
-                Tables\Columns\TextColumn::make('end_date')->date()->label('Vége')->sortable()->placeholder('—'),
-                Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—'),
+                Tables\Columns\TextColumn::make('start_date')->date()->label('Kezdet')->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('end_date')->date()->label('Vége')->sortable()->placeholder('—')->toggleable(),
+                Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
 
+                // ⬇ Egyetlen status oszlop — mindkét domain-t kezeli
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Státusz')
-                    ->color(fn (string|\BackedEnum|null $state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'pending'  => 'gray',
-                        'approved' => 'success',
-                        'rejected' => 'danger',
-                        default    => 'gray',
+                    ->color(function ($state, TimeEntry $r) {
+                        $v = $state instanceof \BackedEnum ? $state->value : $state;
+                        if (($r->type instanceof \BackedEnum ? $r->type->value : $r->type) === 'presence') {
+                            return match ($v) {
+                                'checked_in'  => 'success',
+                                'checked_out' => 'gray',
+                                default       => 'gray',
+                            };
+                        }
+                        return match ($v) {
+                            'pending'  => 'gray',
+                            'approved' => 'success',
+                            'rejected' => 'danger',
+                            default    => 'gray',
+                        };
                     })
-                    ->formatStateUsing(fn (string|\BackedEnum|null $state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'pending'  => 'Függőben',
-                        'approved' => 'Jóváhagyva',
-                        'rejected' => 'Elutasítva',
-                        default    => (string) ($state instanceof \BackedEnum ? $state->value : $state),
-                    }),
+                    ->formatStateUsing(function ($state, TimeEntry $r) {
+                        $v = $state instanceof \BackedEnum ? $state->value : $state;
+                        if (($r->type instanceof \BackedEnum ? $r->type->value : $r->type) === 'presence') {
+                            return match ($v) {
+                                'checked_in'  => 'Bejelentkezve',
+                                'checked_out' => 'Kijelentkezve',
+                                default       => '—',
+                            };
+                        }
+                        return match ($v) {
+                            'pending'  => 'Függőben',
+                            'approved' => 'Jóváhagyva',
+                            'rejected' => 'Elutasítva',
+                            default    => (string) $v,
+                        };
+                    })
+                    ->toggleable(),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('type')->label('Típus')->options([
-                    'vacation'   => 'Szabadság',
-                    'overtime'   => 'Túlóra',
-                    'sick_leave' => 'Táppénz',
-                ]),
-                Tables\Filters\SelectFilter::make('status')->label('Státusz')->options([
-                    'pending'  => 'Függőben',
-                    'approved' => 'Jóváhagyva',
-                    'rejected' => 'Elutasítva',
-                ]),
+                // TÍPUS-kapcsoló – Presence alapból NINCS a listában → rejtve indul
+                Tables\Filters\Filter::make('types_visible')
+                    ->label('Megjelenő típusok')
+                    ->form([
+                        Forms\Components\CheckboxList::make('types')
+                            ->options([
+                                TimeEntryType::Presence->value  => 'Jelenlét',
+                                TimeEntryType::Vacation->value  => 'Szabadság',
+                                TimeEntryType::Overtime->value  => 'Túlóra',
+                                TimeEntryType::SickLeave->value => 'Táppénz',
+                            ])
+                            ->default([
+                                TimeEntryType::Vacation->value,
+                                TimeEntryType::Overtime->value,
+                                TimeEntryType::SickLeave->value,
+                                // Presence kimarad → alapból rejtve
+                            ])
+                            ->columns(4),
+                    ])
+                    ->query(function (Builder $query, array $data) {
+                        $selected = $data['types'] ?? [];
+                        if (empty($selected)) return $query->whereRaw('1=0');
+                        return $query->whereIn('type', $selected);
+                    })
+                    ->indicateUsing(fn (array $data) => empty($data['types']) ? '0 típus' : count($data['types']).' típus'),
+
+                // Egységes státusz szűrő: mindkét domain opcióival
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Státusz')
+                    ->multiple()
+                    ->options([
+                        // jelenlét
+                        TimeEntryStatus::CheckedIn->value  => 'Bejelentkezve',
+                        TimeEntryStatus::CheckedOut->value => 'Kijelentkezve',
+                        // jóváhagyás
+                        TimeEntryStatus::Pending->value  => 'Függőben',
+                        TimeEntryStatus::Approved->value => 'Jóváhagyva',
+                        TimeEntryStatus::Rejected->value => 'Elutasítva',
+                    ]),
+
+                // Hónap szűrő (marad)
                 Tables\Filters\Filter::make('month')
                     ->label('Hónap')
                     ->form([
@@ -161,9 +244,7 @@ class TimeEntryResource extends Resource
                             ->displayFormat('Y-m'),
                     ])
                     ->query(function (Builder $query, array $data) {
-                        if (empty($data['month'])) {
-                            return $query;
-                        }
+                        if (empty($data['month'])) return $query;
                         $dt = Carbon::parse($data['month']);
                         return $query->whereMonth('start_date', $dt->month)
                                      ->whereYear('start_date',  $dt->year);
@@ -171,26 +252,38 @@ class TimeEntryResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+
+                // Jóváhagyás/elutasítás csak akkor releváns, ha NEM jelenlét a típus
                 Tables\Actions\Action::make('approve')
                     ->label('Jóváhagy')
                     ->icon('heroicon-o-check-circle')
                     ->requiresConfirmation()
-                    ->visible(fn (TimeEntry $r) => Auth::user()->can('approve', $r) && $r->status->value === 'pending')
+                    ->visible(fn (TimeEntry $r) =>
+                        ($r->type->value ?? $r->type) !== 'presence'
+                        && ($r->status->value ?? $r->status) === 'pending'
+                        && Auth::user()->can('approve', $r)
+                    )
                     ->action(function (TimeEntry $r) {
                         $r->status = TimeEntryStatus::Approved;
                         $r->approved_by = Auth::id();
                         $r->save();
                     }),
+
                 Tables\Actions\Action::make('reject')
                     ->label('Elutasít')
                     ->icon('heroicon-o-x-circle')
                     ->requiresConfirmation()
-                    ->visible(fn (TimeEntry $r) => Auth::user()->can('approve', $r) && $r->status->value === 'pending')
+                    ->visible(fn (TimeEntry $r) =>
+                        ($r->type->value ?? $r->type) !== 'presence'
+                        && ($r->status->value ?? $r->status) === 'pending'
+                        && Auth::user()->can('approve', $r)
+                    )
                     ->action(function (TimeEntry $r) {
                         $r->status = TimeEntryStatus::Rejected;
                         $r->approved_by = Auth::id();
                         $r->save();
                     }),
+
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
@@ -198,7 +291,11 @@ class TimeEntryResource extends Resource
                     ->label('Kijelöltek jóváhagyása')
                     ->action(function ($records) {
                         foreach ($records as $r) {
-                            if (Auth::user()->can('approve', $r) && $r->status->value === 'pending') {
+                            if (
+                                ($r->type->value ?? $r->type) !== 'presence' &&
+                                Auth::user()->can('approve', $r) &&
+                                ($r->status->value ?? $r->status) === 'pending'
+                            ) {
                                 $r->update([
                                     'status' => TimeEntryStatus::Approved,
                                     'approved_by' => Auth::id(),
@@ -212,15 +309,12 @@ class TimeEntryResource extends Resource
             ->defaultSort('start_date', 'desc');
     }
 
-    // ⬇️ Céges szűrés minden lekérdezésre
     public static function getEloquentQuery(): Builder
     {
         $q = parent::getEloquentQuery();
-
         if (Auth::check() && Auth::user()->company_id) {
             $q->where('company_id', Auth::user()->company_id);
         }
-
         return $q;
     }
 

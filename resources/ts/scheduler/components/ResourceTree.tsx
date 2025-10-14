@@ -64,10 +64,10 @@ export default function ResourceTree() {
     const rows: RowItem[] = []
     const collapsed: Record<string, true> = {}
 
-    const pushGroupRow = (type: GroupType, label: string, extra?: Partial<RowItem>) => {
+    const pushGroupRow = (type: GroupType, id: string, label: string, extra?: Partial<RowItem>) => {
       const key = type === 'process' && (extra as any)?.processNodeId
         ? `group:${type}:${(extra as any).processNodeId}`
-        : `group:${type}:${label}`
+        : `group:${type}:${id}` // ⬅️ ID-alapú kulcs (nem név)
       rows.push({ key, kind: 'group', label, groupType: type, ...(extra || {}) } as RowItem)
     }
 
@@ -87,30 +87,30 @@ export default function ResourceTree() {
       const isOpen = expanded.has(n.id)
 
       if (n.type === 'partner') {
-        pushGroupRow('partner', n.name)
-        if (!isOpen) { collapsed[`group:partner:${n.name}`] = true; return }
+        pushGroupRow('partner', n.id, n.name)
+        if (!isOpen) { collapsed[`group:partner:${n.id}`] = true; return }
         n.children?.forEach(walk)
         return
       }
 
       if (n.type === 'order') {
-        pushGroupRow('order', n.name)
-        if (!isOpen) { collapsed[`group:order:${n.name}`] = true; return }
+        pushGroupRow('order', n.id, n.name)
+        if (!isOpen) { collapsed[`group:order:${n.id}`] = true; return }
         n.children?.forEach(walk)
         return
       }
 
       if (n.type === 'product') {
-        pushGroupRow('product', n.name)
-        if (!isOpen) { collapsed[`group:product:${n.name}`] = true; return }
+        pushGroupRow('product', n.id, n.name)
+        if (!isOpen) { collapsed[`group:product:${n.id}`] = true; return }
         n.children?.forEach(walk)
         return
       }
 
       if (n.type === 'process') {
-        // ⬅ process sor: azonosító is bekerül, hogy az aggregált hasábot tudjuk hova rajzolni
-        pushGroupRow('process', n.name, { processNodeId: n.id })
-        if (!isOpen) { collapsed[`group:process:${n.name}`] = true; return }
+        // process sor: azonosító is bekerül (aggregált hasábhoz kell)
+        pushGroupRow('process', n.id, n.name, { processNodeId: n.id })
+        if (!isOpen) { collapsed[`group:process:${n.id}`] = true; return }
         n.children?.forEach(c => {
           if (c.type === 'machine' && c.resourceId != null) {
             pushResourceRow(Number(c.resourceId), n.id)
@@ -125,9 +125,11 @@ export default function ResourceTree() {
   }, [tree, expanded, resById, setVisibleRows, setCollapsedRows])
 
   const toggleExpand = (id: string) => {
-    const next = new Set(expanded)
-    next.has(id) ? next.delete(id) : next.add(id)
-    setExpanded(next)
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
   return (
@@ -260,8 +262,13 @@ function NodeView({
   )
 }
 
-/** Gép sor – + gombbal új draft sáv (start=NOW a store-ban) */
-function MachineRow({ node, productNodeId, processNodeId, ratePph, defaultQty = 100 }: {
+/** Gép sor – + gombbal új draft sáv
+ * Figyelem: a backend /storeSplit megköveteli a ratePph-t → adunk defaultot, ha nincs.
+ * (A start/end kiszámítása történhet a store-ban: NOW..NOW+60min, stb.)
+ */
+function MachineRow({
+  node, productNodeId, processNodeId, ratePph, defaultQty = 100
+}: {
   node: TreeNode
   productNodeId: string
   processNodeId: string
@@ -269,17 +276,29 @@ function MachineRow({ node, productNodeId, processNodeId, ratePph, defaultQty = 
   defaultQty?: number
 }) {
   const createDraft = useScheduler(s => s.createDraftSegment)
+
   const onAdd = () => {
     if (!node.resourceId) return
+
+    // ⚠️ fontos: biztosítsuk, hogy ratePph sose legyen undefined (backend: required)
+    const effectiveRate = Number.isFinite(ratePph as number)
+      ? (ratePph as number)
+      : (typeof (node as any).ratePph === 'number' && (node as any).ratePph > 0
+          ? (node as any).ratePph
+          : 100) // biztonságos default
+
     createDraft({
-      machineId: node.resourceId,
+      machineId: Number(node.resourceId),
       productNodeId,
       processNodeId,
       title: `${node.name} • ${defaultQty} db`,
       qty: defaultQty,
-      ratePph,
+      ratePph: effectiveRate,
+      // tetszőleges extra: batchSize, initialDurationMinutes, stb. – ha a store használja
+      batchSize: 100,
     } as any)
   }
+
   return (
     <>
       <span className="truncate">{node.name}</span>
@@ -302,8 +321,8 @@ function ProcessRow({ node, productNodeId, productSumQty }: {
   productNodeId: string
   productSumQty: number
 }) {
-  const tasks = useScheduler(s => s.tasks)
-  const plannedQty = (tasks as any[])
+  const tasks = useScheduler(s => s.tasks) as any[] | undefined
+  const plannedQty = (tasks ?? [])
     .filter(t => t.processNodeId === node.id && t.productNodeId === productNodeId)
     .reduce((acc, t) => acc + (t.qtyTotal ?? 0), 0)
 

@@ -6,7 +6,7 @@ use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PendingDeviceController;
 use App\Http\Controllers\Scheduler\TaskController;
 use App\Http\Controllers\Scheduler\TreeController;
-use App\Http\Controllers\TimeEntryCalendarController;
+//use App\Http\Controllers\TimeEntryCalendarController;
 use App\Http\Controllers\Scheduler\ResourceController;
 
 // 1) Régi /login -> Filament USER login
@@ -69,6 +69,11 @@ Route::middleware(['auth'])->group(function () {
     Route::view('/devices', 'livewire.devices.index')->name('devices.index');
     Route::post('/devices/approve/{pending}', [PendingDeviceController::class, 'approve'])->name('devices.approve');
     Route::resource('machines', MachineController::class);
+    Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntriesCalendarFeedController::class)
+        ->name('time-entries.calendar.events');
+    //Route::get('/time-entries/calendar-markers', \App\Http\Controllers\CalendarMarkersController::class)->name('time-entries.calendar.markers');
+    Route::get('/time-entries/calendar-markers', \App\Http\Controllers\TimeEntryCalendarMarkersController::class)
+        ->name('time-entries.calendar.markers');
 });
 
 // ⬇⬇⬇ SCHEDULER – EZ A LÉNYEG ⬇⬇⬇
@@ -85,7 +90,6 @@ Route::middleware(['web','auth'])->group(function () {
         // (írható végpontok később)
     });
 
-    // egyéb admin API
-    Route::get('/admin/time-entries/calendar/events', [TimeEntryCalendarController::class, '__invoke'])
-        ->name('admin.time-entries.calendar.events');
+    
+   
 });

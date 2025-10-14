@@ -5,33 +5,31 @@ namespace App\Filament\Resources\TimeEntryResource\Pages;
 use App\Filament\Resources\TimeEntryResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
-use App\Filament\Resources\TimeEntryResource\Widgets\TimeEntriesCalendarWidget;
+// EZ KELL:
+use App\Filament\Resources\TimeEntryResource\Widgets\TimeEntriesMonthCalendar;
 
 class ListTimeEntries extends ListRecords
 {
     protected static string $resource = TimeEntryResource::class;
 
-    // 👉 Itt jelenik meg a fejléc jobb oldalán a "Create" gomb
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()
-                ->label('Új time entry'),          // opcionális felirat
-            // ->authorize(true),                 // ha tesztként mindenképp mutatnád
+            Actions\CreateAction::make()->label('Új bejegyzés'),
         ];
     }
 
-    // 👉 A naptárt továbbra is a header widgetek között tesszük ki
+    // A helyes widgetet tedd ki a fejlécbe
     protected function getHeaderWidgets(): array
     {
-        return [
-            TimeEntriesCalendarWidget::class,
-        ];
+        return [TimeEntriesMonthCalendar::class];
+        // (vagy FQCN nélkül import nélkül:)
+        // return [\App\Filament\Resources\TimeEntryResource\Widgets\TimeEntriesMonthCalendar::class];
     }
 
+    // Teljes szélesség a táblázat felett
     public function getHeaderWidgetsColumns(): int|array
-{
-    // a naptár (header widget) teljes szélességen jelenjen meg a táblázat felett
-    return 1;
-}
+    {
+        return 1;
+    }
 }

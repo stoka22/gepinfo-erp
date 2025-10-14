@@ -14,7 +14,7 @@ class CapabilityMatrix extends Page
     protected static ?string $navigationGroup = 'Dolgozók';
     protected static ?string $navigationLabel = 'Képességmátrix';
     protected static ?string $title = 'Képességmátrix (workflow alapú)';
-    protected static string $view = 'filament.admin.pages.capability-matrix';
+    protected static string $view = 'filament.pages.capability-matrix';
 
     public ?array $employees = [];
     public ?array $skills = [];

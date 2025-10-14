@@ -15,6 +15,8 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\Support\Assets\Js;
+use Filament\Support\Assets\Css;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -50,6 +52,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 FilamentAuthenticate::class,
+            ])
+            ->assets([
+                Css::make('fc-css', asset('vendor/fullcalendar/main.min.css')),
+                Js::make('fc-js',   asset('vendor/fullcalendar/index.global.min.js')),
+
+                // Saját Alpine komponens
+                Js::make('time-entries-calendar', asset('js/time-entries-calendar.js')),
             ]);
     }
 }

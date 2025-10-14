@@ -1,8 +1,11 @@
 // src/scheduler/store.ts
 import { create } from 'zustand'
 import type { Resource, Task, RowItem, TreeNode } from './types'
-import { fetchResources, fetchTasks, fetchTree } from './api'
+import { fetchResources, fetchTasks, fetchTree, saveSplit } from './api'
 import { addMinutes, format } from 'date-fns'
+
+const DEFAULT_RATE  = 100
+const DEFAULT_BATCH = 100
 
 type CollapsedMap = Record<string, true>
 type ShiftWindow = { startTs: number; endTs: number }
@@ -54,15 +57,17 @@ export type SchedulerState = {
   collapsedRows: CollapsedMap
   setCollapsedRows: (m: CollapsedMap) => void
 
+  /** Új draft sáv létrehozása ÉS azonnali mentése `splits`-be */
   createDraftSegment: (opts: {
     machineId: string | number
     productNodeId: string
     processNodeId: string
-    title: string
+    title?: string
     qty: number
     ratePph?: number
     start?: string
-  }) => void
+    batchSize?: number
+  }) => Promise<void>
 }
 
 /* ---------------- helpers ---------------- */
@@ -92,9 +97,7 @@ function annotateTreeWithPlannedBars(tree: TreeNode[], tasks: Task[]): TreeNode[
 
 /** elfogad "HH:mm[:ss]" vagy teljes ISO-t is */
 function parseShiftEdge(edge: string, isoDate: string) {
-  // ha teljes ISO (tartalmaz 'T' vagy zóna jelet), azt használd közvetlenül
   if (/[Tt]/.test(edge) || /[Z\+\-]\d{2}:?\d{2}$/.test(edge)) return new Date(edge)
-  // különben HH:mm(:ss) → illeszd a dátumhoz
   const hhmmss = edge.length <= 5 ? `${edge}:00` : edge
   return new Date(`${isoDate}T${hhmmss}`)
 }
@@ -136,42 +139,30 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   // egész órára igazítás
   alignWindowToHours: () => {
     const { from, to } = get()
-
     const f = new Date(from)
     const t = new Date(to)
-
     const alignedF = new Date(f); alignedF.setMinutes(0, 0, 0)
-
     const alignedT = new Date(t)
-    const tNeedsAlign =
-      t.getMinutes() !== 0 || t.getSeconds() !== 0 || t.getMilliseconds() !== 0
+    const tNeedsAlign = t.getMinutes() !== 0 || t.getSeconds() !== 0 || t.getMilliseconds() !== 0
     if (tNeedsAlign) {
       alignedT.setMinutes(0, 0, 0)
       alignedT.setHours(alignedT.getHours() + 1)
     }
-
-    // nincs érdemi változás → ne set-eljünk (különben loop)
     if (+alignedF === +from && +alignedT === +to) return
-
     set({ from: alignedF, to: alignedT })
   },
 
-  // (opcionális) műszak tábla alapján – ha van backend endpointod hozzá
+  // (opcionális) műszak tábla alapján
   setWindowToShiftForDate: async (isoDate: string) => {
     try {
       const resp = await fetch(`/api/scheduler/shift-window?date=${isoDate}`)
       if (!resp.ok) return
-      // támogatjuk: {start:"06:00:00", end:"14:00:00"} VAGY {start:"2025-09-29T06:00:00+02:00", end:"..."}
       const { start, end } = (await resp.json()) as { start: string; end: string }
-
       const startDt = parseShiftEdge(start, isoDate)
       let   endDt   = parseShiftEdge(end,   isoDate)
-      if (+endDt <= +startDt) endDt = new Date(+endDt + 24 * 3600_000) // éjfél átlógás
-
+      if (+endDt <= +startDt) endDt = new Date(+endDt + 24 * 3600_000)
       set({ from: startDt, to: endDt, shift: { startTs: +startDt, endTs: +endDt } })
-    } catch {
-      // opcionális feature → csendben elnyeljük
-    }
+    } catch { /* optional feature */ }
   },
 
   async loadAll(opts) {
@@ -228,25 +219,66 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   collapsedRows: {},
   setCollapsedRows: (m) => set({ collapsedRows: m }),
 
-  createDraftSegment: ({ machineId, productNodeId, processNodeId, title, qty, ratePph, start }) => {
+  /** Új draft sáv + azonnali mentés */
+  createDraftSegment: async ({ machineId, productNodeId, processNodeId, title, qty, ratePph, start, batchSize }) => {
     const startDate = start ? new Date(start) : new Date()
-    const hours = ratePph && ratePph > 0 ? qty / ratePph : 1
-    const endDate = addMinutes(startDate, Math.ceil(hours * 60))
+    const rate      = (ratePph ?? DEFAULT_RATE)
+    const hours     = rate > 0 ? qty / rate : 1
+    const endDate   = addMinutes(startDate, Math.ceil(hours * 60))
 
-    const task: Task = {
-      id: makeId(),
-      resourceId: machineId as any,
-      title,
+    // 1) optimista lokális sáv
+    const tmpId = makeId()
+    const local: Task = {
+      id: tmpId,
+      resourceId: Number(machineId),
+      title: title ?? `Tervezett művelet • ${qty} db`,
       start: toLocalISO(startDate),
-      end: toLocalISO(endDate),
+      end:   toLocalISO(endDate),
       qtyTotal: qty,
-      ratePph,
+      qtyFrom: 0,
+      qtyTo: qty,
+      ratePph: rate,
+      batchSize: batchSize ?? DEFAULT_BATCH,
       productNodeId,
       processNodeId,
+      committed: false,
     }
+    const next = [...get().tasks, local]
+    set({ tasks: next, tree: annotateTreeWithPlannedBars(get().tree, next) })
 
-    const next = [...get().tasks, task]
-    const tree = get().tree
-    set({ tasks: next, tree: annotateTreeWithPlannedBars(tree, next) })
+    // 2) backend mentés
+    try {
+      const res = await saveSplit({
+        machine_id: Number(machineId),
+        title: local.title ?? null,
+        start: local.start,
+        end:   local.end,
+        ratePph: rate,
+        batchSize: local.batchSize ?? DEFAULT_BATCH,
+        qtyFrom: local.qtyFrom ?? 0,
+      })
+
+      // 3) csere a visszaadott elemmel (azonos indexen), a lokális meta (product/process) megtartásával
+      const server = res.item
+      const replaced: Task = {
+        ...server,
+        productNodeId,
+        processNodeId,
+      }
+      const tasksNow = get().tasks
+      const idx = tasksNow.findIndex(t => t.id === tmpId)
+      if (idx >= 0) {
+        const arr = tasksNow.slice()
+        arr[idx] = replaced
+        set({ tasks: arr, tree: annotateTreeWithPlannedBars(get().tree, arr) })
+      } else {
+        // ha közben valamiért „elveszett”, csak toldjuk be
+        const arr = [...tasksNow, replaced]
+        set({ tasks: arr, tree: annotateTreeWithPlannedBars(get().tree, arr) })
+      }
+    } catch (e) {
+      console.error('Split mentés hiba:', e)
+      // opcionálisan vissza lehetne venni a tmp sort; most meghagyjuk vizuális jelzésnek
+    }
   },
 }))

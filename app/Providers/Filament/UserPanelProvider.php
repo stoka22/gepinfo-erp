@@ -16,6 +16,8 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\Support\Assets\Js;
+use Filament\Support\Assets\Css;
 
 class UserPanelProvider extends PanelProvider
 {
@@ -36,6 +38,7 @@ class UserPanelProvider extends PanelProvider
             // csak a Vezérlőpult marad a főoldalnak
             ->pages([
                 Pages\Dashboard::class,
+                \App\Filament\Pages\CapabilityMatrix::class,
             ])
             ->homeUrl(fn () => route('filament.user.pages.dashboard'))
 
@@ -82,6 +85,13 @@ class UserPanelProvider extends PanelProvider
             ])
 
             // Opcionális: egyszerre csak 1 nyitott csoport
-            ->renderHook('panels::body.end', fn () => view('filament.only-one-open-group'));
+            ->renderHook('panels::body.end', fn () => view('filament.only-one-open-group'))
+            ->assets([
+                Css::make('fc-css', asset('vendor/fullcalendar/main.min.css')),
+                Js::make('fc-js',   asset('vendor/fullcalendar/index.global.min.js')),
+
+                // Saját Alpine komponens
+                Js::make('time-entries-calendar', asset('js/time-entries-calendar.js')),
+            ]);
     }
 }

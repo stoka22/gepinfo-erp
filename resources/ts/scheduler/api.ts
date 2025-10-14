@@ -15,18 +15,14 @@ async function fetchJSON<T = any>(url: string, options: RequestInit = {}): Promi
   }
 
   const resp = await fetch(url, {
-    credentials: 'include', // fontos: web+auth session
+    credentials: 'include',
     headers: { ...baseHeaders, ...(options.headers ?? {}) },
     ...options,
   })
 
   const text = await resp.text()
   let data: any = null
-  try {
-    data = text ? JSON.parse(text) : null
-  } catch {
-    /* ignore invalid JSON */
-  }
+  try { data = text ? JSON.parse(text) : null } catch { /* ignore */ }
 
   if (!resp.ok) {
     const msg = (data && (data.error || data.message)) || text || `HTTP ${resp.status}`
@@ -41,7 +37,6 @@ export async function fetchResources(): Promise<Resource[]> {
 }
 
 /* ---------- Tasks (list) ---------- */
-/** from/to kötelező a backend szerint; resourceId opcionális (machine szűrés) */
 export async function fetchTasks(params: {
   fromISO: string
   toISO: string
@@ -52,16 +47,10 @@ export async function fetchTasks(params: {
   usp.set('from', fromISO)
   usp.set('to', toISO)
   if (resourceId != null) usp.set('resource_id', String(resourceId))
-
   return fetchJSON<Task[]>(`/api/scheduler/tasks?${usp.toString()}`)
 }
 
-/* ---------- Update schedule (move/resize) ---------- */
-/**
- * A meglévő backend végpontok:
- * - POST /api/scheduler/tasks/{id}/move   (machine_id?, starts_at, ends_at, updated_at)
- * - POST /api/scheduler/tasks/{id}/resize (starts_at, ends_at, updated_at)
- */
+/* ---------- Committed task move/resize ---------- */
 export async function moveTask(opts: {
   id: number | string
   machineId?: number | string | null
@@ -80,6 +69,7 @@ export async function moveTask(opts: {
     }),
   })
 }
+
 export async function resizeTask(opts: {
   id: number | string
   startsAtISO: string
@@ -96,18 +86,30 @@ export async function resizeTask(opts: {
     }),
   })
 }
-export async function splitTaskByQty(
-  _taskId: number | string,
-  _payload: any
-): Promise<never> {
-  throw new Error('A felosztás backend végpontja még nincs implementálva.')
+
+/* ---------- Draft split (create or update) ---------- */
+export type SaveSplitBody = {
+  id?: string              // "split_{id}" – update esetén
+  machine_id: number
+  partner_order_item_id?: number | null
+  title?: string | null
+  start: string            // "YYYY-MM-DDTHH:mm:ss"
+  end: string
+  ratePph: number          // backend: required, numeric
+  batchSize?: number
+  qtyFrom?: number
 }
-/* ---------- (NINCS BACKEND) split végpontok helyett placeholder ----------
-   Amíg nincs implementálva a Controller-ben, ezeket NE hívd a UI-ból.
-   Ha kéred, a következő körben megírom a backend + itt a hívót.
--------------------------------------------------------------------------- */
-// export async function splitTask(...)
-// export async function splitTaskByQty(...)
+export type SaveSplitResp = {
+  ok: boolean
+  item: Task              // a backend a kliens-sémának megfelelően adja vissza
+}
+
+export async function saveSplit(body: SaveSplitBody): Promise<SaveSplitResp> {
+  return fetchJSON<SaveSplitResp>('/api/scheduler/splits', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
 
 /* ---------- Tree ---------- */
 export async function fetchTree(fromISO: string, toISO: string): Promise<TreeNode[]> {

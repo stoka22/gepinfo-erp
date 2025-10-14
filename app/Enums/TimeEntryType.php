@@ -7,4 +7,5 @@ enum TimeEntryType: string
     case Vacation  = 'vacation';   // szabadság
     case Overtime  = 'overtime';   // túlóra
     case SickLeave = 'sick_leave'; // táppénz
+    case Presence  = 'presence';
 }
