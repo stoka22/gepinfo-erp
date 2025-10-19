@@ -17,6 +17,20 @@ export default defineConfig({
         }),
     react(),
     ],
+    build: {
+      // ne base64-ozza be a fontokat
+      assetsInlineLimit: 0,
+      rollupOptions: {
+        output: {
+          assetFileNames: (assetInfo) => {
+            if (/\.(woff2?|ttf|otf|eot)$/.test(assetInfo.name ?? '')) {
+              return 'assets/fonts/[name][extname]'
+            }
+            return 'assets/[name][extname]'
+          },
+        },
+      },
+    },
     resolve: {
     alias: {
       vendor: path.resolve(process.cwd(), 'vendor'),

@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useScheduler } from '../store'
-import type { Resource, RowItem, TreeNode } from '../types'
+import type { Resource, RowItem } from '../types'
 
-type GroupType = 'partner' | 'order' | 'product' | 'process'
+/**
+ * ÚJ ResourceTree
+ * ----------------
+ * Bal oldali oszlop: a cég gépei és munkaállomásai, egyszerű, gyors lista nézetben.
+ * - A hierarchiát (partner → order → product → process) elhagyjuk.
+ * - Csoportosítás: „Gépek” és „Munkaállomások” (heurisztikus, a Resource.kind / type / group mező alapján).
+ * - A Gantt igazításhoz továbbra is beállítjuk a visibleRows tömböt: egy group sor + resource sorok.
+ * - Gép soron „+” gomb: azonnal létrehoz egy draft hasábot (createDraftSegment).
+ */
 
+type GroupKey = 'machines' | 'workstations'
+
+// Stílusok (egyszerű, letisztult)
 const levelStyles = [
-  { bg: 'rgba(90,170,255,0.10)',  text: '#cfe6ff', border: 'rgba(90,170,255,0.35)' },   // partner
-  { bg: 'rgba(140,120,255,0.10)', text: '#dcd5ff', border: 'rgba(140,120,255,0.35)' }, // order
-  { bg: 'rgba(80,200,120,0.10)',  text: '#cfeede', border: 'rgba(80,200,120,0.35)' },  // product
-  { bg: 'rgba(255,195,85,0.10)',  text: '#ffe6bd', border: 'rgba(255,195,85,0.35)' },  // process
-  { bg: 'rgba(255,120,120,0.08)', text: '#ffd4d4', border: 'rgba(255,120,120,0.35)' }, // machine
+  { bg: 'rgba(90,170,255,0.10)',  text: '#cfe6ff', border: 'rgba(90,170,255,0.35)' },   // group
+  { bg: 'rgba(255,120,120,0.08)', text: '#ffd4d4', border: 'rgba(255,120,120,0.35)' },  // resource (machine/workstation)
 ]
 const rowStyle = (level: number) => {
   const s = levelStyles[Math.min(level, levelStyles.length - 1)]
@@ -21,317 +29,173 @@ const rowStyle = (level: number) => {
     padding: '2px 6px',
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     width: '100%',
   } as const
+}
+
+function classifyResource(r: Resource): GroupKey {
+  // Próbálunk okosak lenni, de ha nincs jel, minden „machines” alá kerül.
+  const kind = (r as any).kind ?? (r as any).type ?? (r as any).group ?? ''
+  const name = (r.name || '').toLowerCase()
+  const isWork =
+    /workstation|munkaállomás|munkaallomas|állomás|allomas|cell|cella|bench|asztal/.test(kind?.toLowerCase?.() ?? '') ||
+    /workstation|munkaállomás|munkaallomas|állomás|allomas|cella|asztal/.test(name)
+  return isWork ? 'workstations' : 'machines'
 }
 
 export default function ResourceTree() {
   const rowHeight        = useScheduler(s => s.rowHeight)
   const resources        = useScheduler(s => s.resources)
-  const tree             = useScheduler(s => s.tree)
   const setVisibleRows   = useScheduler(s => s.setVisibleRows)
   const setCollapsedRows = useScheduler(s => s.setCollapsedRows)
 
-  // Resource lookup Map
-  const resById = useMemo(() => {
-    const m = new Map<string, Resource>()
-    resources.forEach(r => m.set(String(r.id), r))
-    return m
-  }, [resources])
+  // Kereső & szűrők
+  const [q, setQ] = useState('')
+  const [showMachines, setShowMachines] = useState(true)
+  const [showWorkstations, setShowWorkstations] = useState(true)
 
-  // Expand állapot (alapból minden nem-gép nyitva)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  useEffect(() => {
-    if (!tree || tree.length === 0) return
-    const exp = new Set<string>()
-    const collect = (n: TreeNode) => {
-      if (n.type !== 'machine') exp.add(n.id)
-      n.children?.forEach(collect)
-    }
-    tree.forEach(collect)
-    setExpanded(exp)
-  }, [tree])
+  // Csoportosítás
+  const grouped = useMemo(() => {
+    const byGroup: Record<GroupKey, Resource[]> = { machines: [], workstations: [] }
+    ;(resources ?? []).forEach(r => {
+      const g = classifyResource(r)
+      byGroup[g].push(r)
+    })
+    // rendezés név szerint
+    byGroup.machines.sort((a, b) => a.name.localeCompare(b.name))
+    byGroup.workstations.sort((a, b) => a.name.localeCompare(b.name))
+    return byGroup
+  }, [resources])
 
   // Látható sorok → Gantt igazításhoz
   useEffect(() => {
-    if (!Array.isArray(tree) || tree.length === 0) {
-      setVisibleRows([])
-      setCollapsedRows({})
-      return
-    }
-
     const rows: RowItem[] = []
     const collapsed: Record<string, true> = {}
 
-    const pushGroupRow = (type: GroupType, id: string, label: string, extra?: Partial<RowItem>) => {
-      const key = type === 'process' && (extra as any)?.processNodeId
-        ? `group:${type}:${(extra as any).processNodeId}`
-        : `group:${type}:${id}` // ⬅️ ID-alapú kulcs (nem név)
-      rows.push({ key, kind: 'group', label, groupType: type, ...(extra || {}) } as RowItem)
+    const pushGroup = (key: GroupKey, label: string) => {
+      rows.push({ key: `group:${key}`, kind: 'group', label } as RowItem)
+    }
+    const pushRes = (r: Resource) => {
+      rows.push({ key: `resource:${r.id}`, kind: 'resource', label: r.name, resourceId: Number(r.id) })
     }
 
-    const pushResourceRow = (rid: number, processId?: string) => {
-      const idStr = String(rid)
-      const r = resById.get(idStr)
-      rows.push({
-        key: `resource:${idStr}:${processId ?? ''}`,
-        kind: 'resource',
-        label: r?.name ?? `Gép #${idStr}`,
-        resourceId: rid,
-        processNodeId: processId ?? '',
-      })
+    const filterByQ = (r: Resource) => {
+      if (!q) return true
+      const hay = `${r.name ?? ''} ${(r as any).code ?? ''} ${(r as any).note ?? ''}`.toLowerCase()
+      return hay.includes(q.toLowerCase())
     }
 
-    const walk = (n: TreeNode) => {
-      const isOpen = expanded.has(n.id)
-
-      if (n.type === 'partner') {
-        pushGroupRow('partner', n.id, n.name)
-        if (!isOpen) { collapsed[`group:partner:${n.id}`] = true; return }
-        n.children?.forEach(walk)
-        return
+    if (showMachines) {
+      const list = grouped.machines.filter(filterByQ)
+      if (list.length > 0) {
+        pushGroup('machines', 'Gépek')
+        list.forEach(pushRes)
       }
-
-      if (n.type === 'order') {
-        pushGroupRow('order', n.id, n.name)
-        if (!isOpen) { collapsed[`group:order:${n.id}`] = true; return }
-        n.children?.forEach(walk)
-        return
-      }
-
-      if (n.type === 'product') {
-        pushGroupRow('product', n.id, n.name)
-        if (!isOpen) { collapsed[`group:product:${n.id}`] = true; return }
-        n.children?.forEach(walk)
-        return
-      }
-
-      if (n.type === 'process') {
-        // process sor: azonosító is bekerül (aggregált hasábhoz kell)
-        pushGroupRow('process', n.id, n.name, { processNodeId: n.id })
-        if (!isOpen) { collapsed[`group:process:${n.id}`] = true; return }
-        n.children?.forEach(c => {
-          if (c.type === 'machine' && c.resourceId != null) {
-            pushResourceRow(Number(c.resourceId), n.id)
-          }
-        })
+    }
+    if (showWorkstations) {
+      const list = grouped.workstations.filter(filterByQ)
+      if (list.length > 0) {
+        pushGroup('workstations', 'Munkaállomások')
+        list.forEach(pushRes)
       }
     }
 
-    tree.forEach(walk)
     setVisibleRows(rows)
-    setCollapsedRows(collapsed)
-  }, [tree, expanded, resById, setVisibleRows, setCollapsedRows])
-
-  const toggleExpand = (id: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
+    setCollapsedRows(collapsed) // itt nincs összehajtható fa, de a szerkezet megmarad
+  }, [grouped, q, showMachines, showWorkstations, setVisibleRows, setCollapsedRows])
 
   return (
-    <div>
-      <div style={{ padding: '6px 8px' }}>
-        {tree.map(n => (
-          <NodeView
-            key={n.id}
-            node={n}
-            level={0}
-            expanded={expanded}
-            onToggle={toggleExpand}
-            rowHeight={rowHeight}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function NodeView({
-  node, level, expanded, onToggle, rowHeight, productNodeId, productSumQty, processNodeId
-}: {
-  node: TreeNode
-  level: number
-  expanded: Set<string>
-  onToggle: (id: string) => void
-  rowHeight: number
-  productNodeId?: string
-  productSumQty?: number
-  processNodeId?: string
-}) {
-  const pad = 8 + level * 14
-  const isOpen = expanded.has(node.id)
-
-  // GÉP sor
-  if (node.type === 'machine') {
-    return (
-      <div style={{ paddingLeft: pad, height: rowHeight, display: 'flex', alignItems: 'center' }}>
-        <div style={rowStyle(level)}>
-          <MachineRow
-            node={node}
-            productNodeId={productNodeId ?? ''}
-            processNodeId={processNodeId ?? ''}
-          />
-        </div>
-      </div>
-    )
-  }
-
-  // FOLYAMAT sor
-  if (node.type === 'process') {
-    return (
-      <div>
-        <div
-          onClick={() => onToggle(node.id)}
-          style={{
-            paddingLeft: pad,
-            height: rowHeight,
-            display: 'flex',
-            alignItems: 'center',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-        >
-          <div style={rowStyle(level)}>
-            <span style={{ width: 12, textAlign: 'center' }}>{isOpen ? '▾' : '▸'}</span>
-            <ProcessRow node={node} productNodeId={productNodeId ?? ''} productSumQty={productSumQty ?? 0} />
-          </div>
-        </div>
-
-        {isOpen && node.children?.map(c => (
-          <NodeView
-            key={c.id}
-            node={c}
-            level={level + 1}
-            expanded={expanded}
-            onToggle={onToggle}
-            rowHeight={rowHeight}
-            productNodeId={productNodeId}
-            productSumQty={productSumQty}
-            processNodeId={node.id}
-          />
-        ))}
-      </div>
-    )
-  }
-
-  // PARTNER / ORDER / PRODUCT sorok
-  const suffix = (node.sumQty || node.sumHours)
-    ? <span style={{ opacity: 0.75, fontWeight: 400, marginLeft: 6 }}>
-        ({Math.round(node.sumQty ?? 0)} db, {(node.sumHours ?? 0).toFixed(1)} óra)
-      </span>
-    : null
-
-  return (
-    <div>
-      <div
-        onClick={() => onToggle(node.id)}
-        style={{
-          paddingLeft: pad,
-          height: rowHeight,
-          display: 'flex',
-          alignItems: 'center',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <div style={rowStyle(level)}>
-          <span style={{ width: 12, textAlign: 'center' }}>{isOpen ? '▾' : '▸'}</span>
-          <span style={{ fontWeight: 600 }} className="truncate">{node.name}</span>{suffix}
-        </div>
-      </div>
-
-      {isOpen && node.children?.map(c => (
-        <NodeView
-          key={c.id}
-          node={c}
-          level={level + 1}
-          expanded={expanded}
-          onToggle={onToggle}
-          rowHeight={rowHeight}
-          // product meta továbbadása lefelé
-          productNodeId={node.type === 'product' ? node.id : productNodeId}
-          productSumQty={node.type === 'product' ? (node.sumQty ?? 0) : productSumQty}
-          processNodeId={processNodeId}
+    <div className="space-y-2">
+      {/* Fejléc / Szűrők */}
+      <div className="flex items-center gap-2 p-2">
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Keresés..."
+          className="w-full px-2 py-1 rounded-md bg-black/10 outline-none"
         />
-      ))}
+        <label className="flex items-center gap-1 text-xs opacity-80">
+          <input type="checkbox" checked={showMachines} onChange={e => setShowMachines(e.target.checked)} />
+          Gépek
+        </label>
+        <label className="flex items-center gap-1 text-xs opacity-80">
+          <input type="checkbox" checked={showWorkstations} onChange={e => setShowWorkstations(e.target.checked)} />
+          Munkaállomások
+        </label>
+      </div>
+
+      {/* Listák */}
+      <div className="space-y-2 p-2">
+        {showMachines && grouped.machines.length > 0 && (
+          <GroupBlock title="Gépek" items={grouped.machines} rowHeight={rowHeight} />
+        )}
+        {showWorkstations && grouped.workstations.length > 0 && (
+          <GroupBlock title="Munkaállomások" items={grouped.workstations} rowHeight={rowHeight} />
+        )}
+        {showMachines && showWorkstations && grouped.machines.length === 0 && grouped.workstations.length === 0 && (
+          <div className="text-sm opacity-70 p-2">Nincs megjeleníthető erőforrás.</div>
+        )}
+      </div>
     </div>
   )
 }
 
-/** Gép sor – + gombbal új draft sáv
- * Figyelem: a backend /storeSplit megköveteli a ratePph-t → adunk defaultot, ha nincs.
- * (A start/end kiszámítása történhet a store-ban: NOW..NOW+60min, stb.)
- */
-function MachineRow({
-  node, productNodeId, processNodeId, ratePph, defaultQty = 100
-}: {
-  node: TreeNode
-  productNodeId: string
-  processNodeId: string
-  ratePph?: number
-  defaultQty?: number
-}) {
+function GroupBlock({ title, items, rowHeight }: { title: string, items: Resource[], rowHeight: number }) {
+  return (
+    <div>
+      <div style={{ height: rowHeight, display: 'flex', alignItems: 'center' }}>
+        <div style={rowStyle(0)}>
+          <span className="font-semibold">{title}</span>
+        </div>
+      </div>
+      <div className="mt-1 space-y-1">
+        {items.map(r => (
+          <MachineRow key={r.id} resource={r} rowHeight={rowHeight} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Gép / munkaállomás sor (draft + gombbal) */
+function MachineRow({ resource, rowHeight }: { resource: Resource, rowHeight: number }) {
   const createDraft = useScheduler(s => s.createDraftSegment)
+  const totals = useScheduler(s => s.totals) as Record<number, number> | undefined
+  const planned = totals?.[Number(resource.id)] ?? 0
+
+  // célmennyiség-heurisztika
+  type ResourceWithTarget = Resource & { targetQty?: number; target_qty?: number; target?: number }
+  const rw = resource as ResourceWithTarget
+  const target = Number(rw.targetQty ?? rw.target_qty ?? rw.target ?? 0)
 
   const onAdd = () => {
-    if (!node.resourceId) return
-
-    // ⚠️ fontos: biztosítsuk, hogy ratePph sose legyen undefined (backend: required)
-    const effectiveRate = Number.isFinite(ratePph as number)
-      ? (ratePph as number)
-      : (typeof (node as any).ratePph === 'number' && (node as any).ratePph > 0
-          ? (node as any).ratePph
-          : 100) // biztonságos default
-
+    const rate = Number((rw as any).defaultRatePph ?? (rw as any).ratePph ?? 100) || 100
     createDraft({
-      machineId: Number(node.resourceId),
-      productNodeId,
-      processNodeId,
-      title: `${node.name} • ${defaultQty} db`,
-      qty: defaultQty,
-      ratePph: effectiveRate,
-      // tetszőleges extra: batchSize, initialDurationMinutes, stb. – ha a store használja
-      batchSize: 100,
+      machineId: Number(resource.id),
+      productNodeId: '',   // nincs fa
+      processNodeId: '',   // nincs fa
+      title: `${resource.name} • 100 db`,
+      qty: 100,
+      ratePph: rate,
     } as any)
   }
 
   return (
-    <>
-      <span className="truncate">{node.name}</span>
-      <button
-        type="button"
-        className="px-2 py-0.5 rounded-md text-sm hover:opacity-80 border"
-        onClick={onAdd}
-        title="Hasáb hozzáadása"
-      >
-        +
-      </button>
-      {node.hasPlannedBars && <span className="text-xs opacity-70">(tervezett van)</span>}
-    </>
-  )
-}
-
-/** Folyamat sor – gyártandó / tervezett db */
-function ProcessRow({ node, productNodeId, productSumQty }: {
-  node: TreeNode
-  productNodeId: string
-  productSumQty: number
-}) {
-  const tasks = useScheduler(s => s.tasks) as any[] | undefined
-  const plannedQty = (tasks ?? [])
-    .filter(t => t.processNodeId === node.id && t.productNodeId === productNodeId)
-    .reduce((acc, t) => acc + (t.qtyTotal ?? 0), 0)
-
-  return (
-    <>
-      <span className="font-medium">{node.name}</span>
-      <span className="text-xs opacity-70">
-        {Math.round(productSumQty)} db / {plannedQty} db
-      </span>
-    </>
+    <div style={{ paddingLeft: 14, height: rowHeight, display: 'flex', alignItems: 'center' }}>
+      <div style={rowStyle(1)}>
+        <span className="truncate">
+          {resource.name} {`(${Math.round(target)} db / ${Math.round(planned)} db)`}
+        </span>
+        <button
+          type="button"
+          className="px-2 py-0.5 rounded-md text-sm hover:opacity-80 border"
+          onClick={onAdd}
+          title="Hasáb hozzáadása"
+        >
+          +
+        </button>
+      </div>
+    </div>
   )
 }

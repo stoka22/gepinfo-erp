@@ -2,13 +2,14 @@
 import React, { useMemo, useRef } from 'react'
 import { useScheduler } from '../store'
 import type { Task } from '../types'
-import { moveTask, saveSplit } from '../api'
+import { moveTask, saveSplit, deleteSplit, deleteTask } from '../api'
 
 const HOUR_MS  = 3_600_000
 const PCS_STEP = 100
 const HANDLE_W = 16
 const DEFAULT_RATE  = 100
-const DEFAULT_BATCH = 100
+
+
 
 type BarsLayerProps = {
   /** Eddig a pillanatig visszamenőleg NEM szerkeszthetők a sávok */
@@ -23,6 +24,13 @@ function toISO19(ms: number) {
   return new Date(ms).toISOString().slice(0, 19)
 }
 
+// csak a cím „tiszta” része (ha a címben korábban benne maradt a " • 100 db • 0 db ...")
+function baseTitle(title: string | undefined) {
+  if (!title) return ''
+  const i = title.indexOf(' • ')
+  return i >= 0 ? title.slice(0, i) : title
+}
+
 export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
   const rows        = useScheduler(s => s.visibleRows)
   const tasks       = useScheduler(s => s.tasks)
@@ -32,6 +40,8 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
   const pxPerHour   = useScheduler(s => s.pxPerHour)
   const slotMinutes = useScheduler(s => s.slotMinutes)
   const patchTask   = useScheduler(s => s.patchTask)
+  const removeTaskS = useScheduler(s => s.removeTask)
+  const tree        = useScheduler(s => s.tree)
 
   const hourPx   = pxPerHour || 60
   const windowMs = Math.max(1, +to - +from)
@@ -42,6 +52,18 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
   const totalHeight = rows.length * rowHeight
 
   const msToPx = (ms: number) => (ms / HOUR_MS) * hourPx
+
+  const productById = useMemo(() => {
+    const m = new Map<string, { name: string; code?: string }>()
+    const walk = (n: any) => {
+      if (n?.type === 'product') {
+        m.set(String(n.id), { name: n.name, code: n.code ?? n.sku ?? n.article ?? n.partNo })
+      }
+      n?.children?.forEach(walk)
+    }
+    tree?.forEach(walk)
+    return m
+  }, [tree])
 
   // resourceId + processNodeId -> rowIndex (és fallback csak resourceId-ra)
   const rowIndexByKey = useMemo(() => {
@@ -76,12 +98,22 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
     qty0: number | undefined
     rate: number | undefined
     x0: number
+    resourceId: number
     active: boolean
   } | null>(null)
 
+  // --- ütközésvizsgálat ugyanazon a gépen
+  const hasOverlap = (candidate: { id: Task['id']; resourceId: number; start: number; end: number }) => {
+    const all = useScheduler.getState().tasks as Task[]
+    return all.some(it =>
+      Number((it as any).resourceId) === candidate.resourceId &&
+      String(it.id) !== String(candidate.id) &&
+      !(candidate.end <= +new Date(it.start as any) || candidate.start >= +new Date(it.end as any))
+    )
+  }
+
   // --- végleges mentés egér felengedéskor
   const persistById = async (id: Task['id']) => {
-    // Mindig a LEGFRISSEBB state-ből olvassunk (ne a bezárt closure-ból)
     const all = useScheduler.getState().tasks as Task[]
     const t = all.find(x => x.id === id)
     if (!t) return
@@ -111,8 +143,8 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
         title: t.title ?? null,
         start: t.start,
         end:   t.end,
-        ratePph: t.ratePph ?? DEFAULT_RATE,         // sosem undefined
-        batchSize: t.batchSize ?? DEFAULT_BATCH,     // sosem undefined
+        ratePph: t.ratePph ?? DEFAULT_RATE,
+        ...(t.batchSize != null ? { batchSize: t.batchSize } : {}),
         qtyFrom:  t.qtyFrom ?? 0,
       })
     }
@@ -139,6 +171,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
       qty0: task.qtyTotal,
       rate: task.ratePph,
       x0: e.clientX,
+      resourceId: Number(task.resourceId),
       active: true,
     }
 
@@ -185,6 +218,14 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
           newEnd = roundToSlot(st.end0 + dMs, slotMs)
           if (newEnd < st.start0 + slotMs) newEnd = st.start0 + slotMs
         }
+      }
+
+      // ---- ÜTKÖZÉS TILTÁSA ----
+      if (hasOverlap({ id: st.id, resourceId: st.resourceId, start: newStart, end: newEnd })) {
+        document.body.style.cursor = 'not-allowed'
+        return
+      } else {
+        document.body.style.cursor = st.mode === 'move' ? 'grabbing' : 'ew-resize'
       }
 
       const patch: Partial<Task> = { start: toISO19(newStart), end: toISO19(newEnd) }
@@ -260,10 +301,27 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
               ${edgeShade} 100%
            ), ${baseColor}`
 
+      // --- Látható darabszám a képernyőn látszó rész alapján ---
+      const visibleHours = (endMs - startMs) / HOUR_MS
+      const rate = Number(t.ratePph ?? 0)
+      //const visibleQty = Math.max(0, Math.round(visibleHours * (Number.isFinite(rate) ? rate : 0)))
+      const visibleQty = Number.isFinite(t.qtyTotal) ? Math.round(t.qtyTotal as number) : 0;
+
+
+      // --- Terméknév + cikkszám a fáról (ha van), különben a régi cím "tiszta" része ---
+      const prodMeta = t.productNodeId ? productById.get(String(t.productNodeId)) : undefined
+      const prodText = prodMeta
+        ? (prodMeta.code ? `${prodMeta.name} (${prodMeta.code})` : prodMeta.name)
+        : baseTitle(t.title)
+
+      // --- Végső címke: „Termék (cikkszám) • N db” — 0 db-ot nem írunk ki ---
+      const label = visibleQty > 0 ? `${prodText} • ${visibleQty} db` : prodText
+
+
       return (
         <div
           key={t.id}
-          title={`${t.title ?? ''} • ${new Date(startMs0).toLocaleString()} → ${new Date(endMs0).toLocaleString()}`}
+          title={`${label} • ${new Date(startMs0).toLocaleString()} → ${new Date(endMs0).toLocaleString()}`}
           style={{
             position: 'absolute',
             left, top,
@@ -276,8 +334,6 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
             border: ro ? '1px dashed rgba(255,255,255,.25)' : '1px solid rgba(0,0,0,.15)',
             boxShadow: '0 1px 3px rgba(0,0,0,.35)',
             overflow: 'hidden',
-            whiteSpace: 'nowrap',
-            textOverflow: 'ellipsis',
             padding: '0 6px',
             fontSize: 12,
             lineHeight: `${barH}px`,
@@ -285,6 +341,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
             zIndex: 2,
             cursor: ro ? 'default' : 'grab',
             userSelect: 'none',
+            color: '#fff'
           }}
           onMouseDown={(e) => {
             if (ro) return
@@ -304,11 +361,52 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
             ;(e.currentTarget as HTMLDivElement).style.cursor = overEdge ? 'ew-resize' : 'grab'
           }}
         >
-          {t.title}
+          {/* címke + törlés gomb EGYSORBAN, a gomb a végén */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="truncate" style={{ pointerEvents: 'none', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {label}
+            </span>
+
+            {/* törlés gomb (mindig látszik, múltban is) */}
+            <button
+              title="Törlés"
+              onClick={async (ev) => {
+                ev.stopPropagation()
+                if (!confirm('Biztosan törlöd ezt a sávot?')) return
+                try {
+                  if (String(t.id).startsWith('split_')) {
+                    await deleteSplit(Number(String(t.id).slice(6)))
+                  } else {
+                    await deleteTask(Number(t.id))
+                  }
+                  removeTaskS(t.id)
+                } catch (err) {
+                  console.error('Törlés hiba:', err)
+                  alert('Törlés nem sikerült.')
+                }
+              }}
+              style={{
+                flex: 'none',
+                width: 18, height: 18,
+                borderRadius: 4,
+                border: '1px solid rgba(0,0,0,.25)',
+                background: 'rgba(0,0,0,.25)',
+                color: 'white',
+                fontSize: 12,
+                lineHeight: '16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              ×
+            </button>
+          </div>
         </div>
       )
     })
-  }, [tasks, from, to, rowHeight, rowIndexByKey, readOnlyBeforeTs, pxPerHour, slotMinutes])
+  }, [tasks, from, to, rowHeight, rowIndexByKey, readOnlyBeforeTs, pxPerHour, slotMinutes, removeTaskS])
 
   // Összesítő hasáb a process sorokon
   const processAggregates = useMemo(() => {

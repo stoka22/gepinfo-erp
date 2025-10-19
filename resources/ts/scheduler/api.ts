@@ -1,5 +1,6 @@
 import type { Resource, Task, TreeNode } from './types'
 
+/* -------------------- helpers -------------------- */
 function getCsrfToken(): string {
   const m = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null
   return m?.content ?? ''
@@ -31,26 +32,56 @@ async function fetchJSON<T = any>(url: string, options: RequestInit = {}): Promi
   return data as T
 }
 
-/* ---------- Resources ---------- */
+/* -------------------- resources -------------------- */
 export async function fetchResources(): Promise<Resource[]> {
   return fetchJSON<Resource[]>('/api/scheduler/resources')
 }
 
-/* ---------- Tasks (list) ---------- */
+/* -------------------- tasks (list + totals) -------------------- */
+export type FetchTasksResult = {
+  items: Task[]
+  totals: Record<number, number> // { [resourceId]: sumQty }
+}
+
 export async function fetchTasks(params: {
   fromISO: string
   toISO: string
   resourceId?: number | string
-}): Promise<Task[]> {
+}): Promise<FetchTasksResult> {
   const { fromISO, toISO, resourceId } = params
-  const usp = new URLSearchParams()
-  usp.set('from', fromISO)
-  usp.set('to', toISO)
-  if (resourceId != null) usp.set('resource_id', String(resourceId))
-  return fetchJSON<Task[]>(`/api/scheduler/tasks?${usp.toString()}`)
+  const url = new URL('/api/scheduler/tasks', window.location.origin)
+  url.searchParams.set('from', fromISO)
+  url.searchParams.set('to', toISO)
+  if (resourceId != null) url.searchParams.set('resource_id', String(resourceId))
+  // kérjük a szerveroldali összesítést is
+  url.searchParams.set('with_totals', '1')
+
+  // Itt nem a fetchJSON-t használjuk, mert a headerből is olvashatunk totals-t
+  const resp = await fetch(url.toString(), {
+    credentials: 'include',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  })
+
+  const text = await resp.text()
+  let data: any = null
+  try { data = text ? JSON.parse(text) : null } catch { /* ignore */ }
+
+  if (!resp.ok) {
+    const msg = (data && (data.error || data.message)) || text || `HTTP ${resp.status}`
+    throw new Error(msg)
+  }
+
+  // a backend vagy { items, totals }-t ad, vagy csak egy tömböt + X-Scheduler-ResourceTotals header-t
+  const headerTotals = resp.headers.get('X-Scheduler-ResourceTotals')
+  const items: Task[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
+  const totals: Record<number, number> = (data && data.totals)
+    ? data.totals
+    : (headerTotals ? JSON.parse(headerTotals) : {})
+
+  return { items, totals }
 }
 
-/* ---------- Committed task move/resize ---------- */
+/* -------------------- committed task move/resize -------------------- */
 export async function moveTask(opts: {
   id: number | string
   machineId?: number | string | null
@@ -87,21 +118,21 @@ export async function resizeTask(opts: {
   })
 }
 
-/* ---------- Draft split (create or update) ---------- */
+/* -------------------- draft split (create or update) -------------------- */
 export type SaveSplitBody = {
   id?: string              // "split_{id}" – update esetén
   machine_id: number
   partner_order_item_id?: number | null
   title?: string | null
-  start: string            // "YYYY-MM-DDTHH:mm:ss"
+  start: string            // ISO
   end: string
-  ratePph: number          // backend: required, numeric
+  ratePph: number
   batchSize?: number
   qtyFrom?: number
 }
 export type SaveSplitResp = {
   ok: boolean
-  item: Task              // a backend a kliens-sémának megfelelően adja vissza
+  item: Task
 }
 
 export async function saveSplit(body: SaveSplitBody): Promise<SaveSplitResp> {
@@ -111,7 +142,25 @@ export async function saveSplit(body: SaveSplitBody): Promise<SaveSplitResp> {
   })
 }
 
-/* ---------- Tree ---------- */
+/* -------------------- delete (draft / committed) -------------------- */
+export async function deleteSplit(splitId: number): Promise<void> {
+  await fetchJSON<void>(`/api/scheduler/splits/${splitId}`, { method: 'DELETE' })
+}
+
+export async function deleteTask(taskId: number): Promise<void> {
+  await fetchJSON<void>(`/api/scheduler/tasks/${taskId}`, { method: 'DELETE' })
+}
+
+/* -------------------- next free slot -------------------- */
+export async function nextSlot(resourceId: number, fromISO: string, seconds: number): Promise<{ start: string; end: string }> {
+  const url = new URL('/api/scheduler/next-slot', window.location.origin)
+  url.searchParams.set('resource_id', String(resourceId))
+  url.searchParams.set('from', fromISO)
+  url.searchParams.set('seconds', String(seconds))
+  return fetchJSON<{ start: string; end: string }>(url.toString())
+}
+
+/* -------------------- tree -------------------- */
 export async function fetchTree(fromISO: string, toISO: string): Promise<TreeNode[]> {
   const url = new URL('/api/scheduler/tree', window.location.origin)
   url.searchParams.set('from', fromISO)

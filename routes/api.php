@@ -87,29 +87,32 @@ Route::prefix('device')->group(function () {
 // SCHEDULER endpoints (ONE group)
 // -----------------------------
 // Ha globálisan rá van rakva 'auth:sanctum' az API csoportra, itt explicit levesszük:
+// -----------------------------
+// SCHEDULER endpoints (ONE group)
+// -----------------------------
+// Ha globálisan van 'auth:sanctum' az API csoportra, itt vegyük le (frontend sessiont használ):
 Route::prefix('scheduler')
     ->withoutMiddleware(['auth:sanctum'])
     ->group(function () {
+
         // Olvasások
-        Route::get('tasks',      [TaskController::class, 'index']);
-        Route::get('occupancy',  [TaskController::class, 'occupancy']);
+        Route::get('resources',   [ResourceController::class, 'index']);
+        Route::get('tree',        [TreeController::class, 'index']);
+        Route::get('tasks',       [TaskController::class, 'index']);       // with_totals=1 támogatva
+        Route::get('occupancy',   [TaskController::class, 'occupancy']);
 
-        // Írások – adunk enyhe rate limitet
-        Route::post('tasks',     [TaskController::class, 'store'])->middleware('throttle:60,1');
-        Route::patch('tasks/{task}', [TaskController::class, 'update'])->middleware('throttle:60,1');
-        Route::delete('tasks/{task}',[TaskController::class, 'destroy'])->middleware('throttle:60,1');
+        // Írások
+        Route::post('tasks',              [TaskController::class, 'store'])->middleware('throttle:60,1');
+        Route::patch('tasks/{task}',      [TaskController::class, 'update'])->middleware('throttle:60,1');
+        Route::delete('tasks/{task}',     [TaskController::class, 'destroy'])->middleware('throttle:60,1');
+        Route::post('tasks/{task}/move',  [TaskController::class, 'move'])->middleware('throttle:60,1');
+        Route::post('tasks/{task}/resize',[TaskController::class, 'resize'])->middleware('throttle:60,1');
 
-        Route::post('tasks/{task}/move',   [TaskController::class, 'move'])->middleware('throttle:60,1');
-        Route::post('tasks/{task}/resize', [TaskController::class, 'resize'])->middleware('throttle:60,1');
+        // Draft split létrehozás / módosítás / törlés
+        Route::post('splits',             [TaskController::class, 'storeSplit'])->middleware('throttle:60,1');
+        Route::delete('splits/{split}',   [TaskController::class, 'destroySplit'])->middleware('throttle:60,1');
 
-        // Draft split létrehozás / módosítás
-        Route::post('splits',    [TaskController::class, 'storeSplit'])->middleware('throttle:60,1');
-
-        // TEMP DEBUG: nézd meg, milyen middleware-ek vannak ténylegesen ezen az útvonalon
-        Route::get('_debug/mw', function (Request $r) {
-            return response()->json([
-                'route' => $r->route()->uri(),
-                'middleware' => $r->route()->computedMiddleware(),
-            ]);
-        });
+        // Következő szabad idősáv és műszak-ablak (a SPA hívja)
+        Route::get('next-slot',           [TaskController::class, 'nextSlot']);
+        Route::get('shift-window',        [TaskController::class, 'shiftWindow']);
     });

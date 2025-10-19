@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PendingDeviceController;
+use App\Http\Controllers\JumpCodeController;
 use App\Http\Controllers\Scheduler\TaskController;
 use App\Http\Controllers\Scheduler\TreeController;
 //use App\Http\Controllers\TimeEntryCalendarController;
@@ -11,6 +12,8 @@ use App\Http\Controllers\Scheduler\ResourceController;
 
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn () => redirect()->route('filament.user.auth.login'))->name('login');
+Route::get('jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.index');
+Route::post('jump-codes/generate', [JumpCodeController::class, 'generate'])->name('jumpcodes.generate');
 
 // Főoldal (maradhat ahogy van)
 Route::get('/', function () {
@@ -76,10 +79,13 @@ Route::middleware(['auth'])->group(function () {
         ->name('time-entries.calendar.markers');
 });
 
-// ⬇⬇⬇ SCHEDULER – EZ A LÉNYEG ⬇⬇⬇
+/* ⬇⬇⬇ SCHEDULER – EZ A LÉNYEG ⬇⬇⬇
 Route::middleware(['web','auth'])->group(function () {
     // a React oldal (ha külön nézetet használsz Filamenten kívül)
     Route::view('/scheduler', 'scheduler')->name('scheduler.view');
+    Route::get('/scheduler/next-slot', [TaskController::class, 'nextSlot']);
+    Route::delete('/scheduler/splits/{split}', [TaskController::class, 'destroySplit']);
+    
 
     // a frontend fetch-ek erre hívnak: /api/scheduler/...
     Route::prefix('api/scheduler')->group(function () {
@@ -92,4 +98,4 @@ Route::middleware(['web','auth'])->group(function () {
 
     
    
-});
+});*/

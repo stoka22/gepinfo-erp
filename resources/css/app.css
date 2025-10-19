@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@font-face {
+  font-family: "fcicons";
+  src: url("/build/assets/fonts/fcicons.woff2") format("woff2"),
+       url("/build/assets/fonts/fcicons.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

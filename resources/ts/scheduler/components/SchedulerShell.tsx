@@ -3,7 +3,6 @@ import { useScheduler } from '../store'
 import Timeline from './Timeline'
 import BarsLayer from './BarsLayer'
 import ResourceTree from './ResourceTree'
-
 import { TIMELINE_H } from '../utils/constants'
 
 const MIN_LEFT = 220
@@ -14,7 +13,6 @@ const TOP_SCROLL_H = 12
 type ViewMode = 'week' | 'month'
 const WEEK_MS  = 7 * 24 * 60 * 60 * 1000
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000
-
 
 export default function SchedulerShell() {
   const from            = useScheduler(s => s.from)
@@ -30,7 +28,6 @@ export default function SchedulerShell() {
   const snapWindowToNow = useScheduler(s => s.snapWindowToNow)
   const setFromTo       = useScheduler(s => s.setFromTo)
   const setWindowToShiftForDate = useScheduler(s => s.setWindowToShiftForDate)
-  const shift           = useScheduler(s => s.shift)
 
   const [view, setView] = useState<ViewMode>('week')
   const viewMs = view === 'week' ? WEEK_MS : MONTH_MS
@@ -40,7 +37,9 @@ export default function SchedulerShell() {
     const n = Number(localStorage.getItem(LS_KEY_LEFT))
     return Number.isFinite(n) && n >= MIN_LEFT ? Math.min(n, MAX_LEFT) : 300
   })
-  useEffect(() => { localStorage.setItem(LS_KEY_LEFT, String(leftWidth)) }, [leftWidth])
+  useEffect(() => {
+    localStorage.setItem(LS_KEY_LEFT, String(leftWidth))
+  }, [leftWidth])
 
   // resizer
   const draggingRef = useRef(false)
@@ -75,7 +74,10 @@ export default function SchedulerShell() {
     if (dur < viewMs) setFromTo(from, new Date(+from + viewMs))
   }, [from, to, viewMs, setFromTo])
 
-  useEffect(() => { loadAll().catch(() => {}) }, [from, to])
+  // adatok betöltése ablak-változásra
+  useEffect(() => {
+    loadAll().catch(() => {})
+  }, [from, to, loadAll])
 
   const gridBg = useMemo<React.CSSProperties>(() => {
     const hour = pxPerHour || 60
@@ -93,7 +95,7 @@ export default function SchedulerShell() {
   const rightScrollRef = useRef<HTMLDivElement>(null)
 
   // idősáv szélesség
-  const hoursTotal = Math.max(1, (+to - +from) / 3_600_000)
+  const hoursTotal   = Math.max(1, (+to - +from) / 3_600_000)
   const contentWidth = Math.ceil(hoursTotal * (pxPerHour || 60))
 
   // top & main scroll sync
@@ -123,12 +125,15 @@ export default function SchedulerShell() {
   }
   // ablakméret változásra tartsuk a zoom-ot vizuálisan
   useEffect(() => {
-    const onResize = () => setVisibleHours(Math.max(4, Math.min(24, (rightScrollRef.current?.clientWidth || 1200) / (pxPerHour || 60))))
+    const onResize = () => {
+      const width = rightScrollRef.current?.clientWidth || 1200
+      const hrs = Math.max(4, Math.min(24, width / (pxPerHour || 60)))
+      setVisibleHours(hrs)
+    }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [pxPerHour])
 
-  const nowTs = Date.now()
   const shiftWindow = (dir: -1 | 1) => {
     const step = viewMs
     setFromTo(new Date(+from + dir * step), new Date(+to + dir * step))
@@ -230,20 +235,22 @@ export default function SchedulerShell() {
             </div>
 
             <div
-            ref={rightScrollRef}
-            className="flex-1 min-h-0 overflow-auto relative"
-            style={{ ...gridBg, paddingTop: TIMELINE_H }}
-          >
-            {/* Timeline overlay – ne tolja le a tartalmat */}
-            <div
-              className="sticky top-0 z-10 pointer-events-none"
-              style={{ height: TIMELINE_H, marginTop: -TIMELINE_H }}
-              aria-hidden
+              ref={rightScrollRef}
+              className="flex-1 min-h-0 overflow-auto relative"
+              style={{ ...gridBg, paddingTop: TIMELINE_H }}
             >
-              <Timeline />
+              {/* Timeline overlay – ne tolja le a tartalmat */}
+              <div
+                className="sticky top-0 z-10 pointer-events-none"
+                style={{ height: TIMELINE_H, marginTop: -TIMELINE_H }}
+                aria-hidden
+              >
+                <Timeline />
+              </div>
+
+              {/* A törlés gomb megjelenítéséhez minden sáv szerkeszthető */}
+              <BarsLayer readOnlyBeforeTs={0} />
             </div>
-            <BarsLayer readOnlyBeforeTs={shift?.startTs ?? 0} />
-          </div>
           </section>
         </div>
       </div>

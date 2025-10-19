@@ -47,6 +47,9 @@
     <div class="topbar">
         <span class="count">Frissítés: <span id="cd">00:00</span></span>
         <a class="btn" href="{{ route('filament.user.auth.login') }}">Belépés</a>
+        <a href="{{ route('jumpcodes.index') }}"  class="inline-flex items-center gap-2 rounded bg-primary-600 px-4 py-2 text-white">
+            Service
+        </a>
     </div>
 
     <div class="wrap">

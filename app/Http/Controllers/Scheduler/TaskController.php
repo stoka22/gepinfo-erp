@@ -23,12 +23,13 @@ class TaskController extends Controller
             'from'        => ['required', 'date'],
             'to'          => ['required', 'date', 'after:from'],
             'resource_id' => ['nullable', 'integer'],
+            'with_totals' => ['nullable'],
         ]);
 
         $from = Carbon::parse($req->input('from'));
         $to   = Carbon::parse($req->input('to'));
 
-        // --- Committed (production_tasks) ---
+        // --- committed ---
         $q = ProductionTask::query()
             ->with([
                 'machine:id,name',
@@ -50,9 +51,7 @@ class TaskController extends Controller
         $tasks = $q->orderBy('starts_at')->get();
 
         $committedPayload = $tasks->map(function ($t) {
-            $capableIds = $t->workStep
-                ? $t->workStep->machines->pluck('id')->values()->all()
-                : [];
+            $capableIds = $t->workStep ? $t->workStep->machines->pluck('id')->values()->all() : [];
 
             $qty = (float)($t->qty ?? 0);
 
@@ -69,16 +68,20 @@ class TaskController extends Controller
                 'id'        => $t->id,
                 'resourceId'=> $t->machine_id,
                 'title'     => $title,
-                'start'     => optional($t->starts_at)->toIso8601String(),
-                'end'       => optional($t->ends_at)->toIso8601String(),
+                'start'     => optional($t->starts_at)->format('Y-m-d\TH:i:s'),
+                'end'       => optional($t->ends_at)->format('Y-m-d\TH:i:s'),
                 'qtyTotal'  => $qty,
                 'qtyFrom'   => 0.0,
                 'qtyTo'     => $qty,
                 'ratePph'   => $ratePph,
                 'batchSize' => null,
+                'productNodeId' => $t->item_id,          // ⬅️ termék id, amivel a tree 'product' node egyezik
+                'processNodeId' => $t->work_step_id,     // ⬅️ ha van ilyen
+                'productSku'    => $t->item->sku ?? null,
+                'productName'   => $t->item->name ?? null,
                 'partnerName'   => $t->partner->name ?? null,
                 'orderCode'     => $t->order->order_no ?? null,
-                'productSku'    => $t->item->sku ?? null,
+                
                 'operationName' => $t->workStep->name ?? null,
                 'capableMachineIds' => $capableIds,
                 'updatedAt' => optional($t->updated_at)->toIso8601String(),
@@ -86,7 +89,7 @@ class TaskController extends Controller
             ];
         });
 
-        // --- Draft (production_splits) ---
+        // --- draft ---
         $sq = ProductionSplit::query()
             ->with(['orderItem.order.partner', 'orderItem.product'])
             ->where('is_committed', false)
@@ -104,18 +107,20 @@ class TaskController extends Controller
             $partnerName = $s->orderItem?->order?->partner?->name;
             $orderCode   = $s->orderItem?->order?->order_no;
             $productSku  = $s->orderItem?->product?->sku;
+            $product = $s->orderItem?->product;
+            $processId = $s->orderItem?->workflow_step_id;
 
             return [
-                'id'        => 'split_' . $s->id, // STRING, ne ütközzön
+                'id'        => 'split_' . $s->id,
                 'resourceId'=> $s->machine_id,
                 'title'     => $s->title ?? ($productSku ?: 'Tervezett művelet'),
-                'start'     => optional($s->start)->toIso8601String(),
-                'end'       => optional($s->end)->toIso8601String(),
+                'start'     => optional($s->start)->format('Y-m-d\TH:i:s'),
+                'end'       => optional($s->end)->format('Y-m-d\TH:i:s'),
                 'qtyTotal'  => (int)($s->qty_total ?? 0),
                 'qtyFrom'   => (int)($s->qty_from ?? 0),
                 'qtyTo'     => (int)($s->qty_to ?? 0),
                 'ratePph'   => $s->rate_pph !== null ? (float)$s->rate_pph : null,
-                'batchSize' => $s->batch_size !== null ? (int)$s->batch_size : 100,
+                'batchSize' => $s->batch_size !== null ? (int)$s->batch_size : null,
                 'partnerName'   => $partnerName,
                 'orderCode'     => $orderCode,
                 'productSku'    => $productSku,
@@ -123,49 +128,145 @@ class TaskController extends Controller
                 'capableMachineIds' => [],
                 'updatedAt' => optional($s->updated_at)->toIso8601String(),
                 'committed' => false,
+                'productNodeId' => $product?->id,       // ⬅️
+                'processNodeId' => $processId,          // ⬅️
+                'productSku'    => $product?->sku,
+                'productName'   => $product?->name, 
             ];
         });
 
-        $payload = $committedPayload->concat($draftPayload)->values();
+        $items  = $committedPayload->concat($draftPayload)->values();
 
-        // Biztonságos logolás (mindig tömb a context!)
-        Log::info('scheduler.index splits', [
-            'draft_count' => $splits->count(),
-            'draft_sample'=> $splits->take(3)->toArray(),
-            'committed_count' => $tasks->count(),
-        ]);
+        // totals erőforrásonként
+        $totals = [];
+        foreach ($items as $it) {
+            $rid = (int)$it['resourceId'];
+            $q   = (int)($it['qtyTotal'] ?? 0);
+            $totals[$rid] = ($totals[$rid] ?? 0) + $q;
+        }
 
-        return response()->json($payload);
+        if ($req->boolean('with_totals')) {
+            return response()->json(['items' => $items, 'totals' => $totals]);
+        }
+
+        return response()
+            ->json($items)
+            ->header('X-Scheduler-ResourceTotals', json_encode($totals));
     }
+
 
     /** Új committed task létrehozása. */
     public function store(Request $r)
     {
         $data = $r->validate([
-            'partner_id'            => ['required', 'integer'],
-            'partner_order_id'      => ['required', 'integer'],
-            'partner_order_item_id' => ['required', 'integer'],
-            'item_id'               => ['required', 'integer'],
-            'item_work_step_id'     => ['nullable', 'integer'],
-            'workflow_id'           => ['nullable', 'integer'],
-            'workflow_step_id'      => ['nullable', 'integer'],
-            'machine_id'            => ['nullable', 'integer'],
-            'qty'                   => ['required', 'numeric'],
-            'setup_seconds'         => ['nullable', 'integer'],
-            'run_seconds'           => ['nullable', 'integer'],
-            'starts_at'             => ['required', 'date'],
-            'ends_at'               => ['required', 'date', 'after:starts_at'],
-            'status'                => ['nullable', Rule::in(['planned','in_progress','done','blocked','canceled'])],
-            'note'                  => ['nullable', 'string'],
+            'id'         => ['nullable','string'],
+            'machine_id' => ['required','integer','exists:machines,id'],
+            'partner_order_item_id' => ['nullable','integer','exists:partner_order_items,id'],
+            'title'      => ['nullable','string','max:255'],
+            'start'      => ['required','date'],
+            'end'        => ['required','date','after:start'],
+            'ratePph'    => ['required','numeric','min:0'],
+            'batchSize'  => ['nullable','integer','min:1'],
+            'qtyFrom'    => ['nullable','integer','min:0'],
         ]);
 
-        if (empty($data['item_work_step_id']) && !empty($data['workflow_step_id'])) {
-            $data['item_work_step_id'] = (int)$data['workflow_step_id'];
-        }
-        unset($data['workflow_step_id']);
+        $rid   = (int)$data['machine_id'];
+        $rate  = (float)$data['ratePph'];
+        $batch = $data['batchSize'] ?? null;
 
-        $task = ProductionTask::create($data);
-        return response()->json(['id' => $task->id], 201);
+        // ⬅️ NEM vágjuk le a másodperceket
+        $start = Carbon::parse($data['start']);
+        $end   = Carbon::parse($data['end']);
+        $durSec = max(60, $end->diffInSeconds($start)); // min. 60s
+
+        DB::beginTransaction();
+        try {
+            // --- Ütközésvizsgálat ugyanazon a gépen (szélérintkezés megengedett) ---
+            $overlap = function(Carbon $s, Carbon $e) use ($rid) {
+                $has = ProductionTask::query()
+                    ->where('machine_id', $rid)
+                    ->whereNotNull('starts_at')->whereNotNull('ends_at')
+                    ->where(function($q) use ($s,$e){
+                        $q->where('ends_at','>', $s)->where('starts_at','<', $e);
+                    })
+                    ->exists();
+
+                if (!$has) {
+                    $has = ProductionSplit::query()
+                        ->where('machine_id', $rid)->where('is_committed', false)
+                        ->whereNotNull('start')->whereNotNull('end')
+                        ->where(function($q) use ($s,$e){
+                            $q->where('end','>', $s)->where('start','<', $e);
+                        })
+                        ->exists();
+                }
+                return $has;
+            };
+
+            // ha ütközik → kérjünk azonnal új szabad slotot és oda tegyük
+            if ($overlap($start, $end)) {
+                // egyszerű next-slot: lépegessünk a következő szabad helyre
+                [$s, $e] = $this->computeNextSlot($rid, $start, $durSec);
+                $start = $s; $end = $e;
+            }
+
+            // darabszám számolása a VÉGSŐ tartamból
+            $hours  = $durSec / 3600.0;
+            $rawQty = (int)floor($hours * $rate);
+            $qty    = $rawQty <= 0 ? 0 : ($batch ? (int)floor($rawQty / $batch) * $batch : $rawQty);
+
+            $payload = [
+                'machine_id' => $rid,
+                'partner_order_item_id' => $data['partner_order_item_id'] ?? null,
+                'title'      => $data['title'] ?? null,
+                'start'      => $start,
+                'end'        => $end,
+                'qty_total'  => $qty,
+                'qty_from'   => (int)($data['qtyFrom'] ?? 0),
+                'qty_to'     => (int)($data['qtyFrom'] ?? 0) + $qty,
+                'rate_pph'   => $rate,
+                'batch_size' => $batch,
+                'is_committed' => false,
+            ];
+
+            if (!empty($data['id']) && str_starts_with($data['id'], 'split_')) {
+                $id    = (int)substr($data['id'], 6);
+                $split = ProductionSplit::lockForUpdate()->findOrFail($id);
+                $split->fill($payload)->save();
+            } else {
+                $split = ProductionSplit::create($payload);
+            }
+            DB::commit();
+
+            return response()->json([
+                'ok'   => true,
+                'item' => [
+                    'id'           => 'split_'.$split->id,
+                    'resourceId'   => $split->machine_id,
+                    'title'        => $split->title ?? 'Tervezett művelet',
+                    'start'        => $split->start->toIso8601String(),
+                    'end'          => $split->end->toIso8601String(),
+                    'qtyTotal'     => (int)$split->qty_total,
+                    'qtyFrom'      => (int)$split->qty_from,
+                    'qtyTo'        => (int)$split->qty_to,
+                    'ratePph'      => (float)$split->rate_pph,
+                    'batchSize'    => $split->batch_size !== null ? (int)$split->batch_size : null,
+                    'committed'    => false,
+                    'productNodeId' => $split->partner_order_item_id
+                        ? optional($split->orderItem->product)->id
+                        : null,
+                    'processNodeId' => $split->partner_order_item_id
+                        ? $split->orderItem->workflow_step_id
+                        : null,
+                    'productSku'    => optional($split->orderItem->product)->sku,
+                    'productName'   => optional($split->orderItem->product)->name,
+                ],
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['error' => 'Split save failed: '.$e->getMessage()], 422);
+        }
     }
 
     /** Részleges módosítás committed taskon. */
@@ -237,83 +338,106 @@ class TaskController extends Controller
     public function storeSplit(Request $r)
     {
         $data = $r->validate([
-            'id'         => ['nullable', 'string'],              // "split_{id}" vagy üres
-            'machine_id' => ['required', 'integer', 'exists:machines,id'],
-            'partner_order_item_id' => ['nullable', 'integer', 'exists:partner_order_items,id'],
-            'title'      => ['nullable', 'string', 'max:255'],
-            'start'      => ['required', 'date'],
-            'end'        => ['required', 'date', 'after:start'],
-            'ratePph'    => ['required', 'numeric', 'min:0'],
-            'batchSize'  => ['nullable', 'integer', 'min:1'],
-            'qtyFrom'    => ['nullable', 'integer', 'min:0'],
+            'id'         => ['nullable','string'],
+            'machine_id' => ['required','integer','exists:machines,id'],
+            'partner_order_item_id' => ['nullable','integer','exists:partner_order_items,id'],
+            'title'      => ['nullable','string','max:255'],
+            'start'      => ['required','date'],
+            'end'        => ['required','date','after:start'],
+            'ratePph'    => ['required','numeric','min:0'],
+            'batchSize'  => ['nullable','integer','min:1'],
+            'qtyFrom'    => ['nullable','integer','min:0'],
         ]);
 
-        $batch = (int)($data['batchSize'] ?? 100);
+        $rid   = (int)$data['machine_id'];
         $rate  = (float)$data['ratePph'];
-        $start = Carbon::parse($data['start'])->seconds(0)->milliseconds(0);
-        $end   = Carbon::parse($data['end'])->seconds(0)->milliseconds(0);
+        $batch = $data['batchSize'] ?? null;
 
-        $seconds = max(0, $end->diffInSeconds($start)); // stabil minden verzión
-        $hours   = $seconds / 3600.0;
-        $raw     = (int)floor($hours * $rate);
-        $qty     = $raw <= 0 ? 0 : max($batch, (int)(floor($raw / $batch) * $batch));
-
-        $payload = [
-            'machine_id' => (int)$data['machine_id'],
-            'partner_order_item_id' => $data['partner_order_item_id'] ?? null,
-            'title'      => $data['title'] ?? null,
-            'start'      => $start,
-            'end'        => $end,
-            'qty_total'  => $qty,
-            'qty_from'   => (int)($data['qtyFrom'] ?? 0),
-            'qty_to'     => (int)($data['qtyFrom'] ?? 0) + $qty,
-            'rate_pph'   => $rate,
-            'batch_size' => $batch,
-            'is_committed' => false,
-        ];
+        // ⬅️ NEM vágjuk le a másodperceket
+        $start = Carbon::parse($data['start']);
+        $end   = Carbon::parse($data['end']);
+        $durSec = max(60, $end->diffInSeconds($start)); // min. 60s
 
         DB::beginTransaction();
         try {
+            // --- Ütközésvizsgálat ugyanazon a gépen (szélérintkezés megengedett) ---
+            $overlap = function(Carbon $s, Carbon $e) use ($rid) {
+                $has = ProductionTask::query()
+                    ->where('machine_id', $rid)
+                    ->whereNotNull('starts_at')->whereNotNull('ends_at')
+                    ->where(function($q) use ($s,$e){
+                        $q->where('ends_at','>', $s)->where('starts_at','<', $e);
+                    })
+                    ->exists();
+
+                if (!$has) {
+                    $has = ProductionSplit::query()
+                        ->where('machine_id', $rid)->where('is_committed', false)
+                        ->whereNotNull('start')->whereNotNull('end')
+                        ->where(function($q) use ($s,$e){
+                            $q->where('end','>', $s)->where('start','<', $e);
+                        })
+                        ->exists();
+                }
+                return $has;
+            };
+
+            // ha ütközik → kérjünk azonnal új szabad slotot és oda tegyük
+            if ($overlap($start, $end)) {
+                // egyszerű next-slot: lépegessünk a következő szabad helyre
+                [$s, $e] = $this->computeNextSlot($rid, $start, $durSec);
+                $start = $s; $end = $e;
+            }
+
+            // darabszám számolása a VÉGSŐ tartamból
+            $hours  = $durSec / 3600.0;
+            $rawQty = (int)floor($hours * $rate);
+            $qty    = $rawQty <= 0 ? 0 : ($batch ? (int)floor($rawQty / $batch) * $batch : $rawQty);
+
+            $payload = [
+                'machine_id' => $rid,
+                'partner_order_item_id' => $data['partner_order_item_id'] ?? null,
+                'title'      => $data['title'] ?? null,
+                'start'      => $start,
+                'end'        => $end,
+                'qty_total'  => $qty,
+                'qty_from'   => (int)($data['qtyFrom'] ?? 0),
+                'qty_to'     => (int)($data['qtyFrom'] ?? 0) + $qty,
+                'rate_pph'   => $rate,
+                'batch_size' => $batch,
+                'is_committed' => false,
+            ];
+
             if (!empty($data['id']) && str_starts_with($data['id'], 'split_')) {
-                $id = (int)substr($data['id'], 6);
+                $id    = (int)substr($data['id'], 6);
                 $split = ProductionSplit::lockForUpdate()->findOrFail($id);
                 $split->fill($payload)->save();
             } else {
                 $split = ProductionSplit::create($payload);
             }
             DB::commit();
+
+            return response()->json([
+                'ok'   => true,
+                'item' => [
+                    'id'           => 'split_'.$split->id,
+                    'resourceId'   => $split->machine_id,
+                    'title'        => $split->title ?? 'Tervezett művelet',
+                    'start'        => $split->start->toIso8601String(),
+                    'end'          => $split->end->toIso8601String(),
+                    'qtyTotal'     => (int)$split->qty_total,
+                    'qtyFrom'      => (int)$split->qty_from,
+                    'qtyTo'        => (int)$split->qty_to,
+                    'ratePph'      => (float)$split->rate_pph,
+                    'batchSize'    => $split->batch_size !== null ? (int)$split->batch_size : null,
+                    'committed'    => false,
+                ],
+            ]);
+
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('storeSplit failed', ['msg' => $e->getMessage()]);
             return response()->json(['error' => 'Split save failed: '.$e->getMessage()], 422);
         }
-
-        $partnerName = $split->orderItem?->order?->partner?->name;
-        $orderCode   = $split->orderItem?->order?->order_no;
-        $productSku  = $split->orderItem?->product?->sku;
-
-        Log::info('storeSplit OK', ['id' => $split->id, 'qty_total' => $split->qty_total]);
-
-        return response()->json([
-            'ok'   => true,
-            'item' => [
-                'id'           => 'split_'.$split->id,
-                'resourceId'   => $split->machine_id,
-                'title'        => $split->title ?? ($productSku ?: 'Tervezett művelet'),
-                'start'        => $split->start->toIso8601String(),
-                'end'          => $split->end->toIso8601String(),
-                'qtyTotal'     => (int)$split->qty_total,
-                'qtyFrom'      => (int)$split->qty_from,
-                'qtyTo'        => (int)$split->qty_to,
-                'ratePph'      => (float)$split->rate_pph,
-                'batchSize'    => (int)$split->batch_size,
-                'partnerName'  => $partnerName,
-                'orderCode'    => $orderCode,
-                'productSku'   => $productSku,
-                'operationName'=> $split->title,
-                'committed'    => false,
-            ],
-        ]);
     }
 
     /**
@@ -356,5 +480,68 @@ class TaskController extends Controller
             ]);
 
         return response()->json(['ranges' => $committed->concat($draft)->values()]);
+    }
+
+    public function destroySplit(ProductionSplit $split)
+    {
+        if ($split->is_committed) abort(400,'Committed split nem törölhető ezen az endpointon.');
+        $split->delete();
+        return response()->noContent();
+    }
+
+     /**
+     * Következő szabad idősáv egy gépen az adott hosszal.
+     * GET /api/scheduler/next-slot?resource_id=..&from=..&seconds=..
+     */
+    private function computeNextSlot(int $rid, Carbon $from, int $durSec): array
+    {
+        $ranges = collect()
+            ->merge(
+                ProductionTask::query()
+                ->where('machine_id',$rid)
+                ->whereNotNull('starts_at')->whereNotNull('ends_at')
+                ->where('ends_at','>=',$from)
+                ->get(['starts_at as start','ends_at as end'])
+            )
+            ->merge(
+                ProductionSplit::query()
+                ->where('machine_id',$rid)->where('is_committed',false)
+                ->whereNotNull('start')->whereNotNull('end')
+                ->where('end','>=',$from)
+                ->get(['start','end'])
+            )
+            ->sortBy('start')
+            ->values();
+
+        $cursor = (clone $from);
+        foreach ($ranges as $rng) {
+            $s = Carbon::parse($rng->start);
+            $e = Carbon::parse($rng->end);
+            // szélérintkezés megengedett
+            if ($cursor->copy()->addSeconds($durSec)->lte($s)) {
+                return [$cursor->copy(), $cursor->copy()->addSeconds($durSec)];
+            }
+            if ($e->gt($cursor)) $cursor = $e->copy();
+        }
+        return [$cursor->copy(), $cursor->copy()->addSeconds($durSec)];
+    }
+
+    // /api/scheduler/next-slot – használja ugyanazt a logikát
+    public function nextSlot(Request $r)
+    {
+        $r->validate([
+            'resource_id' => ['required','integer','exists:machines,id'],
+            'from'        => ['required','date'],
+            'seconds'     => ['required','integer','min:60']
+        ]);
+        [$s, $e] = $this->computeNextSlot(
+            (int)$r->input('resource_id'),
+            Carbon::parse($r->input('from')),
+            (int)$r->input('seconds')
+        );
+        return response()->json([
+            'start' => $s->toIso8601String(),
+            'end'   => $e->toIso8601String(),
+        ]);
     }
 }

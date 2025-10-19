@@ -1,18 +1,21 @@
 // src/scheduler/store.ts
 import { create } from 'zustand'
 import type { Resource, Task, RowItem, TreeNode } from './types'
-import { fetchResources, fetchTasks, fetchTree, saveSplit } from './api'
-import { addMinutes, format } from 'date-fns'
+import { fetchResources, fetchTasks, fetchTree, saveSplit, nextSlot } from './api'
+import { format } from 'date-fns'
 
 const DEFAULT_RATE  = 100
-const DEFAULT_BATCH = 100
 
 type CollapsedMap = Record<string, true>
 type ShiftWindow = { startTs: number; endTs: number }
 
+
 export type SchedulerState = {
   resources: Resource[]
   tasks: Task[]
+  /** Szerveroldali vagy kliens által számolt összesített darabszám erőforrásonként (resourceId → qty) */
+  totals: Record<number, number>
+
   tree: TreeNode[]
   setTree: (t: TreeNode[]) => void
 
@@ -65,7 +68,9 @@ export type SchedulerState = {
     title?: string
     qty: number
     ratePph?: number
+    /** Kiindulási időpont a kereséshez; ha nincs, az aktuális ablak eleje */
     start?: string
+    /** Csak akkor küldjük, ha megadtad – nincs implicit 100 */
     batchSize?: number
   }) => Promise<void>
 }
@@ -102,10 +107,24 @@ function parseShiftEdge(edge: string, isoDate: string) {
   return new Date(`${isoDate}T${hhmmss}`)
 }
 
+/** kliens oldali totals újraszámolás a jelenlegi tasks tömbből */
+function recomputeTotals(tasks: Task[]): Record<number, number> {
+  const map: Record<number, number> = {}
+  for (const t of tasks) {
+    const rid = Number((t as any).resourceId)
+    const q = Number((t as any).qtyTotal ?? 0)
+    if (!Number.isFinite(rid)) continue
+    map[rid] = (map[rid] ?? 0) + (Number.isFinite(q) ? q : 0)
+  }
+  return map
+}
+
 /* ---------------- store ---------------- */
 export const useScheduler = create<SchedulerState>()((set, get) => ({
   resources: [],
   tasks: [],
+  totals: {},
+
   tree: [],
   setTree: (t) => {
     const tasks = get().tasks
@@ -126,7 +145,11 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   setResources: (r) => set({ resources: r }),
   setTasks: (t) => {
     const tree = get().tree
-    set({ tasks: t, tree: annotateTreeWithPlannedBars(tree, t) })
+    set({
+      tasks: t,
+      tree: annotateTreeWithPlannedBars(tree, t),
+      totals: recomputeTotals(t), // ⬅ mindig legyen konzisztens
+    })
   },
 
   setWindow: (from, to) => set({ from, to }),
@@ -165,11 +188,11 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
     } catch { /* optional feature */ }
   },
 
-  async loadAll(opts) {
+    async loadAll(opts) {
     const { from, to } = get()
     set({ loading: true, error: undefined })
     try {
-      const [resources, tree, tasks] = await Promise.all([
+      const [resources, tree, tasksResp] = await Promise.all([
         fetchResources(),
         fetchTree(from.toISOString(), to.toISOString()),
         fetchTasks({
@@ -178,10 +201,29 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
           resourceId: opts?.resourceId,
         }),
       ])
+
+      const prev = get().tasks
+      const stitchMeta = (it: any) => {
+        const p = prev.find(x => String(x.id) === String(it.id))
+        return {
+          ...it,
+          productNodeId: it.productNodeId ?? p?.productNodeId ?? '',
+          processNodeId: it.processNodeId ?? p?.processNodeId ?? '',
+        }
+      }
+
+      const items = (tasksResp.items ?? []).map(stitchMeta)
+      const totals = tasksResp.totals ?? {}
+
       set({
         resources,
-        tasks,
-        tree: annotateTreeWithPlannedBars(tree, tasks),
+        tasks: items,
+        totals: Object.keys(totals).length ? totals : (items.reduce((m: any, t: any) => {
+          const rid = Number(t.resourceId); const q = Number(t.qtyTotal ?? 0)
+          if (Number.isFinite(rid)) m[rid] = (m[rid] ?? 0) + (Number.isFinite(q) ? q : 0)
+          return m
+        }, {})),
+        tree: annotateTreeWithPlannedBars(tree, items),
         loading: false,
       })
     } catch (e: any) {
@@ -189,6 +231,7 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
       set({ loading: false, error: e?.message ?? 'Betöltési hiba' })
     }
   },
+
 
   snapWindowToNow: () => {
     const now = startOfHour(new Date())
@@ -198,19 +241,31 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   patchTask: (id, patch) => {
     const next = get().tasks.map(t => (t.id === id ? { ...t, ...patch } : t))
     const tree = get().tree
-    set({ tasks: next, tree: annotateTreeWithPlannedBars(tree, next) })
+    set({
+      tasks: next,
+      tree: annotateTreeWithPlannedBars(tree, next),
+      totals: recomputeTotals(next), // ⬅ patch után is frissítsük az összesítést
+    })
   },
 
   removeTask: (id) => {
     const next = get().tasks.filter(t => t.id !== id)
     const tree = get().tree
-    set({ tasks: next, tree: annotateTreeWithPlannedBars(tree, next) })
+    set({
+      tasks: next,
+      tree: annotateTreeWithPlannedBars(tree, next),
+      totals: recomputeTotals(next), // ⬅ törlés után is
+    })
   },
 
   addTasks: (items) => {
     const next = [...get().tasks, ...items]
     const tree = get().tree
-    set({ tasks: next, tree: annotateTreeWithPlannedBars(tree, next) })
+    set({
+      tasks: next,
+      tree: annotateTreeWithPlannedBars(tree, next),
+      totals: recomputeTotals(next), // ⬅ hozzáadás után is
+    })
   },
 
   visibleRows: [],
@@ -219,34 +274,44 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
   collapsedRows: {},
   setCollapsedRows: (m) => set({ collapsedRows: m }),
 
-  /** Új draft sáv + azonnali mentés */
+  /** Új draft sáv + azonnali mentés (következő SZABAD slotba) */
   createDraftSegment: async ({ machineId, productNodeId, processNodeId, title, qty, ratePph, start, batchSize }) => {
-    const startDate = start ? new Date(start) : new Date()
-    const rate      = (ratePph ?? DEFAULT_RATE)
-    const hours     = rate > 0 ? qty / rate : 1
-    const endDate   = addMinutes(startDate, Math.ceil(hours * 60))
+    const rate = (ratePph ?? DEFAULT_RATE)
+    const hours = rate > 0 ? qty / rate : 1
+    const minutes = Math.ceil(hours * 60)
+    const seconds = Math.max(60, Math.ceil(minutes * 60))
 
-    // 1) optimista lokális sáv
+    // 1) kérjük le a KÖVETKEZŐ SZABAD ABLAKOT a backendtől
+    const searchFromISO = start ?? get().from.toISOString()
+    const slot = await nextSlot(Number(machineId), searchFromISO, seconds)
+    const startDate = new Date(slot.start)
+    const endDate   = new Date(slot.end)
+
+    // 2) optimista lokális sáv (stackelés helyett a slotban)
     const tmpId = makeId()
     const local: Task = {
       id: tmpId,
       resourceId: Number(machineId),
-      title: title ?? `Tervezett művelet • ${qty} db`,
+      title: (title ?? 'Tervezett művelet') + ` • ${qty} db`,
       start: toLocalISO(startDate),
       end:   toLocalISO(endDate),
       qtyTotal: qty,
       qtyFrom: 0,
       qtyTo: qty,
       ratePph: rate,
-      batchSize: batchSize ?? DEFAULT_BATCH,
+      ...(batchSize != null ? { batchSize } : {}),
       productNodeId,
       processNodeId,
       committed: false,
     }
-    const next = [...get().tasks, local]
-    set({ tasks: next, tree: annotateTreeWithPlannedBars(get().tree, next) })
+    const nextLocal = [...get().tasks, local]
+    set({
+      tasks: nextLocal,
+      tree: annotateTreeWithPlannedBars(get().tree, nextLocal),
+      totals: recomputeTotals(nextLocal), // ⬅ azonnali frissítés
+    })
 
-    // 2) backend mentés
+    // 3) backend mentés
     try {
       const res = await saveSplit({
         machine_id: Number(machineId),
@@ -254,11 +319,11 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
         start: local.start,
         end:   local.end,
         ratePph: rate,
-        batchSize: local.batchSize ?? DEFAULT_BATCH,
+        ...(batchSize != null ? { batchSize } : {}),
         qtyFrom: local.qtyFrom ?? 0,
       })
 
-      // 3) csere a visszaadott elemmel (azonos indexen), a lokális meta (product/process) megtartásával
+      // 4) csere a visszaadott elemmel (lokális meta megőrzésével)
       const server = res.item
       const replaced: Task = {
         ...server,
@@ -267,15 +332,18 @@ export const useScheduler = create<SchedulerState>()((set, get) => ({
       }
       const tasksNow = get().tasks
       const idx = tasksNow.findIndex(t => t.id === tmpId)
+      let arr: Task[]
       if (idx >= 0) {
-        const arr = tasksNow.slice()
+        arr = tasksNow.slice()
         arr[idx] = replaced
-        set({ tasks: arr, tree: annotateTreeWithPlannedBars(get().tree, arr) })
       } else {
-        // ha közben valamiért „elveszett”, csak toldjuk be
-        const arr = [...tasksNow, replaced]
-        set({ tasks: arr, tree: annotateTreeWithPlannedBars(get().tree, arr) })
+        arr = [...tasksNow, replaced]
       }
+      set({
+        tasks: arr,
+        tree: annotateTreeWithPlannedBars(get().tree, arr),
+        totals: recomputeTotals(arr), // ⬅ pontos totals a végleges adatok alapján
+      })
     } catch (e) {
       console.error('Split mentés hiba:', e)
       // opcionálisan vissza lehetne venni a tmp sort; most meghagyjuk vizuális jelzésnek

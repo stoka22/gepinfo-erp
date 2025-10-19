@@ -11,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
+        
         Schema::create('users', function (Blueprint $table) {
+            if (\Illuminate\Support\Facades\Schema::hasTable('users')) return;
             $table->engine = 'InnoDB';
             $table->charset = 'utf8mb4';
             $table->collation = 'utf8mb4_hungarian_ci';
@@ -25,6 +27,7 @@ return new class extends Migration
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
+            if (\Illuminate\Support\Facades\Schema::hasTable('password_reset_tokens')) return;
            
             $table->string('email')->primary();
             $table->string('token');
@@ -32,6 +35,7 @@ return new class extends Migration
         });
 
         Schema::create('sessions', function (Blueprint $table) {
+             if (\Illuminate\Support\Facades\Schema::hasTable('sessions')) return;
             $table->string('id')->primary();
             $table->foreignId('user_id')->nullable()->index();
             $table->string('ip_address', 45)->nullable();
