@@ -14,7 +14,7 @@ class PermissionResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-shield-check';
     protected static ?string $navigationLabel = 'Jogosultságok';
-    protected static ?string $navigationGroup = 'Felhasználók';
+    protected static ?string $navigationGroup = 'Törzsadatok';
 
     public static function shouldRegisterNavigation(): bool
     {

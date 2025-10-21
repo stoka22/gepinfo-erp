@@ -6,6 +6,7 @@ use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Filament\Resources\TimeEntryResource\Pages;
 use App\Models\TimeEntry;
+use App\Models\Company;
 use App\Models\Employee;
 use Filament\Forms;
 use Filament\Tables;
@@ -13,6 +14,8 @@ use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
+use Filament\Forms\Components\Select;
+use Filament\Facades\Filament;
 
 class TimeEntryResource extends Resource
 {
@@ -22,8 +25,43 @@ class TimeEntryResource extends Resource
     protected static ?string $navigationGroup = 'Dolgozók';
     protected static ?string $navigationLabel = 'Szabadság / Túlóra / Táppénz';
 
+    protected static function companyGroupIds(): ?array
+    {
+        $tenant  = Filament::getTenant();
+        $company = $tenant instanceof Company ? $tenant : (Auth::user()?->company ?? null);
+        if (! $company) {
+            return null;
+        }
+
+        // 1) group_id szerinti csoport
+        if (isset($company->group_id) && $company->group_id) {
+            return Company::query()
+                ->where('group_id', $company->group_id)
+                ->pluck('id')
+                ->all();
+        }
+
+        // 2) parent_id fa (egyszintű)
+        if (isset($company->parent_id)) {
+            $parentId = $company->parent_id ?: $company->id;
+            return Company::query()
+                ->where(function ($q) use ($parentId) {
+                    $q->where('id', $parentId)
+                      ->orWhere('parent_id', $parentId);
+                })
+                ->pluck('id')
+                ->all();
+        }
+
+        // 3) csak a saját cég
+        return [$company->id];
+    }
+
+    
     public static function form(Forms\Form $form): Forms\Form
     {
+        $groupIds = static::companyGroupIds();
+
         return $form->schema([
             Forms\Components\Section::make()->schema([
 
@@ -33,21 +71,37 @@ class TimeEntryResource extends Resource
 
                 Forms\Components\Select::make('employee_id')
                     ->label('Dolgozó')
-                    ->options(function () {
-                        $cid = Auth::user()?->company_id;
+                    ->getSearchResultsUsing(function (string $search): array {
+                        // Cégcsoport ID-k (group_id vagy parent_id szerint; fallback: saját cég)
+                        $tenant  = Filament::getTenant();
+                        $company = $tenant instanceof Company ? $tenant : (Auth::user()?->company ?? null);
 
-                        $q = Employee::query()
-                            ->select('employees.id', 'employees.name')
-                            ->orderBy('employees.name');
-
-                        if ($cid) {
-                            $q->join('users', 'users.id', '=', 'employees.user_id')
-                              ->where('users.company_id', $cid);
+                        $groupIds = [];
+                        if ($company) {
+                            if (!empty($company->group_id)) {
+                                $groupIds = Company::query()
+                                    ->where('group_id', $company->group_id)
+                                    ->pluck('id')->all();
+                            } elseif ($company->parent_id !== null) {
+                                $parent = $company->parent_id ?: $company->id;
+                                $groupIds = Company::query()
+                                    ->where(function ($q) use ($parent) {
+                                        $q->where('id', $parent)->orWhere('parent_id', $parent);
+                                    })->pluck('id')->all();
+                            } else {
+                                $groupIds = [$company->id];
+                            }
                         }
 
-                        return $q->pluck('employees.name', 'employees.id');
+                        return Employee::query()
+                            ->when($groupIds, fn ($q) => $q->whereIn('company_id', $groupIds))
+                            ->when($search !== '', fn ($q) => $q->where('name', 'like', "%{$search}%"))
+                            ->orderBy('name')
+                            ->limit(50)
+                            ->pluck('name', 'id')
+                            ->toArray();
                     })
-                    ->preload()
+                    ->getOptionLabelUsing(fn ($value) => Employee::find($value)?->name)
                     ->searchable()
                     ->required(),
 

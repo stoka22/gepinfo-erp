@@ -12,8 +12,9 @@ use App\Http\Controllers\Scheduler\ResourceController;
 
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn () => redirect()->route('filament.user.auth.login'))->name('login');
-Route::get('jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.index');
+//Route::get('jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.index');
 Route::post('jump-codes/generate', [JumpCodeController::class, 'generate'])->name('jumpcodes.generate');
+Route::get('/jump-codes', fn () => view('jumpcodes.public'))->name('jumpcodes.public');
 
 // Főoldal (maradhat ahogy van)
 Route::get('/', function () {

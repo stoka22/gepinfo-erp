@@ -27,7 +27,7 @@ use Illuminate\Database\Eloquent\Collection;
 class PartnerOrderResource extends Resource
 {
     protected static ?string $model = PartnerOrder::class;
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-list';
+
     protected static ?string $navigationGroup = 'Értékesítés';
     protected static ?string $modelLabel = 'Partner megrendelés';
     protected static ?string $navigationLabel = 'Megrendelések';

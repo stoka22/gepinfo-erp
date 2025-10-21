@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
+use App\Models\Employee;
 use Filament\Forms;
 use Filament\Tables;
 use Filament\Resources\Resource;
@@ -17,7 +18,7 @@ class UserResource extends Resource
     protected static ?string $navigationLabel = 'Felhasználók';
     protected static ?string $pluralModelLabel = 'Felhasználók';
     protected static ?string $modelLabel = 'Felhasználó';
-    protected static ?string $navigationGroup = 'Felhasználók';
+    protected static ?string $navigationGroup = 'Törzsadatok';
 
     public static function shouldRegisterNavigation(): bool
     {
@@ -45,6 +46,13 @@ class UserResource extends Resource
                     ->email()
                     ->required()
                     ->unique(ignoreRecord: true),
+                Forms\Components\Select::make('company_id')
+                    ->label('Cég')
+                    ->relationship('company', 'name')  // User::company -> Company::name
+                    ->searchable()
+                    ->preload()
+                    ->required()
+                    ->placeholder('— Válassz céget —'),
 
                 // Laravel 11-ben a User modellben 'password' => 'hashed' cast van,
                 // ezért NEM hash-elünk itt külön.
@@ -56,6 +64,35 @@ class UserResource extends Resource
                     ->dehydrated(fn ($state) => filled($state))          // csak ha meg van adva
                     ->required(fn (string $operation) => $operation === 'create')
                     ->maxLength(255),
+            
+
+            Forms\Components\Select::make('employee_link_id')
+                    ->label('Dolgozói adatlap (ha már létezik)')
+                    ->options(function (?User $record) {
+                        // Csak a szabad (account_user_id IS NULL) + a már ehhez a userhez kötött rekord
+                        $q = \App\Models\Employee::query()
+                            ->orderBy('name')
+                            ->selectRaw("id, CONCAT(name, ' — ', COALESCE(position, '')) as label")
+                            ->where(function ($w) use ($record) {
+                                $w->whereNull('account_user_id');
+                                if ($record?->id) {
+                                    $w->orWhere('account_user_id', $record->id); // <<< RÉGI user_id HELYETT
+                                }
+                            });
+
+                        return $q->pluck('label', 'id');
+                    })
+                    ->getOptionLabelUsing(fn ($value) => \App\Models\Employee::find($value)?->name)
+                    ->searchable()
+                    ->preload()
+                    ->native(false)
+                    ->dehydrated(false) // NEM kerül a users táblába
+                    
+                    ->afterStateHydrated(function (callable $set, ?\App\Models\User $record) {
+                        // <<< ITT történik a visszatöltés szerkesztéskor
+                        $set('employee_link_id', $record?->employee?->id); // User::employee => hasOne via account_user_id
+                    })
+                    ->hint('Válaszd ki, ha az Employee már létezik és össze akarod kötni.')
             ])->columns(2),
 
             Forms\Components\Section::make('Szerepkörök és jogosultságok')->schema([
@@ -90,6 +127,12 @@ class UserResource extends Resource
                     ->searchable()
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('company.name')
+                    ->label('Cég')
+                    ->badge()
+                    ->sortable()
+                    ->toggleable(),
+
                 Tables\Columns\TextColumn::make('roles.name')
                     ->label('Szerepkörök')
                     ->badge()
@@ -106,6 +149,9 @@ class UserResource extends Resource
                 Tables\Filters\SelectFilter::make('roles')
                     ->label('Szerepkör')
                     ->relationship('roles', 'name'),
+                Tables\Filters\SelectFilter::make('company')
+                    ->label('Cég')
+                    ->relationship('company', 'name'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

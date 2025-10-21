@@ -15,10 +15,10 @@ use Illuminate\Support\Carbon;
 class TimeEntry extends Model
 {
     protected $fillable = [
-        'employee_id', 'type', 'status',
-        'start_date', 'end_date', 'hours',
-        'note', 'requested_by', 'approved_by',
-        'company_id',
+        'employee_id','company_id','type','status',
+        'start_date','start_time','end_date','end_time',
+        'hours','note','requested_by','approved_by',
+        'entry_method','is_modified','modified_by',
     ];
 
     protected $casts = [
@@ -27,6 +27,7 @@ class TimeEntry extends Model
         'start_date' => 'date',
         'end_date'   => 'date',
         'hours'      => 'decimal:2',
+        'is_modified' => 'bool',
     ];
 
     public function employee(): BelongsTo { return $this->belongsTo(Employee::class); }
@@ -127,4 +128,13 @@ class TimeEntry extends Model
 
         return (float) $days;
     }
+    // app/Models/TimeEntry.php
+    public function getWorkedTimeAttribute(): ?string
+    {
+        $mins = $this->worked_minutes ?? (isset($this->hours) ? (int)round($this->hours * 60) : null);
+        if ($mins === null) return null;
+        $h = intdiv($mins, 60); $m = $mins % 60;
+        return sprintf('%02d:%02d', $h, $m);
+    }
+
 }

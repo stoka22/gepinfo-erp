@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'company_id',
     ];
 
     /**
@@ -56,5 +57,15 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return ($this->role ?? null) === 'admin';
+    }
+
+    public function employee()
+    {
+        return $this->hasOne(Employee::class, 'account_user_id');
+    }
+
+    public function employeesCreated()
+    {
+        return $this->hasMany(Employee::class, 'created_by_user_id');
     }
 }

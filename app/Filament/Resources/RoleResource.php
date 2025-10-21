@@ -14,7 +14,7 @@ class RoleResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-key';
     protected static ?string $navigationLabel = 'Szerepkörök';
-    protected static ?string $navigationGroup = 'Felhasználók';
+    protected static ?string $navigationGroup = 'Törzsadatok';
 
     public static function shouldRegisterNavigation(): bool
     {

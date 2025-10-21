@@ -44,8 +44,16 @@ class UserPanelProvider extends PanelProvider
 
             // csoportok: alapból zárva
             ->navigationGroups([
+                NavigationGroup::make('Értékesítés')
+                    ->icon('heroicon-o-receipt-percent')
+                    ->collapsible()
+                    ->collapsed(),
+                NavigationGroup::make('Termelés')
+                    ->icon('heroicon-o-cog-6-tooth')
+                    ->collapsible()
+                    ->collapsed(),
                 NavigationGroup::make('Készlet')
-                    ->icon('heroicon-o-archive-box')
+                    ->icon('heroicon-o-cube')
                     ->collapsible()
                     ->collapsed(),
 
@@ -60,7 +68,7 @@ class UserPanelProvider extends PanelProvider
                     ->collapsed(),
                 
                 NavigationGroup::make('Eszközök')          // ← Törzsadatok ALÁ kerül
-                    ->icon('heroicon-o-wrench')
+                    ->icon('heroicon-o-clipboard-document-list')
                     ->collapsible()
                     ->collapsed(),
             ])

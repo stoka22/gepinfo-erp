@@ -37,4 +37,11 @@ class Company extends Model
     public function skills() { return $this->hasMany(Skill::class); }
 
     public function positions() { return $this->hasMany(\App\Models\Position::class); }
+
+    public function group() { return $this->belongsTo(CompanyGroup::class, 'company_group_id'); }
+    public function employees() { return $this->hasMany(Employee::class); } // primer
+    public function members() {
+        return $this->belongsToMany(Employee::class, 'employee_company_memberships')
+            ->withPivot(['starts_on','ends_on','active','role'])->withTimestamps();
+    }
 }

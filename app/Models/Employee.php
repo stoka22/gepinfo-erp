@@ -29,6 +29,9 @@ class Employee extends Model
         'birth_date',
         'children_under_16',
         'is_disabled',
+        'company_id',
+        'created_by_user_id',
+        'account_user_id',
     ];
 
     protected function casts(): array
@@ -87,4 +90,23 @@ class Employee extends Model
     {
         return $this->belongsTo(\App\Models\ShiftPattern::class, 'shift_pattern_id');
     }
+
+    public function company()        { return $this->belongsTo(Company::class); }
+    public function companies() {
+        return $this->belongsToMany(Company::class, 'employee_company_memberships')
+            ->withPivot(['starts_on','ends_on','active','role'])->withTimestamps();
+    }
+    public function creator()        { return $this->belongsTo(User::class, 'created_by_user_id'); }
+    public function accountUser()    { return $this->belongsTo(User::class, 'account_user_id'); }
+    public function scopeActiveInCompany(Builder $q, int $companyId) {
+        return $q->whereHas('companies', fn($c)=>$c->where('company_id',$companyId)
+            ->where('active',true)
+            ->where(function($w){
+                $w->whereNull('starts_on')->orWhere('starts_on','<=',today());
+            })->where(function($w){
+                $w->whereNull('ends_on')->orWhere('ends_on','>=',today());
+            })
+        );
+    }
+   
 }
