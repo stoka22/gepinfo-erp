@@ -4,6 +4,7 @@
 namespace App\Filament\Widgets;
 
 use Carbon\Carbon;
+use Filament\Forms;
 use App\Enums\Shift;
 use Filament\Tables;
 use App\Models\Company;
@@ -11,14 +12,14 @@ use App\Models\Employee;
 use App\Models\TimeEntry;
 use Filament\Tables\Table;
 use App\Enums\TimeEntryType;
+use App\Models\ShiftPattern;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TimePicker;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Widgets\TableWidget as BaseWidget;
-use Filament\Forms;
-use Filament\Forms\Components\TimePicker;
-use Filament\Forms\Components\Select;
 
 class ShiftPresenceTable extends BaseWidget
 {
@@ -47,9 +48,18 @@ class ShiftPresenceTable extends BaseWidget
                 // Műszak neve + tooltip a mai ablakról
                 Tables\Columns\TextColumn::make('shift_display')
                     ->label('Műszak')
-                    ->state(fn (Employee $record) => $this->getShiftName($record))
+                    ->state(fn(Employee $r) =>
+                        $r->shiftPattern?->name ?? match($r->shift) {
+                            'morning' => 'Délelőtt',
+                            'afternoon' => 'Délután',
+                            'night' => 'Éjszaka',
+                            default => '—',
+                        }
+                    )
                     ->tooltip(fn (Employee $record) => $this->getShiftTooltipToday($record, $today))
-                    ->sortable()
+                    ->sortable(query: fn (\Illuminate\Database\Eloquent\Builder $q, string $direction) =>
+                        $q->orderBy('shift', $direction) // <-- VALÓDI MEZŐ
+                    )
                     ->searchable(),
                 Tables\Columns\BadgeColumn::make('mode')
                     ->label('Jelleg')
@@ -221,16 +231,33 @@ class ShiftPresenceTable extends BaseWidget
                     // Műszak szűrő (enum)
                     Tables\Filters\SelectFilter::make('shift')
                         ->label('Műszak')
-                        ->options([
-                            \App\Enums\Shift::Morning->value   => 'Délelőtt',
-                            \App\Enums\Shift::Afternoon->value => 'Délután',
-                            \App\Enums\Shift::Night->value     => 'Éjszaka',
-                        ])
-                        ->query(function (Builder $q, array $data) {
-                            if (!empty($data['value'])) {
-                                $q->where('shift', $data['value']);
+                        ->options(fn () => ShiftPattern::query()->orderBy('name')->pluck('name','id')->all())
+                        ->placeholder('Mind')
+                        ->searchable()
+                        ->query(function (Builder $query, array $data): Builder {
+                        $id = $data['value'] ?? null;
+                        if (! $id) {
+                            return $query; // nincs kiválasztás → ne szűrjünk
+                        }
+
+                        // kiválasztott minta neve
+                        $name = ShiftPattern::whereKey($id)->value('name');
+
+                        // név → régi kód (ha néhány rekord még az employees.shift mezőt használja)
+                        $map = [
+                            'Délelőtt' => 'morning',
+                            'Délután'  => 'afternoon',
+                            'Éjszaka'  => 'night',
+                        ];
+                        $code = $map[$name] ?? null;
+
+                        return $query->where(function (Builder $w) use ($id, $code) {
+                            $w->where('employees.shift_pattern_id', $id);
+                            if ($code) {
+                                $w->orWhere('employees.shift', $code);
                             }
-                        }),
+                        });
+                    }),
 
                     // Státusz: bejelentkezett / nincs bejelentkezve ma
                     Tables\Filters\TernaryFilter::make('checked_in')

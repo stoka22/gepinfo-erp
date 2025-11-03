@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use Filament\Forms\Components\Select;
 use Filament\Facades\Filament;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 
 class TimeEntryResource extends Resource
 {
@@ -56,6 +58,47 @@ class TimeEntryResource extends Resource
         // 3) csak a saját cég
         return [$company->id];
     }
+
+    /** presence típushoz: hours számítása és status beállítása */
+    protected static function recalcPresence(Set $set, Get $get): void
+    {
+        $type = $get('type') instanceof \BackedEnum ? $get('type')->value : $get('type');
+        if ($type !== 'presence') {
+            return;
+        }
+
+        $sd = $get('start_date');
+        $st = $get('start_time');
+        $ed = $get('end_date') ?: $sd;
+        $et = $get('end_time');
+
+        if (!$sd || !$st) {
+            // nincs belépési dátum/idő → ne számoljunk
+            $set('hours', null);
+            return;
+        }
+
+        $in  = \Carbon\Carbon::parse("{$sd} " . ($st ?: '00:00'));
+        $out = $et ? \Carbon\Carbon::parse("{$ed} {$et}") : null;
+
+        if ($out && $out->lessThan($in)) {
+            // éjszakába nyúlás: másnap
+            $out->addDay();
+        }
+
+        if ($out) {
+            $minutes = max(0, $in->diffInMinutes($out));
+            $hours   = round($minutes / 60, 2);
+            $set('hours', $hours);
+            // státusz szinkron
+            $set('status', \App\Enums\TimeEntryStatus::CheckedOut->value);
+        } else {
+            // csak belépés ismert
+            $set('hours', 0.00);
+            $set('status', \App\Enums\TimeEntryStatus::CheckedIn->value);
+        }
+    }
+
 
     
     public static function form(Forms\Form $form): Forms\Form
@@ -141,21 +184,49 @@ class TimeEntryResource extends Resource
 
                 Forms\Components\DatePicker::make('start_date')
                     ->label('Kezdet')
-                    ->required(),
+                    ->required()
+                    ->afterStateUpdated(fn ($state, Set $set, Get $get) => static::recalcPresence($set, $get)),
 
                 Forms\Components\DatePicker::make('end_date')
                     ->label('Vége')
-                    ->visible(fn (Forms\Get $get) =>
-                        $get('type') !== TimeEntryType::Overtime->value
-                        && $get('type') !== TimeEntryType::Presence->value)
+                    ->visible(fn (Get $get) =>
+                        ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) !== 'overtime'
+                        && ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) !== 'presence'
+                    )
+                    ->afterStateUpdated(fn ($state, Set $set, Get $get) => static::recalcPresence($set, $get))
                     ->afterOrEqual('start_date'),
+                
+                Forms\Components\TimePicker::make('start_time')
+                    ->label('Belépés ideje')
+                    ->seconds(false)
+                    ->minutesStep(5)
+                    ->visible(fn (Get $get) =>
+                        ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'presence'
+                    )
+                    ->required(fn (Get $get) =>
+                        ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'presence'
+                    )
+                    ->afterStateUpdated(fn ($state, Set $set, Get $get) => static::recalcPresence($set, $get)),
+
+                /** ÚJ: kilépési idő – csak presence */
+                Forms\Components\TimePicker::make('end_time')
+                    ->label('Kilépés ideje')
+                    ->seconds(false)
+                    ->minutesStep(5)
+                    ->visible(fn (Get $get) =>
+                        ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'presence'
+                    )
+                    ->afterStateUpdated(fn ($state, Set $set, Get $get) => static::recalcPresence($set, $get)),
 
                 Forms\Components\TextInput::make('hours')
                     ->label('Órák')
                     ->numeric()
                     ->minValue(0.25)
                     ->step(0.25)
-                    ->visible(fn (Forms\Get $get) => $get('type') === TimeEntryType::Overtime->value),
+                    ->dehydrated(true) // <— FONTOS: rejtve is mentjük (presence esetén a kalkulált értéket)
+                    ->visible(fn (Get $get) =>
+                        ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'overtime'
+                    ),
 
                 Forms\Components\Textarea::make('note')
                     ->label('Megjegyzés')
@@ -305,7 +376,8 @@ class TimeEntryResource extends Resource
                     }),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()
+                    ->visible(fn (TimeEntry $r) => Auth::user()->can('update', $r)),
 
                 // Jóváhagyás/elutasítás csak akkor releváns, ha NEM jelenlét a típus
                 Tables\Actions\Action::make('approve')

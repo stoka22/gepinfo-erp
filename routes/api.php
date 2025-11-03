@@ -12,6 +12,11 @@ use App\Http\Controllers\Scheduler\ResourceController;
 use App\Http\Controllers\Scheduler\TreeController;
 use App\Http\Controllers\Scheduler\TaskController;
 
+use App\Http\Controllers\Api\TerminalWebhookController;
+
+Route::post('/terminal/event', [TerminalWebhookController::class, 'store']);
+
+
 // -----------------------------
 // DEVICE endpoints
 // -----------------------------

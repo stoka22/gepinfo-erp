@@ -15,6 +15,9 @@ use App\Filament\Resources\EmployeeResource\Widgets\EmployeeLeaveCard;
 use App\Filament\Resources\EmployeeResource\Widgets\EmployeeOvertimeCard;
 use App\Filament\Resources\EmployeeResource\Widgets\EmployeeMonthlyHoursChart;
 
+use Filament\Resources\RelationManagers\RelationGroup;
+use Filament\Resources\RelationManagers\RelationManager;
+
 class EditEmployee extends EditRecord
 {
     
@@ -29,8 +32,19 @@ class EditEmployee extends EditRecord
             VacationAllowancesRelationManager::class,
         ];
     }*/
+    protected function canAccessRelation(RelationGroup|RelationManager|string $manager): bool
+    {
+        // Ha szeretnéd, itt kötheted a saját dolgozó-megtekintési joghoz is:
+        // return auth()->user()?->can('view', $this->getRecord()) ?? false;
 
-   
+        return true; // <- a panelek MINDIG láthatók
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return static::getResource()::getUrl('index');
+    }
+
 
     protected function getHeaderActions(): array
     {

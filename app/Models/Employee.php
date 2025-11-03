@@ -19,7 +19,7 @@ class Employee extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'user_id',
+        //'user_id',
         'name',
         'email',
         'phone',
@@ -108,5 +108,23 @@ class Employee extends Model
             })
         );
     }
-   
+
+    public function cards()
+    {
+        return $this->hasMany(\App\Models\EmployeeCard::class);
+    }
+
+     protected $casts = [
+        'is_disabled' => 'bool',
+    ];
+
+    // csak azokat adja, akik NEM letiltottak
+    public function scopeActive($q)
+    {
+        return $q->where('is_disabled', 0);
+    }
+   public function card()
+    {
+        return $this->hasOne(\App\Models\Card::class);
+    }
 }

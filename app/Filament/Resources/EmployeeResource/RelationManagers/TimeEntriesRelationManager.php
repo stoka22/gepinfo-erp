@@ -76,12 +76,33 @@ class TimeEntriesRelationManager extends RelationManager
                     : $q->whereRaw('1 = 0'); // sosem ad vissza rekordot, de Builder NEM null
             })
             ->columns([
-                Tables\Columns\BadgeColumn::make('type')->label('Típus')
-                    ->color(fn ($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'vacation' => 'warning', 'overtime' => 'info', 'sick_leave' => 'danger','regular' =>'info', default => 'gray',
+                Tables\Columns\BadgeColumn::make('type')
+                    ->label('Típus')
+                    ->color(function ($state) {
+                        $val = $state instanceof \BackedEnum
+                            ? $state->value
+                            : ($state instanceof \UnitEnum ? $state->name : $state);
+
+                        return match ($val) {
+                            'vacation'  => 'warning',
+                            'overtime'  => 'info',
+                            'sick_leave'=> 'danger',
+                            'regular'   => 'info',
+                            default     => 'gray',
+                        };
                     })
-                    ->formatStateUsing(fn ($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'vacation' => 'Szabadság', 'overtime' => 'Túlóra', 'sick_leave' => 'Táppénz','regular' => 'Munka', default => (string) $state,
+                    ->formatStateUsing(function ($state) {
+                        $val = $state instanceof \BackedEnum
+                            ? $state->value
+                            : ($state instanceof \UnitEnum ? $state->name : $state);
+
+                        return match ($val) {
+                            'vacation'   => 'Szabadság',
+                            'overtime'   => 'Túlóra',
+                            'sick_leave' => 'Táppénz',
+                            'regular'    => 'Munka',
+                            default      => (string) $val,
+                        };
                     }),
                 Tables\Columns\TextColumn::make('start_date')->date()->label('Kezdet')->sortable(),
                 Tables\Columns\TextColumn::make('end_date')->date()->label('Vége')->sortable()->placeholder('—'),

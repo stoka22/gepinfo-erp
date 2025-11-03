@@ -3,14 +3,16 @@
 
 namespace App\Providers;
 
-use App\Models\Employee;
 use \App\Models\Company;
-use  \App\Policies\CompanyPolicy;
-use App\Policies\EmployeePolicy;
-use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
-use Illuminate\Support\Facades\Gate;
+use App\Models\Employee;
+use App\Models\TimeEntry;
 use App\Models\TaskDependency;
+use App\Policies\EmployeePolicy;
+use  \App\Policies\CompanyPolicy;
+use App\Policies\TimeEntryPolicy;
+use Illuminate\Support\Facades\Gate;
 use App\Policies\TaskDependencyPolicy;
+use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -18,10 +20,13 @@ class AuthServiceProvider extends ServiceProvider
         Employee::class => EmployeePolicy::class,
         TaskDependency::class => TaskDependencyPolicy::class,
         Company::class => CompanyPolicy::class,
+        TimeEntry::class => TimeEntryPolicy::class,
     ];
 
     public function boot(): void
+
     {
+        $this->registerPolicies();
         // (opcionális) admin globális felülbírálás
         Gate::before(function ($user, $ability) {
             return (method_exists($user, 'isAdmin') ? $user->isAdmin() : (($user->role ?? null) === 'admin'))

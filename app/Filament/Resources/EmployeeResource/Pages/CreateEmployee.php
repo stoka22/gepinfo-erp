@@ -10,6 +10,12 @@ class CreateEmployee extends CreateRecord
 {
     protected static string $resource = EmployeeResource::class;
 
+    protected function getRedirectUrl(): string
+    {
+        return static::getResource()::getUrl('index');
+    }
+
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         $user = Filament::auth()->user();

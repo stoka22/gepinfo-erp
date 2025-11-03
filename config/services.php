@@ -13,6 +13,9 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
+    'terminal' => [
+        'secret' => env('TERMINAL_SECRET'),
+    ],
 
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),

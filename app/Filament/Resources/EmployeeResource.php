@@ -2,29 +2,38 @@
 
 namespace App\Filament\Resources;
 
+use Carbon\Carbon;
+use Filament\Forms;
+use App\Models\Card;
+use Filament\Tables;
+use App\Models\Company;
+use Filament\Forms\Get;
+use App\Models\Employee;
+use App\Models\Position;
 use App\Enums\TimeEntryType;
+use App\Models\ShiftPattern;
+use App\Services\CardService;
+use Filament\Facades\Filament;
+use Filament\Resources\Resource;
+//use Illuminate\Http\StreamedResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Filament\Support\Enums\ActionSize;
+use Illuminate\Support\Facades\Schema;
+use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Response;
+use Illuminate\Database\Eloquent\Builder;
+use Filament\Tables\Enums\ActionsPosition;
+use Filament\Tables\Filters\TernaryFilter;
+use Filament\Tables\Filters\TrashedFilter;
 use App\Filament\Resources\EmployeeResource\Pages;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Filament\Resources\EmployeeResource\RelationManagers\SkillsRelationManager;
 use App\Filament\Resources\EmployeeResource\RelationManagers\TimeEntriesRelationManager;
 use App\Filament\Resources\EmployeeResource\RelationManagers\VacationAllowancesRelationManager;
-use App\Models\Company;
-use App\Models\Employee;
-use App\Models\Position;
-use App\Models\ShiftPattern;
-use Carbon\Carbon;
-use Filament\Facades\Filament;
-use Filament\Forms;
-use Filament\Resources\Resource;
-use Filament\Support\Enums\ActionSize;
-use Filament\Tables;
-use Filament\Tables\Enums\ActionsPosition;
-use Filament\Tables\Filters\TernaryFilter;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Filament\Forms\Get;
+use Filament\Tables\Actions\Action;
+use Livewire\Component;
 
 class EmployeeResource extends Resource
 {
@@ -36,10 +45,40 @@ class EmployeeResource extends Resource
     protected static ?string $pluralModelLabel = 'Dolgozók';
     protected static ?string $modelLabel       = 'Dolgozó';
 
-    /** Filament panel user (fallback: Auth) */
     protected static function currentUser(): ?\App\Models\User
     {
         return Filament::auth()->user() ?? Auth::user();
+    }
+
+    protected static function currentGroupId(): ?int
+    {
+        $u = static::currentUser();
+        return $u?->company?->company_group_id ?? null;
+    }
+
+    /**
+     * VISSZAADJA AZ ADOTT CÉGCSOPORTHOZ TARTOZÓ CÉGEK ID-IT.
+     * FIX: a 'group_id' oszlop nem létezik; kizárólag 'company_group_id' alapján szűrünk.
+     */
+    protected static function groupCompanyIds(?int $groupId = null): array
+    {
+        $gid = $groupId ?? static::currentGroupId();
+        if (!$gid) {
+            $co = static::currentUser()?->company;
+            return $co?->id ? [$co->id] : [];
+        }
+        return Company::query()
+            ->where('company_group_id', $gid)
+            ->pluck('id')
+            ->all();
+    }
+
+    protected static function resolveGroupIdFromContext(?int $companyIdFromForm = null): ?int
+    {
+        if ($companyIdFromForm) {
+            return (int) Company::whereKey($companyIdFromForm)->value('company_group_id');
+        }
+        return static::currentGroupId();
     }
 
     public static function getRelations(): array
@@ -47,22 +86,33 @@ class EmployeeResource extends Resource
         $rels = [];
 
         if (Schema::hasTable('skills') && Schema::hasTable('employee_skill')) {
-            $rels[] = SkillsRelationManager::class;
-        }
-        if (Schema::hasTable('time_entries')) {
-            $rels[] = TimeEntriesRelationManager::class;
-        }
-        if (Schema::hasTable('vacation_allowances')) {
-            $rels[] = VacationAllowancesRelationManager::class;
+            $rels[] = \App\Filament\Resources\EmployeeResource\RelationManagers\SkillsRelationManager::class;
         }
 
-        return $rels;
+        if (Schema::hasTable('time_entries')) {
+            $rels[] = \App\Filament\Resources\EmployeeResource\RelationManagers\TimeEntriesRelationManager::class;
+        }
+
+        if (Schema::hasTable('vacation_allowances')) {
+            $rels[] = \App\Filament\Resources\EmployeeResource\RelationManagers\VacationAllowancesRelationManager::class;
+        }
+
+        // Kártyák csak akkor, ha a manager létezik és a tábla is megvan
+        if (
+            class_exists(\App\Filament\Resources\EmployeeResource\RelationManagers\CardsRelationManager::class)
+            && Schema::hasTable('employee_cards')
+        ) {
+            $rels[] = \App\Filament\Resources\EmployeeResource\RelationManagers\CardsRelationManager::class;
+        }
+
+        return $rels; // <— NINCS beágyazás
     }
+
 
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->withoutGlobalScopes([SoftDeletingScope::class])
+            //->withoutGlobalScopes([SoftDeletingScope::class])
             ->with(['company', 'companies']);
 
         $user = static::currentUser();
@@ -73,25 +123,33 @@ class EmployeeResource extends Resource
             return $query;
         }
 
-        $groupId = optional($user->company?->group)->id;
-
-        if ($groupId) {
-            return $query->where(function (Builder $w) use ($groupId) {
-                $w->whereHas('company', fn (Builder $c) => $c->where('company_group_id', $groupId))
-                  ->orWhereHas('companies', fn (Builder $c) => $c->where('company_group_id', $groupId));
+        $companyIds = static::groupCompanyIds();
+        if ($companyIds) {
+            return $query->where(function (Builder $w) use ($companyIds) {
+                $w->whereIn('company_id', $companyIds)
+                  ->orWhereHas('companies', fn (Builder $c) => $c->whereIn('company_id', $companyIds));
             });
         }
 
         return $query->where('company_id', $user->company_id);
     }
 
-     protected static function resolveGroupIdFromContext(?int $companyIdFromForm = null): ?int
+    protected static function normalizeDate(null|string|\DateTimeInterface $value, string $out = 'Y-m-d'): ?string
     {
-        if ($companyIdFromForm) {
-            return (int) Company::whereKey($companyIdFromForm)->value('company_group_id');
+        if (!$value) return null;
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value)->format($out);
         }
-        $u = static::currentUser();
-        return $u?->company?->company_group_id;
+        $s = trim((string)$value);
+        $formats = [
+            'Y-m-d', 'Y.m.d', 'Y. m. d.', 'Y/m/d',
+            'd.m.Y', 'd-m-Y', 'd/m/Y',
+            'Y. F d.', 'Y. M d.',
+        ];
+        foreach ($formats as $f) {
+            try { return Carbon::createFromFormat($f, $s)->format($out); } catch (\Throwable) {}
+        }
+        try { return Carbon::parse($s)->format($out); } catch (\Throwable) { return null; }
     }
 
     public static function form(Forms\Form $form): Forms\Form
@@ -99,7 +157,6 @@ class EmployeeResource extends Resource
         $isAdmin   = (Filament::auth()->user()?->role ?? null) === 'admin';
         $companyId = Filament::auth()->user()?->company_id;
 
-        // Adminnak felhasználó-választó (bejelentkező user), másnak a létrehozó rejtve
         $ownerField = $isAdmin
             ? Forms\Components\Select::make('account_user_id')
                 ->label('Bejelentkező felhasználó')
@@ -122,14 +179,26 @@ class EmployeeResource extends Resource
         return $form->schema([
             Forms\Components\Section::make('Alap adatok')->schema([
                 $ownerField,
-                Forms\Components\TextInput::make('name')
-                    ->label('Név')
-                    ->required(),
-
+                Forms\Components\TextInput::make('name')->label('Név')->required(),
 
                 Forms\Components\DatePicker::make('birth_date')
                     ->label('Születési dátum')
-                    ->native(false),
+                    ->native(false)
+                    ->displayFormat('Y. m. d.')
+                    ->format('Y-m-d')
+                    ->closeOnDateSelection(true)
+                    ->weekStartsOnMonday()
+                    ->extraAttributes([
+                        'data-allow-input' => true,
+                        'placeholder'      => 'éééé. hh. nn.',
+                        'autocomplete'     => 'off',
+                        'inputmode'        => 'numeric',
+                    ])
+                    ->afterStateHydrated(function ($component, $state) {
+                        $component->state(static::normalizeDate($state, 'Y-m-d'));
+                    })
+                    ->dehydrateStateUsing(fn ($state) => static::normalizeDate($state, 'Y-m-d'))
+                    ->rule('date'),
 
                 Forms\Components\Select::make('position_id')
                     ->label('Pozíció')
@@ -173,8 +242,15 @@ class EmployeeResource extends Resource
                     ->createOptionAction(fn (Forms\Components\Actions\Action $action) => $action->label('Új pozíció létrehozása')),
 
                 Forms\Components\TextInput::make('email')->email(),
-                Forms\Components\TextInput::make('phone'),
-
+                
+                Forms\Components\Select::make('employment_type')
+                    ->label('Foglalkoztatás')
+                    ->options([
+                        'full_time' => 'Teljes',
+                        'part_time' => 'Részmunkaidő',
+                        'casual'    => 'Alkalmi',
+                    ])->required()->default('full_time'),
+                
                 Forms\Components\Select::make('shift_pattern_id')
                     ->label('Műszak')
                     ->native(false)
@@ -199,18 +275,30 @@ class EmployeeResource extends Resource
                     })
                     ->placeholder('Válaszd ki a dolgozó műszakmintáját')
                     ->columnSpan(2),
-                    
-
-                Forms\Components\Select::make('employment_type')
-                    ->label('Foglalkoztatás')
-                    ->options([
-                        'full_time' => 'Teljes',
-                        'part_time' => 'Részmunkaidő',
-                        'casual'    => 'Alkalmi',
+                                Forms\Components\DatePicker::make('hired_at')
+                    ->label('Felvétel dátuma')
+                    ->native(false)
+                    ->displayFormat('Y. m. d.')
+                    ->format('Y-m-d')
+                    ->default(fn () => now()->toDateString())   // alapértelmezett: ma
+                    ->closeOnDateSelection(true)
+                    ->weekStartsOnMonday()
+                    ->extraAttributes([
+                        'data-allow-input' => true,
+                        'placeholder'      => 'éééé. hh. nn.',
+                        'autocomplete'     => 'off',
+                        'inputmode'        => 'numeric',
                     ])
-                    ->required()
-                    ->default('full_time'),
-                                // *** MUNKÁLTATÓ (PRIMER) – ITT a fő űrlapon! ***
+                    ->afterStateHydrated(function ($component, $state) {
+                        // egységesítés a többi dátumhoz
+                        $component->state(static::normalizeDate($state, 'Y-m-d'));
+                    })
+                    ->dehydrateStateUsing(fn ($state) => static::normalizeDate($state, 'Y-m-d'))
+                    ->rule('date'),
+                Forms\Components\TextInput::make('phone'),
+                Forms\Components\TextInput::make('rfid')
+                    ->label('Kártyszám'),
+                
                 Forms\Components\Select::make('company_id')
                     ->label('Munkáltató (primer)')
                     ->visible(fn () => Schema::hasColumn('employees', 'company_id'))
@@ -235,16 +323,14 @@ class EmployeeResource extends Resource
                     ->placeholder('— Válassz munkáltatót —')
                     ->columnSpan(2),
 
-                // *** Csoporton belüli tagság (több cég) ***
                 Forms\Components\Select::make('companies')
-                    ->label('Válaszd ki, mely cégeknél dolgozhat (cégcsoporton belül).')
+                    ->label('Mely cégeknél dolgozhat (cégcsoporton belül)')
                     ->multiple()
                     ->native(false)
                     ->searchable()
                     ->preload()
-                    ->relationship(name: 'companies', titleAttribute: 'name') // pivot sync
+                    ->relationship(name: 'companies', titleAttribute: 'name')
                     ->options(function (Get $get) {
-                        // A tagság listát is a primer munkáltató csoportja alapján szűrjük
                         $gid = self::resolveGroupIdFromContext((int) $get('company_id'));
                         return Company::query()
                             ->when($gid, fn ($q) => $q->where('company_group_id', $gid))
@@ -252,10 +338,7 @@ class EmployeeResource extends Resource
                             ->pluck('name', 'id')
                             ->all();
                     })
-                    //->hint('Válaszd ki, mely cégeknél dolgozhat (cégcsoporton belül).')
                     ->columnSpan(2),
-
-                
             ])->columns(4),
 
             Forms\Components\Section::make('Munkafolyamatok')->schema([
@@ -280,13 +363,15 @@ class EmployeeResource extends Resource
                     ->searchable()
                     ->hint('Mely workflow-kban vehet részt'),
             ]),
-            
         ]);
     }
 
     public static function table(Tables\Table $table): Tables\Table
     {
-        $groupId = optional(Filament::auth()->user()?->company?->group)->id;
+        $groupId = static::currentGroupId();
+        $groupCompanies = Company::query()
+            ->when($groupId, fn($q) => $q->where('company_group_id', $groupId))
+            ->orderBy('name')->pluck('name','id')->all();
 
         return $table
             ->columns([
@@ -301,52 +386,34 @@ class EmployeeResource extends Resource
                 Tables\Columns\TextColumn::make('position.name')->label('Pozíció')->sortable(),
                 Tables\Columns\TextColumn::make('phone')->label('Telefon')->searchable()->toggleable(),
 
-                Tables\Columns\TextColumn::make('companies_summary')
-                    ->label('Aktív cégek (tagság)')
-                    ->getStateUsing(function (Employee $r) {
-                        $active = $r->companies()
-                            ->wherePivot('active', true)
-                            ->where(fn ($w) => $w->whereNull('starts_on')->orWhere('starts_on', '<=', today()))
-                            ->where(fn ($w) => $w->whereNull('ends_on')->orWhere('ends_on', '>=', today()))
-                            ->pluck('companies.name')
-                            ->all();
-
-                        return $active ? implode(', ', $active) : '—';
-                    })
-                    ->toggleable()
-                    ->hidden(),
-
                 Tables\Columns\TextColumn::make('shiftPattern.name')
                     ->label('Műszak minta')
                     ->toggleable()
                     ->sortable()
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('shiftPatternInfo')
+           /*     Tables\Columns\TextColumn::make('shiftPatternInfo')
                     ->label('Idő / Napok')
                     ->getStateUsing(fn (Employee $record) =>
                         $record->shiftPattern
                             ? "{$record->shiftPattern->start_time}–{$record->shiftPattern->end_time} • {$record->shiftPattern->days_label}"
                             : '—'
                     )
-                    ->toggleable(),
+                    ->toggleable(),*/
+                Tables\Columns\TextColumn::make('card.uid')
+                    ->label('Kártya UID')
+                    ->placeholder('— nincs —'),
             ])
             ->filters([
-                Tables\Filters\TrashedFilter::make(),
-
+                TrashedFilter::make(),
+                   
                 Tables\Filters\SelectFilter::make('company_id')
                     ->label('Munkáltató (primer)')
-                    ->options(fn () => Company::query()
-                        ->when($groupId, fn ($q) => $q->where('company_group_id', $groupId))
-                        ->orderBy('name')->pluck('name', 'id')->all()
-                    ),
+                    ->options($groupCompanies),
 
                 Tables\Filters\SelectFilter::make('member_company')
                     ->label('Cég (tagság)')
-                    ->options(fn () => Company::query()
-                        ->when($groupId, fn ($q) => $q->where('company_group_id', $groupId))
-                        ->orderBy('name')->pluck('name', 'id')->all()
-                    )
+                    ->options($groupCompanies)
                     ->query(function (Builder $q, array $data) {
                         if (!empty($data['value'])) {
                             $companyId = (int) $data['value'];
@@ -384,8 +451,258 @@ class EmployeeResource extends Resource
                         }),
                     ),
             ])
+            ->headerActions([
+                Tables\Actions\Action::make('group_company_quick')
+                    ->label('Cég szűrés')
+                    ->icon('heroicon-o-building-office-2')
+                    ->form([
+                        Forms\Components\Select::make('company')
+                            ->label('Cég')
+                            ->options($groupCompanies)
+                            ->native(false)
+                            ->searchable(),
+                    ])
+                    ->action(function (array $data) {
+                        $company = $data['company'] ?? null;
+                        if ($company) {
+                            return redirect()->to(url()->current().'?tableFilters[company_id][value]='.$company);
+                        }
+                    }),
+
+                Tables\Actions\Action::make('export_pdf')
+                    ->label('Export PDF')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('gray')
+                    ->form([
+                        Forms\Components\Select::make('company')
+                            ->label('Cég (opcionális)')
+                            ->options($groupCompanies)
+                            ->native(false)
+                            ->searchable(),
+                        Forms\Components\CheckboxList::make('columns')
+                            ->label('Oszlopok')
+                            ->options([
+                                'name' => 'Név',
+                                'company' => 'Cég',
+                                'position' => 'Pozíció',
+                                'phone' => 'Telefon',
+                                'shift' => 'Műszak minta',
+                            ])
+                            ->default(['name','company','position'])
+                            ->columns(2),
+                    ])
+                    ->action(function (array $data) {
+                        $cols = $data['columns'] ?? ['name','company','position'];
+                        $company = $data['company'] ?? null;
+
+                        $q = static::getEloquentQuery()->clone();
+                        if ($company) {
+                            $q->where('company_id', $company);
+                        }
+                        $rows = $q->orderBy('name')->get();
+
+                        $headers = [];
+                        foreach ($cols as $c) {
+                            $headers[] = match($c){
+                                'name' => 'Név',
+                                'company' => 'Cég',
+                                'position' => 'Pozíció',
+                                'phone' => 'Telefon',
+                                'shift' => 'Műszak minta',
+                                default => ucfirst($c),
+                            };
+                        }
+
+                        $html = '<html><head><meta charset="UTF-8"><style>
+                            table{width:100%;border-collapse:collapse;font-size:12px}
+                            th,td{border:1px solid #ccc;padding:6px;text-align:left}
+                            h1{font-size:16px;margin:0 0 10px 0}
+                        </style></head><body>';
+                        $html .= '<h1>Dolgozók export (PDF)</h1>';
+                        $html .= '<table><thead><tr>';
+                        foreach ($headers as $h) { $html .= '<th>'.htmlspecialchars($h).'</th>'; }
+                        $html .= '</tr></thead><tbody>';
+
+                        foreach ($rows as $r) {
+                            $html .= '<tr>';
+                            foreach ($cols as $c) {
+                                $val = match($c){
+                                    'name' => $r->name,
+                                    'company' => $r->company?->name,
+                                    'position' => $r->position?->name,
+                                    'phone' => $r->phone,
+                                    'shift' => $r->shiftPattern?->name,
+                                    default => '',
+                                };
+                                $html .= '<td>'.htmlspecialchars((string)$val).'</td>';
+                            }
+                            $html .= '</tr>';
+                        }
+                        $html .= '</tbody></table></body></html>';
+
+                        $resp = new StreamedResponse(function () use ($html) {
+                            $options = new \Dompdf\Options([
+                                'isRemoteEnabled' => true,
+                                'defaultFont' => 'DejaVu Sans',
+                            ]);
+                            $dompdf = new \Dompdf\Dompdf($options);
+                            $dompdf->loadHtml($html, 'UTF-8');
+                            $dompdf->setPaper('A4','portrait');
+                            $dompdf->render();
+                            echo $dompdf->output();
+                        }, 200, [
+                            'Content-Type' => 'application/pdf',
+                            'Content-Disposition' => 'attachment; filename=\"employees.pdf\"',
+                        ]);
+                        return $resp;
+                    }),
+
+                Tables\Actions\Action::make('export_xls')
+                    ->label('Export XLS')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('gray')
+                    ->form([
+                        Forms\Components\Select::make('company')
+                            ->label('Cég (opcionális)')
+                            ->options($groupCompanies)
+                            ->native(false)
+                            ->searchable(),
+                        Forms\Components\CheckboxList::make('columns')
+                            ->label('Oszlopok')
+                            ->options([
+                                'name' => 'Név',
+                                'company' => 'Cég',
+                                'position' => 'Pozíció',
+                                'phone' => 'Telefon',
+                                'shift' => 'Műszak minta',
+                            ])
+                            ->default(['name','company','position','phone'] )
+                            ->columns(2),
+                    ])
+                    ->action(function (array $data) {
+                        $cols = $data['columns'] ?? ['name','company','position','phone'];
+                        $company = $data['company'] ?? null;
+
+                        $q = static::getEloquentQuery()->clone();
+                        if ($company) {
+                            $q->where('company_id', $company);
+                        }
+                        $rows = $q->orderBy('name')->get();
+
+                        $headers = [];
+                        foreach ($cols as $c) {
+                            $headers[] = match($c){
+                                'name' => 'Név',
+                                'company' => 'Cég',
+                                'position' => 'Pozíció',
+                                'phone' => 'Telefon',
+                                'shift' => 'Műszak minta',
+                                default => ucfirst($c),
+                            };
+                        }
+
+                        $html = '<table border=\"1\"><thead><tr>';
+                        foreach ($headers as $h) { $html .= '<th>'.htmlspecialchars($h).'</th>'; }
+                        $html .= '</tr></thead><tbody>';
+                        foreach ($rows as $r) {
+                            $html .= '<tr>';
+                            foreach ($cols as $c) {
+                                $val = match($c){
+                                    'name' => $r->name,
+                                    'company' => $r->company?->name,
+                                    'position' => $r->position?->name,
+                                    'phone' => $r->phone,
+                                    'shift' => $r->shiftPattern?->name,
+                                    default => '',
+                                };
+                                $html .= '<td>'.htmlspecialchars((string)$val).'</td>';
+                            }
+                            $html .= '</tr>';
+                        }
+                        $html .= '</tbody></table>';
+
+                        return new Response($html, 200, [
+                            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+                            'Content-Disposition' => 'attachment; filename=\"employees.xls\"',
+                        ]);
+                    }),
+            ])
             ->actionsPosition(ActionsPosition::AfterColumns)
             ->actions([
+                Tables\Actions\Action::make('assignCard')
+                    ->label('')
+                    ->icon('heroicon-o-plus-circle')
+                    ->visible(fn ($record) => ! $record->card) // 1-1 kapcsolat esetén
+                    ->color('success')
+                    ->tooltip('Kártya hozzárendelése')
+                    ->form([
+                        Forms\Components\Select::make('card_id')
+                            ->label('Szabad kártya')
+                            ->options(fn () => Card::available()->orderBy('uid')->pluck('uid', 'id'))
+                            ->searchable()
+                            ->required()
+                            ->options(function () {
+                                return Card::query()
+                                    ->whereNull('employee_id')
+                                    ->where('status', 'available')
+                                    ->orderBy('uid')
+                                    ->limit(100) // opcionális
+                                    ->get()
+                                    ->mapWithKeys(function (Card $c) {
+                                        $label = trim($c->uid . ($c->notes ? ' - ' . $c->notes : ''));
+                                        return [$c->id => $label];
+                                    })
+                                    ->toArray();
+                            })
+                             ->getSearchResultsUsing(function (string $search) {
+                                return Card::query()
+                                    ->whereNull('employee_id')
+                                    ->where('status', 'available')
+                                    ->where(function ($q) use ($search) {
+                                        $q->where('uid', 'like', "%{$search}%")
+                                        ->orWhere('notes', 'like', "%{$search}%");
+                                    })
+                                    ->orderBy('uid')
+                                    ->limit(50)
+                                    ->get()
+                                    ->mapWithKeys(function (Card $c) {
+                                        $label = trim($c->uid . ($c->notes ? ' - ' . $c->notes : ''));
+                                        return [$c->id => $label];
+                                    })
+                                    ->toArray();
+                            })
+                            // Ha már kiválasztott értéket kell visszaírni címkének
+                            ->getOptionLabelUsing(function ($value) {
+                                if (! $value) return null;
+                                $c = Card::find($value);
+                                return $c ? trim($c->uid . ($c->notes ? ' - ' . $c->notes : '')) : null;
+                            }),
+                    ])
+                    ->action(function ($record, array $data) {
+                        $card = \App\Models\Card::findOrFail($data['card_id']);
+                        app(CardService::class)->assignByUid($record->id, $card->uid);
+                        Notification::make()->title('Kártya hozzárendelve.')->success()->send();
+                    })
+                    ->after(function (Action $action, $livewire) {
+                        $livewire->dispatch('refresh');   // táblát/oldalt újrarendereli
+                    }),
+
+                Tables\Actions\Action::make('unassignCard')
+                    ->label('')
+                    ->icon('heroicon-o-minus-circle')
+                    ->visible(fn ($record) => (bool) $record->card)
+                    ->color('warning')
+                    ->tooltip('Kártya léválasztása')
+                    ->requiresConfirmation()
+                    ->action(function ($record) {
+                        app(CardService::class)->unassign($record->card->id);
+                        Notification::make()->title('Kártya leválasztva.')->success()->send();
+                    })
+                    ->after(function (Action $action, $livewire) {
+                        $livewire->dispatch('refresh');   // táblát/oldalt újrarendereli
+                    }),
+
+               // Tables\Actions\EditAction::make(),
                 Tables\Actions\Action::make('checkIn')
                     ->label('')
                     ->icon('heroicon-o-arrow-right-on-rectangle')
@@ -424,10 +741,11 @@ class EmployeeResource extends Resource
                             'company_id'   => $companyId,
                             'type'         => enum_exists(TimeEntryType::class) ? TimeEntryType::Regular->value : 'work',
                             'start_date'   => $date,
+                            'start_time'   => $time,
                             'end_date'     => null,
+                            'end_time'     => null,
                             'hours'        => null,
                             'status'       => 'open',
-                            'note'         => 'check-in='.$time,
                             'requested_by' => $uid,
                             'approved_by'  => $uid,
                             'created_at'   => now(),
@@ -479,20 +797,44 @@ class EmployeeResource extends Resource
                             throw new \RuntimeException('Nincs nyitott jelenlét rögzítve.');
                         }
 
-                        $in = Carbon::parse(
-                            "{$open->start_date} " . (($open->start_time ?? null) ?: '08:00')
-                        );
+                        $in = Carbon::parse("{$open->start_date} " . (($open->start_time ?? null) ?: '08:00'));
 
-                        $hours = max(0, round($in->diffInMinutes($out) / 60, 2));
+                        // éjszakába nyúlás: ha a kijelentkezés korábbi, mint a belépés, tekintsük másnapnak
+                        if ($out->lessThan($in)) {
+                            $out->addDay();
+                        }
 
-                        DB::table('time_entries')->where('id', $open->id)->update([
+                        // összes ledolgozott idő (óra, 2 tizedes)
+                        $minutes    = max(0, $in->diffInMinutes($out));
+                        $totalHours = round($minutes / 60, 2);
+
+                        // Szabály:
+                        // - 10:30 alatt: regular cap = 8.5h
+                        // - 10:30-tól:   regular cap = 8.0h (a különbözet túlóra)
+                        $threshold   = 10.5; // 10 óra 30 perc
+                        $regularCap  = ($totalHours >= $threshold) ? 8.0 : 8.5;
+                        $regularH    = min($totalHours, $regularCap);
+                        $overtimeH   = max(0, round($totalHours - $regularH, 2));
+
+                        $update = [
                             'end_date'   => $date,
                             'end_time'   => $time,
-                            'hours'      => $hours,
+                            'hours'      => $totalHours,   // összes ledolgozott óra
                             'status'     => 'approved',
                             'updated_at' => now(),
-                        ]);
+                        ];
+
+                        // Ha vannak külön mezők, mentsük őket is
+                        if (Schema::hasColumn('time_entries', 'regular_hours')) {
+                            $update['regular_hours'] = $regularH;
+                        }
+                        if (Schema::hasColumn('time_entries', 'overtime_hours')) {
+                            $update['overtime_hours'] = $overtimeH;
+                        }
+
+                        DB::table('time_entries')->where('id', $open->id)->update($update);
                     })
+
                     ->successNotificationTitle('Kijelentkezve'),
 
                 Tables\Actions\EditAction::make()->label(''),
@@ -523,4 +865,15 @@ class EmployeeResource extends Resource
             'edit'   => Pages\EditEmployee::route('/{record}/edit'),
         ];
     }
+
+    /** Visszaadja [regular_hours, overtime_hours] decimális órában. */
+    protected static function splitRegularAndOvertime(float $totalHours): array
+    {
+        $threshold = 10.5;     // 10 óra 30 perc
+        $regularCap = ($totalHours >= $threshold) ? 8.0 : 8.5;
+        $regular = min($totalHours, $regularCap);
+        $overtime = max(0, $totalHours - $regular);
+        return [$regular, $overtime];
+    }
+
 }
