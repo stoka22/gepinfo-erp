@@ -7,33 +7,17 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        // Feltételezi, hogy a goods_receipts és items táblák már léteznek.
+        // A goods_receipt_lines táblát a create_goods_receipts_table migráció már létrehozza;
+        // ez a migráció csak a gyakori kereséshez használt összetett indexet pótolja.
         Schema::table('goods_receipt_lines', function (Blueprint $table) {
-            $table->id();
-
-            $table->foreignId('goods_receipt_id')
-                ->constrained('goods_receipts')
-                ->cascadeOnDelete();
-
-            $table->foreignId('item_id')
-                ->constrained('items')
-                ->cascadeOnDelete();
-
-            $table->decimal('qty', 18, 3);
-            $table->decimal('unit_cost', 18, 4);
-            $table->decimal('line_total', 18, 2);
-
-            $table->string('note')->nullable();
-
-            $table->timestamps();
-
-            // Gyakoribb keresésekhez
             $table->index(['goods_receipt_id', 'item_id']);
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('goods_receipt_lines');
+        Schema::table('goods_receipt_lines', function (Blueprint $table) {
+            $table->dropIndex(['goods_receipt_id', 'item_id']);
+        });
     }
 };
