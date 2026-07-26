@@ -120,7 +120,7 @@ class ShiftPresenceTable extends BaseWidget
                             'employee_id'  => $record->id,
                             'company_id'   => $record->company_id ?? null,
                             'type'         => \App\Enums\TimeEntryType::Presence->value,
-                            'status'       => 'approved',
+                            'status'       => \App\Enums\TimeEntryStatus::CheckedIn->value,
                             'start_date'   => $today->toDateString(),
                             'start_time'   => $time,
                             'entry_method' =>  'office',
@@ -165,58 +165,17 @@ class ShiftPresenceTable extends BaseWidget
             return;
         }
 
-        // --- záró idő + eltöltött percek
-        $endTime   = $this->onlyTime($data['time']);
-        $startTime = $open->start_time ?: '06:00:00';
-
-        $start   = \Carbon\Carbon::parse($this->dateString($open->start_date).' '.$startTime);
-        $end     = \Carbon\Carbon::parse($today->toDateString().' '.$endTime);
-        $minutes = max(0, (int) round($start->floatDiffInMinutes($end)));
-
-        // --- presence sor mentése (1 lépésben)
+        // Az órák és a túlóra-keret módosítása a TimeEntryObserver-ben történik
+        // (8 óra 30 perces napi küszöb, göngyölt keret).
         $open->update([
-            'end_date'       => $today->toDateString(),
-            'end_time'       => $endTime,
-            'worked_minutes' => $minutes,
-            'hours'          => round($minutes / 60, 2),
-            'entry_method'   => $data['entry_method'] ?? $open->entry_method,
-            'approved_by'    => $open->approved_by ?? \Filament\Facades\Filament::auth()->id(),
-            'is_modified'    => ($data['entry_method'] ?? $open->entry_method) === 'office',
-            'modified_by'    => \Filament\Facades\Filament::auth()->id(),
+            'end_date'     => $today->toDateString(),
+            'end_time'     => $this->onlyTime($data['time']),
+            'status'       => \App\Enums\TimeEntryStatus::CheckedOut->value,
+            'entry_method' => $data['entry_method'] ?? $open->entry_method,
+            'approved_by'  => $open->approved_by ?? \Filament\Facades\Filament::auth()->id(),
+            'is_modified'  => ($data['entry_method'] ?? $open->entry_method) === 'office',
+            'modified_by'  => \Filament\Facades\Filament::auth()->id(),
         ]);
-
-        // --- Túlóra: precíz ablak számítása a lezárt mai intervallumokból
-        [$otStart, $otEnd, $overtimeMinutes] = $this->calculateOvertimeWindow($record->id, $today);
-
-        if ($overtimeMinutes <= 0 || ! $otStart || ! $otEnd) {
-            // nincs túlóra → töröljük az esetleg létező mai overtime sort
-            \App\Models\TimeEntry::query()
-                ->where('employee_id', $record->id)
-                ->where('type', \App\Enums\TimeEntryType::Overtime->value)
-                ->whereDate('start_date', $today)
-                ->delete();
-        } else {
-            // naponta max 1 overtime sor
-            \App\Models\TimeEntry::updateOrCreate(
-                [
-                    'employee_id' => $record->id,
-                    'type'        => \App\Enums\TimeEntryType::Overtime->value,
-                    'start_date'  => $otStart->toDateString(),
-                ],
-                [
-                    'company_id'     => $record->company_id ?? null,
-                    'status'         => 'approved',
-                    'start_time'     => $otStart->format('H:i:s'),
-                    'end_date'       => $otEnd->toDateString(),
-                    'end_time'       => $otEnd->format('H:i:s'),
-                    'worked_minutes' => $overtimeMinutes,
-                    'hours'          => round($overtimeMinutes / 60, 2),
-                    'entry_method'   => 'office',
-                    'requested_by'   => \Filament\Facades\Filament::auth()->id(),
-                    'approved_by'    => \Filament\Facades\Filament::auth()->id(),
-                ]
-            );
-        }
     });
 })
 
@@ -289,15 +248,17 @@ class ShiftPresenceTable extends BaseWidget
                                 $sub->select(DB::raw(1))
                                     ->from('time_entries as te2')
                                     ->whereColumn('te2.employee_id', 'employees.id')
-                                    ->where('te2.type', TimeEntryType::Overtime->value)
-                                    ->whereDate('te2.start_date', Carbon::today());
+                                    ->where('te2.type', TimeEntryType::Presence->value)
+                                    ->whereDate('te2.start_date', Carbon::today())
+                                    ->where('te2.overtime_delta_minutes', '>', 0);
                             }),
                             false: fn (Builder $q) => $q->whereNotExists(function ($sub) {
                                 $sub->select(DB::raw(1))
                                     ->from('time_entries as te2')
                                     ->whereColumn('te2.employee_id', 'employees.id')
-                                    ->where('te2.type', TimeEntryType::Overtime->value)
-                                    ->whereDate('te2.start_date', Carbon::today());
+                                    ->where('te2.type', TimeEntryType::Presence->value)
+                                    ->whereDate('te2.start_date', Carbon::today())
+                                    ->where('te2.overtime_delta_minutes', '>', 0);
                             }),
                             blank: fn (Builder $q) => $q
                         ),
@@ -560,55 +521,6 @@ protected function lastPresenceEndToday(int $employeeId, Carbon $day): ?Carbon
 protected function dateString(mixed $d): string
 {
     return $d instanceof \DateTimeInterface ? $d->format('Y-m-d') : (string) $d;
-}
-
-/**
- * Számolja a túlóra ablakot a mai (lezárt) presence intervallumokból.
- * Visszaad: [Carbon $otStart, Carbon $otEnd, int $overtimeMinutes] vagy [null, null, 0] ha nincs túlóra.
- */
-protected function calculateOvertimeWindow(int $employeeId, \Carbon\Carbon $day): array
-{
-    // Lezárt mai jelenlétek időrendben
-    $rows = \App\Models\TimeEntry::query()
-        ->where('employee_id', $employeeId)
-        ->where('type', \App\Enums\TimeEntryType::Presence->value)
-        ->whereDate('start_date', $day)
-        ->whereNotNull('end_time')
-        ->orderBy('start_time', 'asc')
-        ->get(['start_date','start_time','end_date','end_time']);
-
-    if ($rows->isEmpty()) {
-        return [null, null, 0];
-    }
-
-    $acc = 0; // felhalmozott percek
-    $otStart = null;
-    $lastEnd = null;
-
-    foreach ($rows as $r) {
-        $s = \Carbon\Carbon::parse($this->dateString($r->start_date).' '.$r->start_time);
-        $eDate = $r->end_date ?: $r->start_date;
-        $e = \Carbon\Carbon::parse($this->dateString($eDate).' '.$r->end_time);
-
-        // intervallum hossza
-        $len = max(0, (int) round($s->floatDiffInMinutes($e)));
-
-        // Ha még nem értük el a 480-at és ebben az intervallumban lépjük át
-        if ($otStart === null && $acc + $len > 480) {
-            $need = 480 - $acc;          // ennyi perc után kezdődik a túlóra
-            $otStart = (clone $s)->addMinutes($need);
-        }
-
-        $acc += $len;
-        $lastEnd = $e;
-    }
-
-    $overtimeMinutes = max(0, $acc - 480);
-    if ($overtimeMinutes <= 0 || $otStart === null || $lastEnd === null || $otStart->greaterThanOrEqualTo($lastEnd)) {
-        return [null, null, 0];
-    }
-
-    return [$otStart, $lastEnd, $overtimeMinutes];
 }
 
 }

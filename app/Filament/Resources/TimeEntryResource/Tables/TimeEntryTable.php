@@ -92,6 +92,15 @@ class TimeEntryTable
                         };
                     })
                     ->toggleable(),
+
+                Tables\Columns\IconColumn::make('needs_review')
+                    ->label('Felülvizsgálandó')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-exclamation-triangle')
+                    ->trueColor('warning')
+                    ->falseIcon('')
+                    ->tooltip(fn (TimeEntry $r) => $r->needs_review ? 'Automatikus kiléptetés – ellenőrizd az időpontot, majd hagyd jóvá.' : null)
+                    ->toggleable(),
             ])
             ->filters([
                 // TÍPUS-kapcsoló – Presence alapból NINCS a listában → rejtve indul
@@ -151,6 +160,18 @@ class TimeEntryTable
                     }),
             ])
             ->actions([
+                Tables\Actions\Action::make('reviewAutoCheckout')
+                    ->label('Jóváhagyás')
+                    ->icon('heroicon-o-check-badge')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalDescription('Automatikus (12 órás) kiléptetés. Ha az időpont nem pontos, előbb szerkeszd, majd hagyd jóvá, hogy a túlóra-keret elszámolásra kerüljön.')
+                    ->visible(fn (TimeEntry $r) => $r->needs_review && Auth::user()->can('update', $r))
+                    ->action(function (TimeEntry $r) {
+                        $r->needs_review = false;
+                        $r->save();
+                    }),
+
                 Tables\Actions\EditAction::make()
                     ->visible(fn (TimeEntry $r) => Auth::user()->can('update', $r)),
 

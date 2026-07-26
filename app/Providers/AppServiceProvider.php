@@ -23,6 +23,8 @@ use App\Policies\TimeEntryPolicy;
 use App\Models\Partner;
 use App\Policies\PartnerPolicy;
 
+use App\Observers\TimeEntryObserver;
+
 use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
@@ -52,6 +54,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(TimeEntry::class, TimeEntryPolicy::class);
         Gate::policy(Partner::class, PartnerPolicy::class);
         Schema::defaultStringLength(191);
+
+        TimeEntry::observe(TimeEntryObserver::class);
     }
 
     

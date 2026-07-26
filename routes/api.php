@@ -13,9 +13,12 @@ use App\Http\Controllers\Scheduler\TreeController;
 use App\Http\Controllers\Scheduler\TaskController;
 
 use App\Http\Controllers\Api\TerminalWebhookController;
+use App\Http\Controllers\Scheduler\ItemApiController;
 
-Route::post('/terminal/event', [TerminalWebhookController::class, 'store']);
+Route::post('/terminal/event', [TerminalWebhookController::class, 'store'])
+    ->middleware('throttle:120,1');
 
+Route::get('/items', ItemApiController::class);
 
 // -----------------------------
 // DEVICE endpoints
@@ -119,5 +122,5 @@ Route::prefix('scheduler')
 
         // Következő szabad idősáv és műszak-ablak (a SPA hívja)
         Route::get('next-slot',           [TaskController::class, 'nextSlot']);
-        Route::get('shift-window',        [TaskController::class, 'shiftWindow']);
+       // Route::get('shift-window',        [TaskController::class, 'shiftWindow']);
     });

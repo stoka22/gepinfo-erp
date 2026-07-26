@@ -19,3 +19,8 @@ Schedule::command('pulses:generate')
     ->appendOutputTo(storage_path('logs/pulses-generate.log'));
     
 Schedule::command('vacation:rebuild')->yearlyOn(1, 1, '03:00');
+
+Schedule::command('attendance:auto-checkout')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/attendance-auto-checkout.log'));

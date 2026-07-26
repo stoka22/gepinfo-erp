@@ -9,7 +9,9 @@ use Filament\Tables;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\Position;
+use App\Models\TimeEntry;
 use App\Enums\TimeEntryType;
+use App\Enums\TimeEntryStatus;
 use App\Services\CardService;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
@@ -437,8 +439,8 @@ class EmployeeTable
                     ->visible(function (Employee $record) {
                         if (! Schema::hasTable('time_entries')) return false;
 
-                        return ! DB::table('time_entries')
-                            ->where('employee_id', $record->id)
+                        return ! TimeEntry::where('employee_id', $record->id)
+                            ->where('type', TimeEntryType::Presence->value)
                             ->whereNull('end_time')
                             ->whereNull('end_date')
                             ->exists();
@@ -457,23 +459,17 @@ class EmployeeTable
                         $date = Carbon::parse($data['date'])->toDateString();
                         $time = Carbon::parse($data['time'])->format('H:i');
 
-                        $uid  = Filament::auth()->id() ?? Auth::id();
-                        $companyId = $record->company_id;
+                        $uid = Filament::auth()->id() ?? Auth::id();
 
-                        DB::table('time_entries')->insert([
+                        TimeEntry::create([
                             'employee_id'  => $record->id,
-                            'company_id'   => $companyId,
-                            'type'         => enum_exists(TimeEntryType::class) ? TimeEntryType::Regular->value : 'work',
+                            'company_id'   => $record->company_id,
+                            'type'         => TimeEntryType::Presence->value,
                             'start_date'   => $date,
                             'start_time'   => $time,
-                            'end_date'     => null,
-                            'end_time'     => null,
-                            'hours'        => null,
-                            'status'       => 'open',
+                            'status'       => TimeEntryStatus::CheckedIn->value,
                             'requested_by' => $uid,
                             'approved_by'  => $uid,
-                            'created_at'   => now(),
-                            'updated_at'   => now(),
                         ]);
                     })
                     ->successNotificationTitle('Bejelentkezve'),
@@ -488,8 +484,8 @@ class EmployeeTable
                     ->visible(function (Employee $record) {
                         if (! Schema::hasTable('time_entries')) return false;
 
-                        return DB::table('time_entries')
-                            ->where('employee_id', $record->id)
+                        return TimeEntry::where('employee_id', $record->id)
+                            ->where('type', TimeEntryType::Presence->value)
                             ->whereNull('end_time')
                             ->whereNull('end_date')
                             ->exists();
@@ -508,10 +504,9 @@ class EmployeeTable
 
                         $date = Carbon::parse($data['date'])->toDateString();
                         $time = Carbon::parse($data['time'])->format('H:i');
-                        $out  = Carbon::parse("{$date} {$time}");
 
-                        $open = DB::table('time_entries')
-                            ->where('employee_id', $record->id)
+                        $open = TimeEntry::where('employee_id', $record->id)
+                            ->where('type', TimeEntryType::Presence->value)
                             ->whereNull('end_time')
                             ->whereNull('end_date')
                             ->orderByDesc('id')
@@ -521,44 +516,13 @@ class EmployeeTable
                             throw new \RuntimeException('Nincs nyitott jelenlét rögzítve.');
                         }
 
-                        $in = Carbon::parse("{$open->start_date} " . (($open->start_time ?? null) ?: '08:00'));
-
-                        // éjszakába nyúlás: ha a kijelentkezés korábbi, mint a belépés, tekintsük másnapnak
-                        if ($out->lessThan($in)) {
-                            $out->addDay();
-                        }
-
-                        // összes ledolgozott idő (óra, 2 tizedes)
-                        $minutes    = max(0, $in->diffInMinutes($out));
-                        $totalHours = round($minutes / 60, 2);
-
-                        // Szabály:
-                        // - 10:30 alatt: regular cap = 8.5h
-                        // - 10:30-tól:   regular cap = 8.0h (a különbözet túlóra)
-                        $threshold   = 10.5; // 10 óra 30 perc
-                        $regularCap  = ($totalHours >= $threshold) ? 8.0 : 8.5;
-                        $regularH    = min($totalHours, $regularCap);
-                        $overtimeH   = max(0, round($totalHours - $regularH, 2));
-
-                        $update = [
-                            'end_date'   => $date,
-                            'end_time'   => $time,
-                            'hours'      => $totalHours,   // összes ledolgozott óra
-                            'status'     => 'approved',
-                            'updated_at' => now(),
-                        ];
-
-                        // Ha vannak külön mezők, mentsük őket is
-                        if (Schema::hasColumn('time_entries', 'regular_hours')) {
-                            $update['regular_hours'] = $regularH;
-                        }
-                        if (Schema::hasColumn('time_entries', 'overtime_hours')) {
-                            $update['overtime_hours'] = $overtimeH;
-                        }
-
-                        DB::table('time_entries')->where('id', $open->id)->update($update);
+                        // Az órák és a túlóra-keret módosítása a TimeEntryObserver-ben történik,
+                        // itt csak a záró időpontot és az állapotot állítjuk be.
+                        $open->end_date = $date;
+                        $open->end_time = $time;
+                        $open->status = TimeEntryStatus::CheckedOut->value;
+                        $open->save();
                     })
-
                     ->successNotificationTitle('Kijelentkezve'),
 
                 Tables\Actions\EditAction::make()->label(''),

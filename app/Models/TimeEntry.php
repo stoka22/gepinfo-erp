@@ -19,6 +19,7 @@ class TimeEntry extends Model
         'start_date','start_time','end_date','end_time',
         'hours','note','requested_by','approved_by',
         'entry_method','is_modified','modified_by',
+        'needs_review','overtime_delta_minutes','overtime_settled_at',
     ];
 
     protected $casts = [
@@ -26,8 +27,12 @@ class TimeEntry extends Model
         'status'     => TimeEntryStatus::class,
         'start_date' => 'date',
         'end_date'   => 'date',
+        'start_time'  => 'datetime:H:i:s',
+        'end_time'    => 'datetime:H:i:s',
         'hours'      => 'decimal:2',
         'is_modified' => 'bool',
+        'needs_review' => 'bool',
+        'overtime_settled_at' => 'datetime',
     ];
 
     public function employee(): BelongsTo { return $this->belongsTo(Employee::class); }
@@ -41,44 +46,55 @@ class TimeEntry extends Model
     }
 
     protected static function booted(): void
-    {
-        // Globális cég-scope app módban
-        if (!app()->runningInConsole()) {
-            static::addGlobalScope('company', function (Builder $q) {
-                if (Auth::check() && Auth::user()->company_id) {
-                    $q->where('company_id', Auth::user()->company_id);
-                }
-            });
-        }
-
-        // Létrehozás: cég automatikus beállítása
-        static::creating(function (self $model) {
-            if (!$model->company_id) {
-                if ($model->employee_id) {
-                    $model->company_id = self::companyIdForEmployee((int)$model->employee_id)
-                        ?? Auth::user()?->company_id;
-                } else {
-                    $model->company_id = Auth::user()?->company_id;
-                }
+{
+    if (! app()->runningInConsole()) {
+        static::addGlobalScope('company', function (Builder $q) {
+            if (! Auth::check()) {
+                return;
             }
-        });
 
-        // Mentés előtt: ha van employee, vele tegyük konzisztenssé
-        static::saving(function (self $model) {
-            if ($model->employee_id) {
-                $empCid = self::companyIdForEmployee((int)$model->employee_id);
-                if ($empCid && $empCid !== $model->company_id) {
-                    $model->company_id = $empCid;
-                }
+            $user = Auth::user();
+
+            // Többcéges jogosultságnál NE szűkítsük globálisan saját cégre
+            if ($user?->can('manage group time entries')) {
+                return;
+            }
+
+            if ($user?->company_id) {
+                $q->where('company_id', $user->company_id);
             }
         });
     }
+
+    static::creating(function (self $model) {
+        if (! $model->company_id) {
+            if ($model->employee_id) {
+                $model->company_id = self::companyIdForEmployee((int) $model->employee_id)
+                    ?? Auth::user()?->company_id;
+            } else {
+                $model->company_id = Auth::user()?->company_id;
+            }
+        }
+    });
+
+    static::saving(function (self $model) {
+        if ($model->employee_id) {
+            $empCid = self::companyIdForEmployee((int) $model->employee_id);
+
+            if ($empCid && $empCid !== $model->company_id) {
+                $model->company_id = $empCid;
+            }
+        }
+    });
+}
 
     // ---- Helper: employee -> company_id, fallback users joinra, ha nincs employees.company_id
     protected static function companyIdForEmployee(int $employeeId): ?int
     {
         if (Schema::hasColumn('employees', 'company_id')) {
-            $val = Employee::query()->whereKey($employeeId)->value('company_id');
+            //$val = Employee::query()->whereKey($employeeId)->value('company_id');
+            $val = Employee::withoutGlobalScopes()->whereKey($employeeId)->value('company_id');
+            
             return $val !== null ? (int)$val : null;
         }
 
