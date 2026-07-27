@@ -537,6 +537,61 @@ class EmployeeTable
                         && (Filament::auth()->user()?->role ?? null) === 'admin'),
             ])
             ->bulkActions([
+                Tables\Actions\BulkAction::make('attendance_sheet')
+                    ->label('Jelenléti ív nyomtatása')
+                    ->icon('heroicon-o-printer')
+                    ->color('gray')
+                    ->form([
+                        Forms\Components\DatePicker::make('month')
+                            ->label('Hónap')
+                            ->native(false)
+                            ->displayFormat('Y. F')
+                            ->default(now()->startOfMonth())
+                            ->required(),
+                    ])
+                    ->action(function (\Illuminate\Support\Collection $records, array $data) {
+                        $month = \Carbon\CarbonImmutable::parse($data['month']);
+                        $periodStart = $month->startOfMonth();
+                        $periodEnd = $month->endOfMonth();
+
+                        $employees = $records
+                            ->reject(fn (Employee $e) => $e->trashed())
+                            ->sortBy('name')
+                            ->values();
+
+                        if ($employees->isEmpty()) {
+                            Notification::make()
+                                ->title('Nincs aktív dolgozó a kijelölés között.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+
+                        $service = app(\App\Services\AttendanceSheetService::class);
+                        $sheets = $employees
+                            ->map(fn (Employee $e) => $service->buildForEmployee($e->loadMissing('company'), $periodStart, $periodEnd))
+                            ->all();
+
+                        $html = view('exports.attendance-sheet', [
+                            'sheets'    => $sheets,
+                            'printedAt' => now()->format('Y-m-d H:i'),
+                        ])->render();
+
+                        $options = new \Dompdf\Options(['defaultFont' => 'DejaVu Sans']);
+                        $dompdf = new \Dompdf\Dompdf($options);
+                        $dompdf->loadHtml($html);
+                        $dompdf->setPaper('A4', 'portrait');
+                        $dompdf->render();
+
+                        return new StreamedResponse(function () use ($dompdf) {
+                            echo $dompdf->output();
+                        }, 200, [
+                            'Content-Type' => 'application/pdf',
+                            'Content-Disposition' => 'attachment; filename="jelenleti_iv_'.$month->format('Y_m').'.pdf"',
+                        ]);
+                    })
+                    ->deselectRecordsAfterCompletion(),
+
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()->label('Archiválás'),
                     Tables\Actions\RestoreBulkAction::make()->label('Visszaállítás'),

@@ -39,6 +39,7 @@ class AbsenceTodayTable extends BaseWidget
                             TimeEntryType::Overtime  => 'Túlóra',
                             TimeEntryType::Presence  => 'Jelenlét',
                             TimeEntryType::Regular   => 'Munkaidő',
+                            TimeEntryType::UnauthorizedAbsence => 'Igazolatlan távollét',
                             default                  => (string) $state,
                         };
                     }),
@@ -56,7 +57,7 @@ class AbsenceTodayTable extends BaseWidget
         return TimeEntry::query()
             ->with(['employee.position'])
             ->when($groupIds !== null, fn ($q) => $q->whereIn('company_id', $groupIds))
-            ->whereIn('type', [TimeEntryType::Vacation->value, TimeEntryType::SickLeave->value])
+            ->whereIn('type', [TimeEntryType::Vacation->value, TimeEntryType::SickLeave->value, TimeEntryType::UnauthorizedAbsence->value])
             ->whereDate('start_date', '<=', $today)
             ->where(function ($q) use ($today) {
                 $q->whereNull('end_date')->orWhereDate('end_date', '>=', $today);

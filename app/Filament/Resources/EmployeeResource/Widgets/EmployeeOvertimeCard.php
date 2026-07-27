@@ -57,11 +57,14 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
                 ])
                 ->sum('hours');
         } elseif (Schema::hasTable('time_entries')) {
-            // time_entries-ben a túlóra a type mező szerint van jelölve
+            // time_entries-ben a túlóra a type mező szerint van jelölve.
+            // hours > 0: csak a ténylegesen ledolgozott túlóra, a negatív (napi import
+            // során a túlóra-keret terhére elszámolt hiányzás) nem számít bele.
             $yearly = (float) DB::table('time_entries')
                 ->where('employee_id', $eid)
                 ->whereYear('start_date', $y)
                 ->whereIn('type', self::OVERTIME_TYPES)
+                ->where('hours', '>', 0)
                 ->sum('hours');
 
             $monthly = (float) DB::table('time_entries')
@@ -71,6 +74,7 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
                     now()->endOfMonth()->toDateString(),
                 ])
                 ->whereIn('type', self::OVERTIME_TYPES)
+                ->where('hours', '>', 0)
                 ->sum('hours');
         }
 

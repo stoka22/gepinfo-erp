@@ -23,9 +23,20 @@ class TimeEntryObserver
      */
     public function saving(TimeEntry $entry): void
     {
-        if ($entry->type !== TimeEntryType::Presence) {
+        if ($entry->type === TimeEntryType::Presence) {
+            $this->settlePresence($entry);
             return;
         }
+
+        // Napi import: túlóra-keret terhére elszámolt hiányzás (negatív órával jelölve).
+        // Csak jóváhagyáskor terheli ténylegesen a keretet, ld. daily-import absence logika.
+        if ($entry->type === TimeEntryType::Overtime && (float) ($entry->hours ?? 0) < 0) {
+            $this->settleOvertimeConsumption($entry);
+        }
+    }
+
+    private function settlePresence(TimeEntry $entry): void
+    {
         if ($entry->status !== TimeEntryStatus::CheckedOut) {
             return;
         }
@@ -55,6 +66,33 @@ class TimeEntryObserver
         }
 
         $entry->overtime_delta_minutes = $newDelta;
+        $entry->overtime_settled_at = now();
+    }
+
+    /**
+     * Egy napi importból származó, túlóra-keret terhére elszámolt hiányzás
+     * jóváhagyásakor vonja le a bankolt túlóra-percet az egyenlegből.
+     * Amíg a bejegyzés 'pending', nem érinti a keretet.
+     */
+    private function settleOvertimeConsumption(TimeEntry $entry): void
+    {
+        if ($entry->status !== TimeEntryStatus::Approved) {
+            return;
+        }
+
+        $minutes = (int) round(((float) $entry->hours) * 60); // negatív érték
+
+        $wasSettled = (bool) $entry->getOriginal('overtime_settled_at');
+        if ($wasSettled) {
+            $oldMinutes = (int) round(((float) $entry->getOriginal('hours')) * 60);
+            if ($minutes === $oldMinutes) {
+                return;
+            }
+            $this->service->applyDelta($entry->employee_id, $entry->company_id, $minutes - $oldMinutes);
+        } else {
+            $this->service->applyDelta($entry->employee_id, $entry->company_id, $minutes);
+        }
+
         $entry->overtime_settled_at = now();
     }
 }

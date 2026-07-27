@@ -8,4 +8,5 @@ enum TimeEntryType: string
     case Overtime  = 'overtime';   // túlóra
     case SickLeave = 'sick_leave'; // táppénz
     case Presence  = 'presence';
+    case UnauthorizedAbsence = 'unauthorized_absence'; // igazolatlan távollét
 }

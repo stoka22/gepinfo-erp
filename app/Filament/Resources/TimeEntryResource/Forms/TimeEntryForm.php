@@ -96,6 +96,7 @@ class TimeEntryForm
                         TimeEntryType::Vacation->value  => 'Szabadság',
                         TimeEntryType::Overtime->value  => 'Túlóra',
                         TimeEntryType::SickLeave->value => 'Táppénz',
+                        TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
                     ])
                     ->default(TimeEntryType::Presence->value)
                     ->required()

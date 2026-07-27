@@ -30,6 +30,14 @@ class OvertimeBalanceService
         return $workedMinutes - self::STANDARD_WORKDAY_MINUTES;
     }
 
+    /** [rendes_percek, túlóra_percek] egy napi ledolgozott idő alapján (8:30 felett túlóra). */
+    public function splitMinutes(int $workedMinutes): array
+    {
+        $regular = min($workedMinutes, self::STANDARD_WORKDAY_MINUTES);
+        $overtime = max(0, $workedMinutes - self::STANDARD_WORKDAY_MINUTES);
+        return [$regular, $overtime];
+    }
+
     /** Göngyölt egyenleg módosítása; a keret negatív is lehet. */
     public function applyDelta(int $employeeId, ?int $companyId, int $deltaMinutes): OvertimeBalance
     {

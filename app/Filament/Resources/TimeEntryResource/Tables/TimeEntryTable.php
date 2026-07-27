@@ -41,6 +41,7 @@ class TimeEntryTable
                         'vacation'   => 'warning',
                         'overtime'   => 'info',
                         'sick_leave' => 'danger',
+                        'unauthorized_absence' => 'danger',
                         default      => 'gray',
                     })
                     ->formatStateUsing(fn ($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
@@ -48,6 +49,7 @@ class TimeEntryTable
                         'vacation'   => 'Szabadság',
                         'overtime'   => 'Túlóra',
                         'sick_leave' => 'Táppénz',
+                        'unauthorized_absence' => 'Igazolatlan távollét',
                         default      => (string) ($state instanceof \BackedEnum ? $state->value : $state),
                     })
                     ->toggleable(),
@@ -113,11 +115,13 @@ class TimeEntryTable
                                 TimeEntryType::Vacation->value  => 'Szabadság',
                                 TimeEntryType::Overtime->value  => 'Túlóra',
                                 TimeEntryType::SickLeave->value => 'Táppénz',
+                                TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
                             ])
                             ->default([
                                 TimeEntryType::Vacation->value,
                                 TimeEntryType::Overtime->value,
                                 TimeEntryType::SickLeave->value,
+                                TimeEntryType::UnauthorizedAbsence->value,
                                 // Presence kimarad → alapból rejtve
                             ])
                             ->columns(4),

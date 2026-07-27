@@ -51,6 +51,7 @@ class TimeEntriesRelationManager extends RelationManager
                 TimeEntryType::Vacation->value  => 'Szabadság',
                 TimeEntryType::Overtime->value  => 'Túlóra',
                 TimeEntryType::SickLeave->value => 'Táppénz',
+                TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
             ])->required()->live(),
             Forms\Components\DatePicker::make('start_date')->label('Dátum')->required(),
             Forms\Components\DatePicker::make('start_time')->label('Kezdet')->required(),
@@ -97,6 +98,7 @@ class TimeEntriesRelationManager extends RelationManager
                             'vacation'  => 'warning',
                             'overtime'  => 'info',
                             'sick_leave' => 'danger',
+                            'unauthorized_absence' => 'danger',
                             'regular'   => 'info',
                             'presence'   => 'green',
                             default     => 'gray',
@@ -111,6 +113,7 @@ class TimeEntriesRelationManager extends RelationManager
                             'vacation'   => 'Szabadság',
                             'overtime'   => 'Túlóra',
                             'sick_leave' => 'Táppénz',
+                            'unauthorized_absence' => 'Igazolatlan távollét',
                             'regular'    => 'Munka',
                             'presence'   => 'Jelenlét',
                             default      => (string) $val,
@@ -134,17 +137,28 @@ class TimeEntriesRelationManager extends RelationManager
                     ->sortable(),
                 Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—'),
                 Tables\Columns\BadgeColumn::make('status')->label('Státusz')
-                    ->color(fn($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'pending' => 'gray',
-                        'approved' => 'success',
-                        'rejected' => 'danger',
-                        default => 'gray',
+                    ->color(function ($state) {
+                        $val = $state instanceof \BackedEnum ? $state->value : $state;
+                        return match ($val) {
+                            'pending' => 'gray',
+                            'approved' => 'success',
+                            'rejected' => 'danger',
+                            'open', 'checked_in' => 'info',
+                            'checked_out' => 'success',
+                            default => 'gray',
+                        };
                     })
-                    ->formatStateUsing(fn($state) => match ($state instanceof \BackedEnum ? $state->value : $state) {
-                        'pending' => 'Függőben',
-                        'approved' => 'Jóváhagyva',
-                        'rejected' => 'Elutasítva',
-                        default => (string) $state,
+                    ->formatStateUsing(function ($state) {
+                        $val = $state instanceof \BackedEnum ? $state->value : $state;
+                        return match ($val) {
+                            'pending' => 'Függőben',
+                            'approved' => 'Jóváhagyva',
+                            'rejected' => 'Elutasítva',
+                            'open' => 'Nyitva',
+                            'checked_in' => 'Bejelentkezve',
+                            'checked_out' => 'Kijelentkezve',
+                            default => (string) $val,
+                        };
                     }),
             ])
             ->filters([

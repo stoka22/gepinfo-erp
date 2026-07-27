@@ -59,8 +59,7 @@ class ShiftPresenceTable extends BaseWidget
                     ->tooltip(fn (Employee $record) => $this->getShiftTooltipToday($record, $today))
                     ->sortable(query: fn (\Illuminate\Database\Eloquent\Builder $q, string $direction) =>
                         $q->orderBy('shift', $direction) // <-- VALÓDI MEZŐ
-                    )
-                    ->searchable(),
+                    ),
                 Tables\Columns\BadgeColumn::make('mode')
                     ->label('Jelleg')
                     ->state(function (Employee $record) use ($today) {
@@ -76,19 +75,14 @@ class ShiftPresenceTable extends BaseWidget
                     ->color(function (Employee $record) use ($today) {
                         $e = $this->firstPresenceEntryToday($record->id, $today);
                         return ($e && ($e->entry_method === 'office' || $e->is_modified)) ? 'danger' : null;
-                    })
-                    ->searchable()->sortable(),
+                    }),
 
                 Tables\Columns\TextColumn::make('last_check_out')
                     ->label('Kijelentkezés')
-                    ->state(fn (Employee $record) => $this->lastCheckOutToday($record->id, $today))
-                    ->sortable()
-                    ->searchable(),
+                    ->state(fn (Employee $record) => $this->lastCheckOutToday($record->id, $today)),
                 Tables\Columns\TextColumn::make('worked_today')
                     ->label('Eltöltött idő')
-                    ->state(fn (Employee $record) => $this->workedHoursTodayFormatted($record->id, $today)) // pl. 07:35
-                    ->sortable()
-                    ->searchable(),
+                    ->state(fn (Employee $record) => $this->workedHoursTodayFormatted($record->id, $today)), // pl. 07:35
             ])
             ->actions([
                 Tables\Actions\Action::make('check_in')
@@ -289,7 +283,7 @@ class ShiftPresenceTable extends BaseWidget
             ->with(['company'])
             ->when($groupIds !== null, fn ($q) => $q->whereIn('company_id', $groupIds))
             ->whereDoesntHave('timeEntries', function ($q) use ($d) {
-                $q->whereIn('type', [TimeEntryType::Vacation->value, TimeEntryType::SickLeave->value])
+                $q->whereIn('type', [TimeEntryType::Vacation->value, TimeEntryType::SickLeave->value, TimeEntryType::UnauthorizedAbsence->value])
                   ->whereDate('start_date', '<=', $d)
                   ->where(function ($qq) use ($d) {
                       $qq->whereNull('end_date')->orWhereDate('end_date', '>=', $d);
