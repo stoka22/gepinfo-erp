@@ -177,6 +177,14 @@ jobs:
 
           # cachek (ABSZOLÚT artisan úttal)
           "$PHP" "$ART" optimize:clear || true
+
+          # A csomag-manifeszt (bootstrap/cache/packages.php) a shared/ alatt van,
+          # tehát release-ek között megosztott és sosem frissül magától, mivel a
+          # composer install --no-scripts miatt a package:discover sosem fut le.
+          # Enélkül egy régi, dev-függőséget (pl. laravel/breeze) még tartalmazó
+          # manifeszt marad érvényben --no-dev telepítés után is -> fatal error.
+          "$PHP" "$ART" package:discover --ansi || true
+
           "$PHP" "$ART" config:cache  || true
           "$PHP" "$ART" route:cache   || true
           "$PHP" "$ART" view:cache    || true
