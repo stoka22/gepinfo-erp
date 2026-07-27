@@ -20,6 +20,9 @@ export type Task = {
   processNodeId?: string
   committed?: boolean
   updatedAt?: string
+  partner_product_item_id?: number | string | null
+  cycleTimeSec?: number | null   // új mező – ciklusidő mp-ben
+  cycle_time_sec?: number | null
 }
 
 export type RowItem =

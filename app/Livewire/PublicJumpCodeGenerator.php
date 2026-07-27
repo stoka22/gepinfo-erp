@@ -42,7 +42,8 @@ class PublicJumpCodeGenerator extends Component implements Forms\Contracts\HasFo
                 ->label('Változat')
                 ->inline()
                 ->options([
-                    1 => 'Paraméter',
+                    1 => 'Settings',
+                    1 => 'Calibration',
                     2 => 'GPS Temp',
                     3 => 'GPS Unlock',
                 ])
@@ -54,8 +55,8 @@ class PublicJumpCodeGenerator extends Component implements Forms\Contracts\HasFo
     public function generate(): void
     {
         $this->validate([
-            'data.key'     => ['required','regex:/^\d+$/'],
-            'data.variant' => ['required','in:1,2,3'],
+            'data.key'     => ['required', 'regex:/^\d+$/'],
+            'data.variant' => ['required', 'in:1,2,3'],
         ], [
             'data.key.regex' => 'A kulcs csak szám lehet.',
         ]);
@@ -66,7 +67,7 @@ class PublicJumpCodeGenerator extends Component implements Forms\Contracts\HasFo
 
             // TODO: cseréld a saját szolgáltatásodra:
             // $this->code = app(\App\Services\JumpCodeService::class)->make($key, $variant);
-            $this->code = substr(hash('sha256', $key.'|'.$variant), 0, 8);
+            $this->code = substr(hash('sha256', $key . '|' . $variant), 0, 8);
 
             Notification::make()
                 ->title('Kész! A kód legenerálva.')

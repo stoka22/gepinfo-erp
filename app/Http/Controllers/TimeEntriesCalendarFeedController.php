@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Filament\Resources\TimeEntryResource;
 use App\Models\TimeEntry;
+use App\Support\Calendar\HuCalendar;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Support\Calendar\HuCalendar;
 
 class TimeEntriesCalendarFeedController 
 {
@@ -18,23 +19,38 @@ public function __invoke(Request $request)
     $start = Carbon::parse($request->query('start', now()->startOfMonth()->toDateString()))->startOfDay();
     $end   = Carbon::parse($request->query('end',   now()->endOfMonth()->toDateString()))->endOfDay();
 
+    $accessibleCompanyIds = TimeEntryResource::accessibleCompanyIds();
+
+    $selectedCompanyId = $request->query('company_id', 'all');
     // Kért típusok a frontendről (checkboxok). Ha üres, mindent adunk.
-    $types = $request->query('types', []);
-    if (!is_array($types)) $types = [];
+    $types = $this->normalizeTypesFromRequest($request);
 
     $q = TimeEntry::query()
-        ->when(Auth::user()?->company_id, fn ($qq) => $qq->where('company_id', Auth::user()->company_id))
-        ->when(!empty($types), fn ($qq) => $qq->whereIn('type', $types))
-        ->where(function ($qq) use ($start, $end) {
-            // átfedés a kért ablakkal
-            $qq->whereBetween('start_date', [$start, $end])
-               ->orWhereBetween('end_date',   [$start, $end])
-               ->orWhere(function ($q2) use ($start, $end) {
-                   $q2->where('start_date', '<=', $start)->where('end_date', '>=', $end);
-               });
-        })
-        ->with('employee:id,name')
-        ->orderBy('start_date');
+            ->whereIn('company_id', $accessibleCompanyIds)
+            ->when(
+                filled($selectedCompanyId) && $selectedCompanyId !== 'all',
+                function ($qq) use ($selectedCompanyId, $accessibleCompanyIds) {
+                    $companyId = (int) $selectedCompanyId;
+
+                    if (in_array($companyId, $accessibleCompanyIds, true)) {
+                        $qq->where('company_id', $companyId);
+                    }
+                }
+            )
+            ->when(! empty($types), fn ($qq) => $qq->whereIn('type', $types))
+            ->where(function ($qq) use ($start, $end) {
+                $qq->whereBetween('start_date', [$start, $end])
+                    ->orWhereBetween('end_date', [$start, $end])
+                    ->orWhere(function ($q2) use ($start, $end) {
+                        $q2->where('start_date', '<=', $start)
+                            ->where('end_date', '>=', $end);
+                    });
+            })
+            ->with([
+                'employee:id,name',
+                'company:id,name',
+            ])
+            ->orderBy('start_date');
 
     $entries = $q->get();
 
@@ -47,13 +63,17 @@ public function __invoke(Request $request)
         $type   = $t->type   instanceof \BackedEnum ? $t->type->value   : (string) $t->type;
         $status = $t->status instanceof \BackedEnum ? $t->status->value : (string) $t->status;
 
-        $title = ($t->employee?->name ?? '—') . ' — ' . match ($type) {
-            'vacation'   => 'Szabadság',
-            'overtime'   => 'Túlóra',
-            'sick_leave' => 'Táppénz',
-            'presence'   => 'Jelenlét',
-            default      => ucfirst($type),
-        };
+        $title = ($t->employee?->name ?? '—') . ' — ' . $typeLabel . ' — ' . $companyName;
+
+        $typeLabel = match ($type) {
+                'vacation'   => 'Szabadság',
+                'overtime'   => 'Túlóra',
+                'sick_leave' => 'Táppénz',
+                'presence'   => 'Jelenlét',
+                default      => ucfirst($type),
+            };
+
+        $companyName = $t->company?->name ?? '—';
 
         $bg = match ($type) {
             'vacation'   => '#f59e0b',
@@ -82,6 +102,8 @@ public function __invoke(Request $request)
                         'type'   => $type,
                         'status' => $status,
                         'note'   => (string) ($t->note ?? ''),
+                        'company_id' => $t->company_id,
+                        'company_name' => $companyName,
                     ],
                 ];
             }
@@ -102,11 +124,39 @@ public function __invoke(Request $request)
                 'type'   => $type,
                 'status' => $status,
                 'note'   => (string) ($t->note ?? ''),
+                'company_id' => $t->company_id,
+                'company_name' => $companyName,
             ],
         ];
     }
 
     return response()->json(array_values($events), 200, ['Cache-Control' => 'no-store']);
+}
+
+private function normalizeTypesFromRequest(Request $request): array
+{
+    $types = $request->query('types', []);
+
+    if (is_array($types) && ! empty($types)) {
+        return array_values(array_filter($types));
+    }
+
+    $map = [
+        'vacation'   => $request->boolean('vacation'),
+        'sick_leave' => $request->boolean('sick_leave'),
+        'overtime'   => $request->boolean('overtime'),
+        'presence'   => $request->boolean('presence'),
+    ];
+
+    $selected = [];
+
+    foreach ($map as $type => $enabled) {
+        if ($enabled) {
+            $selected[] = $type;
+        }
+    }
+
+    return $selected;
 }
 
 /** Hétvége + ünnep + áthelyezett pihenőnap; kivétel: áthelyezett munkanap */

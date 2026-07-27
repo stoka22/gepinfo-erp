@@ -3,13 +3,15 @@ import React, { useMemo, useRef } from 'react'
 import { useScheduler } from '../store'
 import type { Task } from '../types'
 import { moveTask, saveSplit, deleteSplit, deleteTask } from '../api'
+import { TIMELINE_H,  TOP_SCROLL_H } from '../utils/constants'
 
 const HOUR_MS  = 3_600_000
 const PCS_STEP = 100
-const HANDLE_W = 16
+const HANDLE_W = 8 // méretező sáv szélessége
 const DEFAULT_RATE  = 100
 
-
+// FONTOS: ugyanaz legyen, mint ResourceGrid.tsx-ben
+//const TIMELINE_H = 40
 
 type BarsLayerProps = {
   /** Eddig a pillanatig visszamenőleg NEM szerkeszthetők a sávok */
@@ -20,8 +22,25 @@ type BarsLayerProps = {
 function roundToSlot(ms: number, slotMs: number) {
   return Math.round(ms / slotMs) * slotMs
 }
+
+function toRawISO(val: any) {
+  const ms = +new Date(val as any)
+  if (!Number.isFinite(ms)) return val as string
+  return toISO19(ms)   // ⬅️ csak sima ISO, NINCS snapToSlot
+}
+
+
+function snapToSlot(ms: number, slotMs: number, mode: 'floor' | 'ceil' | 'round' = 'round') {
+  const v = ms / slotMs
+  if (mode === 'floor') return Math.floor(v) * slotMs
+  if (mode === 'ceil')  return Math.ceil(v)  * slotMs
+  return Math.round(v) * slotMs
+}
+
 function toISO19(ms: number) {
-  return new Date(ms).toISOString().slice(0, 19)
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 // csak a cím „tiszta” része (ha a címben korábban benne maradt a " • 100 db • 0 db ...")
@@ -46,9 +65,12 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
   const hourPx   = pxPerHour || 60
   const windowMs = Math.max(1, +to - +from)
   const msPerPx  = HOUR_MS / hourPx
-  const slotMs   = (slotMinutes || 60) * 60_000
+  const slotMs   = (slotMinutes || 30) * 60_000
 
   const totalWidth  = (windowMs / HOUR_MS) * hourPx
+
+  // A szülő konténer paddingTop-ja már foglalja a timeline fejléc helyét,
+  // ez a div csak a tényleges sortartalom magasságát adja.
   const totalHeight = rows.length * rowHeight
 
   const msToPx = (ms: number) => (ms / HOUR_MS) * hourPx
@@ -57,7 +79,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
     const m = new Map<string, { name: string; code?: string }>()
     const walk = (n: any) => {
       if (n?.type === 'product') {
-        m.set(String(n.id), { name: n.name, code: n.code ?? n.sku ?? n.article ?? n.partNo })
+        m.set(String(n.id), { name: n.name, code: n.sku ?? n.article ?? n.partNo })
       }
       n?.children?.forEach(walk)
     }
@@ -121,34 +143,53 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
     // ideiglenes (még backendre nem mentett) sáv – nincs mit menteni
     if (typeof t.id === 'string' && t.id.startsWith('tmp-')) return
 
-    // committed → move/resize endpoint
+    // A DRAG/RESIZE KÖZBEN MÁR SLOTRA KEREKÍTETT IDŐKET HASZNÁLJUK
+    const startMs  = +new Date(t.start as any)
+    const endMs    = +new Date(t.end as any)
+    const startISO = toISO19(startMs)
+    const endISO   = toISO19(endMs)
+
+    // ---- committed task → move/resize endpoint ----
     if (typeof t.id === 'number' || (t as any).committed === true) {
-      const startsAtISO = (t.start as string).length > 19 ? t.start : `${t.start}:00`
-      const endsAtISO   = (t.end   as string).length > 19 ? t.end   : `${t.end}:00`
       await moveTask({
         id: t.id as any,
         machineId: (t as any).resourceId ?? null,
-        startsAtISO,
-        endsAtISO,
+        startsAtISO: startISO,
+        endsAtISO:   endISO,
         updatedAtISO: (t as any).updatedAt ?? new Date().toISOString(),
       })
       return
     }
 
-    // draft split → saveSplit (update id-vel)
+    // ---- draft split → saveSplit (update id-vel) ----
     if (typeof t.id === 'string' && t.id.startsWith('split_')) {
+      const qtyTotal = (t as any).qty ?? t.qtyTotal ?? t.qtyTo ?? 0
+
+      // hossz számítása – megmarad az eredeti funkció
+      //const durMs    = Math.max(HOUR_MS / 2, endMs - startMs) // min. 0.5h
+      //const barHours = durMs / HOUR_MS
+
+      // hossz számítása: min. 1 slot
+      const durMs   = Math.max(slotMs, endMs - startMs)
+      const slots   = Math.max(1, Math.round(durMs / slotMs))
+
       await saveSplit({
         id: t.id,
-        machine_id: Number(t.resourceId),
+        machineId: Number(t.resourceId),
         title: t.title ?? null,
-        start: t.start,
-        end:   t.end,
+        start: startISO,
+        end:   endISO,
         ratePph: t.ratePph ?? DEFAULT_RATE,
-        ...(t.batchSize != null ? { batchSize: t.batchSize } : {}),
-        qtyFrom:  t.qtyFrom ?? 0,
+        batchSize: slots,          // ← most már a slotok száma megy a DB-be
+        qtyFrom: 0,
+        qtyTo: qtyTotal,
+        qtyTotal,
+        qty: qtyTotal,
+        partner_product_item_id: t.productNodeId,
       })
     }
   }
+
 
   const startDrag = (
     e: React.MouseEvent,
@@ -162,6 +203,9 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
 
     const start0 = +new Date(task.start as any)
     const end0   = +new Date(task.end as any)
+
+    //const start0 = snapToSlot(+new Date(task.start as any), slotMs, 'round')
+    //const end0   = snapToSlot(+new Date(task.end as any),   slotMs, 'round')
 
     dragRef.current = {
       mode,
@@ -183,6 +227,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
       if (!st?.active) return
       const dx  = ev.clientX - st.x0
       const dMs = dx * msPerPx
+      
 
       const dur0 = st.end0 - st.start0
       let newStart = st.start0
@@ -193,31 +238,93 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
         newStart = roundToSlot(st.start0 + dMs, slotMs)
         newEnd   = newStart + dur0
       } else if (st.mode === 'resize-l') {
-        if (st.rate && st.rate > 0) {
+       /* if (st.rate && st.rate > 0) {
           const rawDur  = st.end0 - (st.start0 + dMs)
           const rawQty  = st.rate * (rawDur / HOUR_MS)
           const stepped = Math.max(PCS_STEP, Math.round(rawQty / PCS_STEP) * PCS_STEP)
-          newQty        = stepped
-          const durMs   = (stepped / st.rate) * HOUR_MS
-          newStart      = roundToSlot(st.end0 - durMs, slotMs)
+          // tiltás: bal fogantyúval ne zsugorodjon -> qty ne csökkenjen az eredetihez képest
+          const safeQty = typeof st.qty0 === 'number' ? Math.max(st.qty0, stepped) : stepped
+          newQty        = safeQty
+
+          const durMs   = (safeQty / st.rate) * HOUR_MS
+          //newStart      = roundToSlot(st.end0 - durMs, slotMs)
+          newStart = snapToSlot(st.end0 - durMs, slotMs, 'floor')
           newEnd        = st.end0
         } else {
-          newStart = roundToSlot(st.start0 + dMs, slotMs)
+          //newStart = roundToSlot(st.start0 + dMs, slotMs)
+          newStart = snapToSlot(st.start0 + dMs, slotMs, 'floor')
           if (newStart > st.end0 - slotMs) newStart = st.end0 - slotMs
           newEnd = st.end0
         }
+        // ✅ tiltás: bal fogantyúval a start SOHA nem mehet jobbra az eredetinél
+        newStart = Math.min(st.start0, newStart) */
+        // csak balra engedjük (dSlots < 0), jobbra (dSlots > 0) nem változtatunk
+        //if (dx >= 0) return
+
+        let candStart = st.start0 + dMs
+        // snap: bal fogónál lefelé (floor), hogy balra nőjön
+        const mode = dx < 0 ? 'floor' : 'ceil'   // balra nyújtás: floor, jobbra zsugorítás: ceil
+        candStart = snapToSlot(candStart, slotMs, mode)
+
+        // soha ne mehessen jobbra az eredetinél
+        newStart = candStart
+        newEnd   = st.end0
+
+        // min. 1 slot hossz
+        // min 1 slot hossz
+         if (newEnd - newStart < slotMs) newStart = newEnd - slotMs
+
+        // ütközésvizsgálat marad
+        if (hasOverlap({ id: st.id, resourceId: st.resourceId, start: newStart, end: newEnd })) {
+          document.body.style.cursor = 'not-allowed'
+          return
+        } else {
+          document.body.style.cursor = 'ew-resize'
+        }
+
+        
       } else if (st.mode === 'resize-r') {
-        if (st.rate && st.rate > 0) {
+       /* if (st.rate && st.rate > 0) {
           const rawDur  = (st.end0 + dMs) - st.start0
           const rawQty  = st.rate * (rawDur / HOUR_MS)
           const stepped = Math.max(PCS_STEP, Math.round(rawQty / PCS_STEP) * PCS_STEP)
-          newQty        = stepped
-          const durMs   = (stepped / st.rate) * HOUR_MS
-          newEnd        = roundToSlot(st.start0 + durMs, slotMs)
+          // tiltás: jobb fogantyúval ne zsugorodjon -> qty ne csökkenjen az eredetihez képest
+          const safeQty = typeof st.qty0 === 'number' ? Math.max(st.qty0, stepped) : stepped
+          newQty        = safeQty
+
+          const durMs   = (safeQty / st.rate) * HOUR_MS
+          //newEnd        = roundToSlot(st.start0 + durMs, slotMs)
+          newEnd = snapToSlot(st.start0 + durMs, slotMs, 'ceil')
+          newStart      = st.start0
         } else {
-          newEnd = roundToSlot(st.end0 + dMs, slotMs)
+          //newEnd = roundToSlot(st.end0 + dMs, slotMs)
+          newEnd = snapToSlot(st.end0 + dMs, slotMs, 'ceil')
           if (newEnd < st.start0 + slotMs) newEnd = st.start0 + slotMs
+          newStart = st.start0
         }
+         // ✅ tiltás: jobb fogantyúval az end SOHA nem mehet balra az eredetinél
+         newEnd = Math.max(st.end0, newEnd) */
+           //if (dx <= 0) return
+           let candEnd = st.end0 + dMs
+
+          // snap: jobb fogónál felfelé (ceil), hogy jobbra nőjön
+          const mode = dx > 0 ? 'ceil' : 'floor'   // jobbra nyújtás: ceil, balra zsugorítás: floor
+          candEnd = snapToSlot(candEnd, slotMs, mode)
+
+          newStart = st.start0
+          newEnd = candEnd
+
+          // min. 1 slot hossz
+          if (newEnd - newStart < slotMs) newEnd = newStart + slotMs
+
+          if (hasOverlap({ id: st.id, resourceId: st.resourceId, start: newStart, end: newEnd })) {
+            document.body.style.cursor = 'not-allowed'
+            return
+          } else {
+            document.body.style.cursor = 'ew-resize'
+          }
+
+         
       }
 
       // ---- ÜTKÖZÉS TILTÁSA ----
@@ -242,10 +349,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
 
-      // végleges mentés
-      persistById(task.id).catch(err => {
-        console.error('Persist hiba:', err)
-      })
+      persistById(task.id).catch(err => console.error('Persist hiba:', err))
     }
 
     window.addEventListener('mousemove', onMove)
@@ -259,6 +363,9 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
     return tasks.map((t: any) => {
       const startMs0 = +new Date(t.start as any)
       const endMs0   = +new Date(t.end as any)
+
+      const fullDurMs  = Math.max(0, endMs0 - startMs0)
+      const fullDurSec = fullDurMs / 1000
 
       // Kivágás az ablakra
       const startMs = Math.max(startMs0, baseMs)
@@ -277,7 +384,11 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
 
       const left  = msToPx(startMs - baseMs)
       const width = Math.max(2, msToPx(endMs - startMs))
-      const top   = rowIdx * rowHeight + 4
+
+      // A szülő (SchedulerShell) konténer már paddingTop: TIMELINE_H-t ad a
+      // görgethető területnek, tehát itt a sor 0 már a fejléc alatt kezdődik —
+      // ide NEM kell még egyszer hozzáadni a TIMELINE_H-t.
+      const top   =  rowIdx * rowHeight
 
       // Csak TELJESEN múltbeli sáv read-only
       const ro =
@@ -285,11 +396,37 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
         endMs0 <= readOnlyBeforeTs
 
       const barH        = Math.max(8, rowHeight - 8)
-      const baseColor   = ro ? 'rgba(120,120,120,.65)' : 'rgba(56,132,255,.9)'
+     // const baseColor   = ro ? 'rgba(120,120,120,.65)' : 'rgba(56,132,255,.9)'
       const edgeShade   = 'rgba(0,0,0,0.36)'
       const minBarWidth = HANDLE_W * 2 + 12
+      const kind = (t as any).kind as string | undefined
+      const titleLower = String(t.title ?? '').toLowerCase()
 
-      // Látható „resize zónák” a háttérben
+      
+
+      // ha nincs kind, akkor a cím alapján következtetünk
+      const semanticKind: 'maintenance' | 'setup' | undefined =
+        kind === 'maintenance' || kind === 'setup'
+          ? (kind as any)
+          : titleLower.includes('javítás')
+          ? 'maintenance'
+          : titleLower.includes('beállítás') || titleLower.includes('beallitas')
+          ? 'setup'
+          : undefined
+      const textColor = semanticKind === 'setup' && !ro ? '#000' : '#fff'
+      
+      let baseColor: string
+      if (ro) {
+        baseColor = 'rgba(120,120,120,.65)'           // múlt / read-only
+      } else if (semanticKind === 'maintenance') {
+        baseColor = 'rgba(248,113,113,.9)'            // piros – Javítás
+      } else if (semanticKind === 'setup') {
+        baseColor = 'rgba(252,211,77,.95)'            // sárga – Beállítás
+      } else {
+        baseColor = 'rgba(56,132,255,.9)'             // alap kék
+      }
+
+
       const background = ro
         ? baseColor
         : `linear-gradient(to right,
@@ -301,22 +438,45 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
               ${edgeShade} 100%
            ), ${baseColor}`
 
-      // --- Látható darabszám a képernyőn látszó rész alapján ---
-      const visibleHours = (endMs - startMs) / HOUR_MS
-      const rate = Number(t.ratePph ?? 0)
-      //const visibleQty = Math.max(0, Math.round(visibleHours * (Number.isFinite(rate) ? rate : 0)))
-      const visibleQty = Number.isFinite(t.qtyTotal) ? Math.round(t.qtyTotal as number) : 0;
+      //const visibleQty = Number.isFinite(t.qtyTotal) ? Math.round(t.qtyTotal as number) : 0
+
+            // 1) ha van ciklusidő, abból számolunk darabszámot
+      let visibleQty = 0
+      
+      const cycleTimeSecRaw =
+        (t as any).cycleTimeSec ??
+        (t as any).cycle_time_sec
+
+      const cycleTimeSec =
+        typeof cycleTimeSecRaw === 'number' && cycleTimeSecRaw > 0
+          ? cycleTimeSecRaw
+          : null
+
+      if (cycleTimeSec) {
+        // TELJES hasáb idő / ciklusidő → darabszám
+        visibleQty = Math.floor(fullDurSec / cycleTimeSec)
+      } else if (Number.isFinite(t.qtyTotal)) {
+        // ha nincs ciklusidő, marad a régi viselkedés
+        visibleQty = Math.round(t.qtyTotal as number)
+      }
 
 
-      // --- Terméknév + cikkszám a fáról (ha van), különben a régi cím "tiszta" része ---
       const prodMeta = t.productNodeId ? productById.get(String(t.productNodeId)) : undefined
       const prodText = prodMeta
         ? (prodMeta.code ? `${prodMeta.name} (${prodMeta.code})` : prodMeta.name)
         : baseTitle(t.title)
 
-      // --- Végső címke: „Termék (cikkszám) • N db” — 0 db-ot nem írunk ki ---
-      const label = visibleQty > 0 ? `${prodText} • ${visibleQty} db` : prodText
-
+      let label: string
+      if (semanticKind === 'maintenance') {
+        // Javítás sávon CSAK a funkció neve
+        label = 'Javítás'
+      } else if (semanticKind === 'setup') {
+        // Beállítás sávon CSAK a funkció neve
+        label = 'Beállítás'
+      } else {
+        // normál sáv: marad a régi formátum
+        label = visibleQty > 0 ? `${prodText} • ${visibleQty} db` : prodText
+      }
 
       return (
         <div
@@ -334,14 +494,14 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
             border: ro ? '1px dashed rgba(255,255,255,.25)' : '1px solid rgba(0,0,0,.15)',
             boxShadow: '0 1px 3px rgba(0,0,0,.35)',
             overflow: 'hidden',
-            padding: '0 6px',
+            padding: `0 ${HANDLE_W + 1}px 0 ${HANDLE_W + 6}px`, // legyen “safe zone” a resize fogóknak
             fontSize: 12,
             lineHeight: `${barH}px`,
             pointerEvents: 'auto',
             zIndex: 2,
             cursor: ro ? 'default' : 'grab',
             userSelect: 'none',
-            color: '#fff'
+            color: textColor,
           }}
           onMouseDown={(e) => {
             if (ro) return
@@ -361,13 +521,15 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
             ;(e.currentTarget as HTMLDivElement).style.cursor = overEdge ? 'ew-resize' : 'grab'
           }}
         >
-          {/* címke + törlés gomb EGYSORBAN, a gomb a végén */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="truncate" style={{ pointerEvents: 'none', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+         
+          <div style={{ position: 'relative', height: '100%' }}>
+            <span
+              className="truncate"
+              style={{ pointerEvents: 'none', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
               {label}
             </span>
 
-            {/* törlés gomb (mindig látszik, múltban is) */}
             <button
               title="Törlés"
               onClick={async (ev) => {
@@ -386,12 +548,17 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
                 }
               }}
               style={{
-                flex: 'none',
-                width: 18, height: 18,
+                position: 'absolute',
+                // közvetlenül a jobb oldali méretező zóna mellett
+                right: HANDLE_W + 1,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 18,
+                height: 18,
                 borderRadius: 4,
-                border: '1px solid rgba(0,0,0,.25)',
-                background: 'rgba(0,0,0,.25)',
-                color: 'white',
+                border: '1px solid rgba(185,28,28,0.95)',
+                background: 'rgba(248,113,113,0.95)',  // PIROS
+                color: '#fff',
                 fontSize: 12,
                 lineHeight: '16px',
                 display: 'inline-flex',
@@ -406,7 +573,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
         </div>
       )
     })
-  }, [tasks, from, to, rowHeight, rowIndexByKey, readOnlyBeforeTs, pxPerHour, slotMinutes, removeTaskS])
+  }, [tasks, from, to, rowHeight, rowIndexByKey, readOnlyBeforeTs, pxPerHour, slotMinutes, removeTaskS, productById])
 
   // Összesítő hasáb a process sorokon
   const processAggregates = useMemo(() => {
@@ -434,7 +601,8 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
 
       const left  = msToPx(s - baseMs)
       const width = Math.max(2, msToPx(e - s))
-      const top   = idx * rowHeight + (rowHeight - 6)
+
+      const top   = idx * rowHeight + (rowHeight+6)
 
       nodes.push(
         <div
@@ -474,7 +642,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
           left: 0,
           top: 0,
           width: w,
-          height: rows.length * rowHeight,
+          height: rows.length * rowHeight, // ⬅️ csak a rács magassága
           background:
             'repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0, rgba(255,255,255,.05) 6px, transparent 6px, transparent 12px)',
           zIndex: 1,
@@ -512,6 +680,7 @@ export default function BarsLayer({ readOnlyBeforeTs }: BarsLayerProps) {
       className="relative"
       style={{ width: totalWidth, height: totalHeight, pointerEvents: 'auto' }}
     >
+      {/* sor elválasztók */}
       {Array.from({ length: rows.length }).map((_, i) => (
         <div
           key={`row-${i}`}

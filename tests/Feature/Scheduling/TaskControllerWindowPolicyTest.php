@@ -26,7 +26,7 @@ it('allows scheduling a task on a machine with no shift assignment configured (b
     $response->assertOk()->assertJson(['ok' => true]);
 });
 
-it('rejects a task placed outside the machine shift window', function () {
+it('allows but flags a task placed outside the machine shift window', function () {
     $machine = windowPolicyMachine();
     $pattern = ShiftPattern::create([
         'name' => 'Nappal',
@@ -41,7 +41,8 @@ it('rejects a task placed outside the machine shift window', function () {
         'valid_to' => null,
     ]);
 
-    // 2026-01-05 hétfő; 20:00-22:00 a 08-16 műszakon kívül esik
+    // 2026-01-05 hétfő; 20:00-22:00 a 08-16 műszakon kívül esik, de ez csak
+    // figyelmeztetés, nem blokkolja a mentést.
     $response = $this->postJson('/api/scheduler/tasks', [
         'machine_id' => $machine->id,
         'start' => '2026-01-05 20:00:00',
@@ -49,7 +50,8 @@ it('rejects a task placed outside the machine shift window', function () {
         'ratePph' => 10,
     ]);
 
-    $response->assertStatus(422);
+    $response->assertOk()->assertJson(['ok' => true]);
+    expect($response->json('shiftWarning'))->not->toBeNull();
 });
 
 it('allows a task placed inside the configured shift window', function () {
@@ -75,9 +77,10 @@ it('allows a task placed inside the configured shift window', function () {
     ]);
 
     $response->assertOk()->assertJson(['ok' => true]);
+    expect($response->json('shiftWarning'))->toBeNull();
 });
 
-it('rejects a task overlapping a machine blocking period', function () {
+it('allows but flags a task overlapping a machine blocking period', function () {
     $machine = windowPolicyMachine();
     MachineBlocking::create([
         'machine_id' => $machine->id,
@@ -93,7 +96,8 @@ it('rejects a task overlapping a machine blocking period', function () {
         'ratePph' => 10,
     ]);
 
-    $response->assertStatus(422);
+    $response->assertOk()->assertJson(['ok' => true]);
+    expect($response->json('shiftWarning'))->not->toBeNull();
 });
 
 it('returns the shift window for a configured weekday and 404 for an unconfigured one', function () {

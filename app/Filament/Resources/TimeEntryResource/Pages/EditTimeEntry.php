@@ -16,4 +16,9 @@ class EditTimeEntry extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    protected function getRedirectUrl(): string
+    {
+        return TimeEntryResource::getUrl('index');
+    }
 }

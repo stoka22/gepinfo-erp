@@ -23,20 +23,21 @@ class AdminPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
+            ->default()
             ->id('admin')                 // <- fontos: ez adja a route név előtagot
             ->path('admin')               // /admin útvonal
             ->brandName('Gepinfo Admin')
             ->login()
             ->sidebarCollapsibleOnDesktop()
-            
+
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->pages([
-                 \Filament\Pages\Dashboard::class, 
-                 \App\Filament\Pages\CapabilityMatrix::class,
-                 ])
-            ->homeUrl(fn () => route('filament.admin.pages.dashboard'))
+                \Filament\Pages\Dashboard::class,
+                \App\Filament\Pages\CapabilityMatrix::class,
+            ])
+            ->homeUrl(fn() => route('filament.admin.pages.dashboard'))
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->middleware([
                 EncryptCookies::class,

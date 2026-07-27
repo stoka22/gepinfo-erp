@@ -60,10 +60,12 @@ return new class extends Migration
             // Indexek visszaszedése (ha szeretnéd teljes rollbacket)
             try {
                 $table->dropIndex('te_emp_type_start_idx');
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
             try {
                 $table->dropIndex('te_type_start_end_idx');
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
         });
     }
 };

@@ -4,11 +4,16 @@ import Timeline from './Timeline'
 import BarsLayer from './BarsLayer'
 import ResourceTree from './ResourceTree'
 import { TIMELINE_H } from '../utils/constants'
+import { LEFT_HEADER_H } from '../utils/constants'
 
 const MIN_LEFT = 220
 const MAX_LEFT = 640
 const LS_KEY_LEFT = 'scheduler.leftWidth'
 const TOP_SCROLL_H = 12
+const leftHeaderH = LEFT_HEADER_H
+//const [leftHeaderH, setLeftHeaderH] = useState(0)
+
+
 
 type ViewMode = 'week' | 'month'
 const WEEK_MS  = 7 * 24 * 60 * 60 * 1000
@@ -29,8 +34,26 @@ export default function SchedulerShell() {
   const setFromTo       = useScheduler(s => s.setFromTo)
   const setWindowToShiftForDate = useScheduler(s => s.setWindowToShiftForDate)
 
+  const alignWindowToHours = useScheduler(s => s.alignWindowToHours)
+
   const [view, setView] = useState<ViewMode>('week')
   const viewMs = view === 'week' ? WEEK_MS : MONTH_MS
+
+  const [q, setQ] = useState('')
+  const [showMachines, setShowMachines] = useState(true)
+  const [showWorkstations, setShowWorkstations] = useState(true)
+
+  const alignPairToHours = (f: Date, t: Date) => {
+    const af = new Date(f); af.setMinutes(0, 0, 0)
+
+    const at = new Date(t)
+    const needs = at.getMinutes() !== 0 || at.getSeconds() !== 0 || at.getMilliseconds() !== 0
+    if (needs) {
+      at.setMinutes(0, 0, 0)
+      at.setHours(at.getHours() + 1)
+    }
+    return { af, at }
+  }
 
   // bal oszlop szélesség (persist)
   const [leftWidth, setLeftWidth] = useState<number>(() => {
@@ -135,16 +158,20 @@ export default function SchedulerShell() {
   }, [pxPerHour])
 
   const shiftWindow = (dir: -1 | 1) => {
-    const step = viewMs
-    setFromTo(new Date(+from + dir * step), new Date(+to + dir * step))
+     const step = viewMs
+      const nf = new Date(+from + dir * step)
+      const nt = new Date(+to   + dir * step)
+      const { af, at } = alignPairToHours(nf, nt)
+      setFromTo(af, at)
   }
 
   const setViewAndSnap = (v: ViewMode) => {
     setView(v)
-    const len = v === 'week' ? WEEK_MS : MONTH_MS
-    const nf = new Date(Date.now() - len / 2)
-    const nt = new Date(Date.now() + len / 2)
-    setFromTo(nf, nt)
+  const len = v === 'week' ? WEEK_MS : MONTH_MS
+  const nf = new Date(Date.now() - len / 2)
+  const nt = new Date(Date.now() + len / 2)
+  const { af, at } = alignPairToHours(nf, nt)
+  setFromTo(af, at)
   }
 
   // műszak szerint: az aktuális from napjára állítja az ablakot
@@ -156,7 +183,27 @@ export default function SchedulerShell() {
   return (
     <div className="w-full h-full flex flex-col text-sm">
       <header className="px-3 py-2 border-b border-neutral-700/50 flex items-center gap-3">
-        <div className="font-medium text-xl">Gyártástervező</div>
+        <div className="font-medium text-xl">
+          <div className="p-2">
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Keresés..."
+                className="w-full px-2 py-1 rounded-md bg-black/10 outline-none"
+              />
+
+              <div className="mt-2 flex items-center gap-3">
+                <label className="flex items-center gap-1 text-xs opacity-80">
+                  <input type="checkbox" checked={showMachines} onChange={e => setShowMachines(e.target.checked)} />
+                  Gépek
+                </label>
+                <label className="flex items-center gap-1 text-xs opacity-80">
+                  <input type="checkbox" checked={showWorkstations} onChange={e => setShowWorkstations(e.target.checked)} />
+                  Munkaállomások
+                </label>
+              </div>
+            </div>
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="opacity-70">Gépinfo – Gyártástervező</span>
@@ -201,11 +248,13 @@ export default function SchedulerShell() {
       <div className="flex-1 min-h-0">
         <div className="grid h-full" style={{ gridTemplateColumns: `${leftWidth}px 6px minmax(0,1fr)` }}>
           {/* Bal fa */}
-          <aside className="border-r border-neutral-700/50 bg-neutral-900 min-h-0">
-            <div
-              className="h-full overflow-y-auto overflow-x-hidden"
-              style={{ paddingTop: TOP_SCROLL_H + TIMELINE_H }}
-            >
+          <aside className="border-r border-neutral-700/50 bg-neutral-900 min-h-0 flex flex-col">
+            {/* Ugyanaz a “felső tartalék” mint jobb oldalon: TOP_SCROLL_H + TIMELINE_H */}
+           <div style={{ height: LEFT_HEADER_H + TIMELINE_H }} />
+
+
+            {/* Itt már csak a sorlista görget */}
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
               <ResourceTree />
             </div>
           </aside>
@@ -249,6 +298,7 @@ export default function SchedulerShell() {
               </div>
 
               {/* A törlés gomb megjelenítéséhez minden sáv szerkeszthető */}
+              {leftHeaderH > 0 && <div style={{ height: leftHeaderH }} />}
               <BarsLayer readOnlyBeforeTs={0} />
             </div>
           </section>

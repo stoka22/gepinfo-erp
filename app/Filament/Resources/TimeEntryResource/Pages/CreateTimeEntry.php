@@ -17,43 +17,48 @@ class CreateTimeEntry extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data['requested_by'] = $data['requested_by'] ?? Auth::id();
+        // employee alapján biztos company_id
+        if (! empty($data['employee_id'])) {
+            $employeeCompanyId = \App\Models\Employee::withoutGlobalScopes()
+                ->whereKey($data['employee_id'])
+                ->value('company_id');
 
-        // employee -> company
-        $employeeCompanyId = null;
-        if (!empty($data['employee_id'])) {
-            if (Schema::hasColumn('employees', 'company_id')) {
-                $employeeCompanyId = \App\Models\Employee::query()
-                    ->whereKey($data['employee_id'])
-                    ->value('company_id');
-            } elseif (Schema::hasColumn('employees', 'user_id') && Schema::hasColumn('users', 'company_id')) {
-                $employeeCompanyId = DB::table('employees')
-                    ->join('users', 'users.id', '=', 'employees.user_id')
-                    ->where('employees.id', $data['employee_id'])
-                    ->value('users.company_id');
+            if ($employeeCompanyId) {
+                $data['company_id'] = $employeeCompanyId;
             }
         }
 
-        $currentUserCompanyId = Auth::user()?->company_id;
-        $data['company_id'] = $employeeCompanyId ?? $currentUserCompanyId;
+        // státusz szinkron
+        if (($data['type'] ?? null) === \App\Enums\TimeEntryType::Presence->value) {
+            if (! in_array($data['status'] ?? null, [
+                \App\Enums\TimeEntryStatus::CheckedIn->value,
+                \App\Enums\TimeEntryStatus::CheckedOut->value,
+            ], true)) {
+                $data['status'] = \App\Enums\TimeEntryStatus::CheckedIn->value;
+            }
+        } else {
+            if (in_array($data['status'] ?? null, [
+                \App\Enums\TimeEntryStatus::CheckedIn->value,
+                \App\Enums\TimeEntryStatus::CheckedOut->value,
+            ], true)) {
+                $data['status'] = \App\Enums\TimeEntryStatus::Pending->value;
+            }
 
-        // Tenant-védelem: ha ismert az employee cég és eltér a user cégétől
-        if ($employeeCompanyId && $currentUserCompanyId && (int)$employeeCompanyId !== (int)$currentUserCompanyId) {
-            throw ValidationException::withMessages([
-                'employee_id' => 'Más cég dolgozójához nem rögzíthető bejegyzés.',
-            ]);
+            $data['start_time'] = null;
+            $data['end_time'] = null;
         }
 
-        // Típusfüggő normalizálás
-        if (($data['type'] ?? null) === TimeEntryType::Overtime->value) {
-            $data['end_date'] = null;
-            if (isset($data['hours'])) $data['hours'] = (float) $data['hours'];
-        } else {
+        if (($data['type'] ?? null) !== \App\Enums\TimeEntryType::Overtime->value) {
             $data['hours'] = null;
         }
 
         return $data;
     }
+
+protected function handleRecordCreation(array $data): \Illuminate\Database\Eloquent\Model
+{
+    return \App\Models\TimeEntry::withoutGlobalScope('company')->create($data);
+}
 
     protected function afterCreate(): void
     {

@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $t) {
-            $t->string('role')->default('user')->index();
-        });
+        if (!Schema::hasTable('users')) {
+            Schema::table('users', function (Blueprint $t) {
+                $t->string('role')->default('user')->index();
+            });
+        }
     }
 
     /**

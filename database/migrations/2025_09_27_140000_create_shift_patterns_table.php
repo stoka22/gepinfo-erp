@@ -5,8 +5,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
-    public function up(): void {
-         if (!Schema::hasTable('shift_patterns')) {
+    public function up(): void
+    {
+        if (!Schema::hasTable('shift_patterns')) {
             Schema::create('shift_patterns', function (Blueprint $t) {
                 $t->id();
                 $t->string('name');          // pl. Délelőtt
@@ -19,7 +20,8 @@ return new class extends Migration {
             });
         }
     }
-    public function down(): void {
-        Schema::dropIfExists('shift_patterns');
+    public function down(): void
+    {
+        // Schema::dropIfExists('shift_patterns');
     }
 };

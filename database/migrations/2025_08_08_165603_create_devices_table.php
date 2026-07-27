@@ -11,15 +11,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('devices', function (Blueprint $t) {
-            $t->id();
-            $t->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $t->string('name');
-            $t->string('mac_address')->unique();
-            $t->string('location')->nullable();
-            $t->string('device_token')->unique(); // Bearer token
-            $t->timestamps();
-        });
+        if (!Schema::hasTable('devices')) {
+            Schema::create('devices', function (Blueprint $t) {
+                $t->id();
+                $t->foreignId('user_id')->constrained()->cascadeOnDelete();
+                $t->string('name');
+                $t->string('mac_address')->unique();
+                $t->string('location')->nullable();
+                $t->string('device_token')->unique(); // Bearer token
+                $t->timestamps();
+            });
+        }
     }
 
     /**

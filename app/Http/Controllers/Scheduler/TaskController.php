@@ -253,11 +253,10 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
                 $start = $s; $end = $e;
             }
 
-            // Műszakablak / tiltott sáv ellenőrzése (csak ha a gépre van beállítva shift-hozzárendelés)
-            if (!$this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())) {
-                DB::rollBack();
-                return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
-            }
+            // Műszakablak / tiltott sáv ellenőrzése: csak figyelmeztetés, nem blokkol.
+            $shiftWarning = $this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())
+                ? null
+                : 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.';
 
             // darabszám számolása a VÉGSŐ tartamból
             $hours  = $durSec / 3600.0;
@@ -316,6 +315,7 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
                     'productSku'    => $split->orderItem?->product?->sku,
                     'productName'   => $split->orderItem?->product?->name,
                 ],
+                'shiftWarning' => $shiftWarning,
             ]);
 
         } catch (\Throwable $e) {
@@ -359,12 +359,13 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
         }
 
         $rid = $data['machine_id'] ?? $task->machine_id;
-        if (!$this->windowPolicy->isWithinAllowed($rid, $data['starts_at'], $data['ends_at'])) {
-            return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
-        }
+        // Műszakablak / tiltott sáv ellenőrzése: csak figyelmeztetés, nem blokkol.
+        $shiftWarning = $this->windowPolicy->isWithinAllowed($rid, $data['starts_at'], $data['ends_at'])
+            ? null
+            : 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.';
 
         $task->fill($data)->save();
-        return response()->noContent();
+        return response()->json(['ok' => true, 'shiftWarning' => $shiftWarning]);
     }
 
     /** Átméretezés (optimista lock). */
@@ -380,12 +381,13 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
             abort(409, 'A feladat időközben módosult.');
         }
 
-        if (!$this->windowPolicy->isWithinAllowed($task->machine_id, $data['starts_at'], $data['ends_at'])) {
-            return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
-        }
+        // Műszakablak / tiltott sáv ellenőrzése: csak figyelmeztetés, nem blokkol.
+        $shiftWarning = $this->windowPolicy->isWithinAllowed($task->machine_id, $data['starts_at'], $data['ends_at'])
+            ? null
+            : 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.';
 
         $task->update($data);
-        return response()->noContent();
+        return response()->json(['ok' => true, 'shiftWarning' => $shiftWarning]);
     }
 
     /** Törlés. */
@@ -465,11 +467,10 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
                 $start = $s; $end = $e;
             }
 
-            // Műszakablak / tiltott sáv ellenőrzése (csak ha a gépre van beállítva shift-hozzárendelés)
-            if (!$this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())) {
-                DB::rollBack();
-                return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
-            }
+            // Műszakablak / tiltott sáv ellenőrzése: csak figyelmeztetés, nem blokkol.
+            $shiftWarning = $this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())
+                ? null
+                : 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.';
 
             // darabszám számolása a VÉGSŐ tartamból
             $hours  = $durSec / 3600.0;
@@ -515,6 +516,7 @@ $draftPayload = $splits->map(function (ProductionSplit $s) {
                     'batchSize'    => $split->batch_size !== null ? (int)$split->batch_size : null,
                     'committed'    => false,
                 ],
+                'shiftWarning' => $shiftWarning,
             ]);
 
         } catch (\Throwable $e) {

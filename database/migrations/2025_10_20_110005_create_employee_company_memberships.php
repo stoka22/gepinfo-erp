@@ -17,14 +17,14 @@ return new class extends Migration {
             $t->string('role')->nullable();        // opcionális: betöltött szerep a cégnél
             $t->boolean('active')->default(true);  // gyors szűrés
             $t->timestamps();
-            $t->unique(['employee_id','company_id']); // egy sor / cég
+            $t->unique(['employee_id', 'company_id']); // egy sor / cég
         });
     }
 
     public function down(): void
     {
         Schema::table('companies', function (Blueprint $t) {
-            
+
             $t->dropColumn('employment_type');
         });
     }

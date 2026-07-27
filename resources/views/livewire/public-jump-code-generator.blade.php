@@ -1,13 +1,15 @@
 <div class="mx-auto max-w-3xl">
-    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-800/60">
+    <x-filament::card class="rounded-2xl border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/60 shadow-sm">
         {{-- Fejléc --}}
         <div class="flex items-center gap-3 px-6 pt-6">
-            <x-heroicon-o-key class="icon-6 text-indigo-600 dark:text-indigo-400"/>
+            {{-- Use Tailwind sizing instead of custom CSS --}}
+            <x-heroicon-o-key class="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             <h2 class="text-2xl font-semibold tracking-tight">Ugrókód generátor</h2>
         </div>
 
         {{-- Tartalom --}}
         <div class="px-6 pb-6 pt-4">
+            {{-- Form összeállítva a Livewire form-mal --}}
             {{ $this->form }}
 
             <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -25,18 +27,20 @@
                 <x-filament::section
                     icon="heroicon-o-check-badge"
                     heading="Generált kód"
-                    description="V{{ (int)($data['variant'] ?? 1) }} változat"
+                    description="V{{ (int) ($data['variant'] ?? 1) }} változat"
                     class="mt-6"
                 >
                     <div class="flex items-center justify-between gap-4">
                         <div class="text-3xl font-bold tracking-wider select-all" id="generated-code">
                             {{ $code }}
                         </div>
+
+                        {{-- Biztonságos JS string beszúrás --}}
                         <x-filament::button
                             icon="heroicon-m-clipboard"
                             color="gray"
                             x-data
-                            x-on:click="navigator.clipboard.writeText('{{ $code }}'); $dispatch('notify', { title: 'Kimásolva a vágólapra.' })"
+                            x-on:click="navigator.clipboard.writeText({{ json_encode($code) }}); $dispatch('notify', { title: 'Kimásolva a vágólapra.' })"
                         >
                             Másolás
                         </x-filament::button>
@@ -44,10 +48,5 @@
                 </x-filament::section>
             @endif
         </div>
-    </div>
+    </x-filament::card>
 </div>
-
-{{-- ikonméret fix (ha van globális svg 100% reset) --}}
-<style>
-  .icon-6 { width: 1.5rem; height: 1.5rem; display:inline-block; vertical-align: middle; }
-</style>

@@ -5,7 +5,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
-    public function up(): void {
+    public function up(): void
+    {
         Schema::create('companies', function (Blueprint $table) {
             $table->id();
             $table->string('name')->index();
@@ -14,5 +15,5 @@ return new class extends Migration {
             $table->timestamps();
         });
     }
-    public function down(): void { Schema::dropIfExists('companies'); }
+    // public function down(): void { Schema::dropIfExists('companies'); }
 };

@@ -11,6 +11,8 @@ class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable, HasRoles; // ⬅️ FONTOS: add hozzá a HasRoles-t
+    
+   
 
     protected $guard_name = 'web'; // Spatie guard
 

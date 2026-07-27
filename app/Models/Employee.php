@@ -27,6 +27,7 @@ class Employee extends Model
         'hired_at',
         'shift',
         'birth_date',
+        // 'position',
         'children_under_16',
         'is_disabled',
         'company_id',
@@ -50,7 +51,11 @@ class Employee extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    public function position(): BelongsTo { return $this->belongsTo(Position::class); }
+    public function position(): BelongsTo
+    {
+        return $this->belongsTo(Position::class);
+    }
+
 
     public function skills(): BelongsToMany
     {
@@ -91,21 +96,34 @@ class Employee extends Model
         return $this->belongsTo(\App\Models\ShiftPattern::class, 'shift_pattern_id');
     }
 
-    public function company()        { return $this->belongsTo(Company::class); }
-    public function companies() {
-        return $this->belongsToMany(Company::class, 'employee_company_memberships')
-            ->withPivot(['starts_on','ends_on','active','role'])->withTimestamps();
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
     }
-    public function creator()        { return $this->belongsTo(User::class, 'created_by_user_id'); }
-    public function accountUser()    { return $this->belongsTo(User::class, 'account_user_id'); }
-    public function scopeActiveInCompany(Builder $q, int $companyId) {
-        return $q->whereHas('companies', fn($c)=>$c->where('company_id',$companyId)
-            ->where('active',true)
-            ->where(function($w){
-                $w->whereNull('starts_on')->orWhere('starts_on','<=',today());
-            })->where(function($w){
-                $w->whereNull('ends_on')->orWhere('ends_on','>=',today());
-            })
+    public function companies()
+    {
+        return $this->belongsToMany(Company::class, 'employee_company_memberships')
+            ->withPivot(['starts_on', 'ends_on', 'active', 'role'])->withTimestamps();
+    }
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+    public function accountUser()
+    {
+        return $this->belongsTo(User::class, 'account_user_id');
+    }
+    public function scopeActiveInCompany(Builder $q, int $companyId)
+    {
+        return $q->whereHas(
+            'companies',
+            fn($c) => $c->where('company_id', $companyId)
+                ->where('active', true)
+                ->where(function ($w) {
+                    $w->whereNull('starts_on')->orWhere('starts_on', '<=', today());
+                })->where(function ($w) {
+                    $w->whereNull('ends_on')->orWhere('ends_on', '>=', today());
+                })
         );
     }
 
@@ -114,7 +132,7 @@ class Employee extends Model
         return $this->hasMany(\App\Models\EmployeeCard::class);
     }
 
-     protected $casts = [
+    protected $casts = [
         'is_disabled' => 'bool',
     ];
 
@@ -123,8 +141,14 @@ class Employee extends Model
     {
         return $q->where('is_disabled', 0);
     }
-   public function card()
+    public function card()
     {
         return $this->hasOne(\App\Models\Card::class);
+    }
+
+
+    public function worklogs()
+    {
+        return $this->hasMany(\App\Models\WorkLog::class, 'employee_id');
     }
 }

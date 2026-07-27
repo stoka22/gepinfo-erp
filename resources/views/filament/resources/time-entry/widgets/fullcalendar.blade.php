@@ -1,13 +1,42 @@
 <x-filament-widgets::widget>
   <x-filament::section>
+    
     <div
        x-data="timeEntriesCalendar({
+        
         feedUrl:    @js(route('time-entries.calendar.events')),
         markersUrl: @js(route('time-entries.calendar.markers')),
         })"
         x-init="mount()"
         wire:ignore
+        class="space-y-4"
         >
+
+      {{-- CÉG SZŰRŐ --}}
+      <div class="flex flex-wrap items-end gap-4">
+          <div class="min-w-[240px]">
+              <label class="block text-sm font-medium mb-1">Cég</label>
+
+              <select
+                  class="w-full rounded-lg border-gray-300 dark:border-gray-700 dark:bg-gray-900"
+                  x-model="selectedCompany"
+                  x-on:change="refetchEvents()"
+              >
+                  <option value="all">Mind</option>
+
+                  @foreach ($this->getCompanyOptions() as $value => $label)
+                      <option value="{{ $value }}">{{ $label }}</option>
+                  @endforeach
+              </select>
+          </div>
+
+          <div class="text-sm text-gray-500 dark:text-gray-400 pb-2">
+              Kiválasztva:
+              <span class="font-medium text-gray-900 dark:text-gray-100" x-text="selectedCompanyLabel()"></span>
+          </div>
+
+          
+      </div>
       {{-- KAPCSOLÓK – most már a komponensen belül vannak --}}
       <div class="flex flex-wrap items-center gap-4 text-sm mb-3 p-3">
         <label class="inline-flex items-center gap-2"><input type="checkbox" class="accent-rose-500/80"    x-model="showSunday">    Vasárnap</label>

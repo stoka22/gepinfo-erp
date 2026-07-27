@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Services;
 
 class JumpCodeGeneratorV1
@@ -14,7 +15,7 @@ class JumpCodeGeneratorV1
         [$d1, $d2, $d3, $d4, $d5] = $digits;
 
         // helper used for P (and earlier attempt)
-        $f_p = function(int $p, int $t): int {
+        $f_p = function (int $p, int $t): int {
             if ($p < 2) {
                 if ($t === 0) {
                     return $t + 1;
@@ -54,16 +55,13 @@ class JumpCodeGeneratorV1
         }
 
         // S output - uses out3 (R result) in the <2 branch
-        if ($d2 < 2) {
-            $tmp = $out3 + 1;
-            $out4 = ($tmp === 10) ? 1 : $tmp;
-        } else {
-            $m = ($d2 + $out3) % 10;
-            $out4 = ($m === 0) ? 1 : $m;
-        }
+        // =HA(Q3<"2";HA((R3+1)=10;1;R3+1);HA(MARADÉK(Q3+R3;10)=0;1;MARADÉK(Q3+R3;10)))
+        $out4 = ($d2 < 2)
+            ? (($d3 + 1 == 10) ? 1 : ($d3 + 1))
+            : ((($d2 + $d3) % 10 == 0) ? 1 : (($d2 + $d3) % 10));
 
         // T output - according to the inferred rule (d2 + d3)
-        $mT = ($d2 + $d3) % 10;
+        $mT = ($d3 + $d4) % 10;
         $out5 = ($mT === 0) ? 1 : $mT;
 
         // assemble and return
@@ -79,31 +77,31 @@ class JumpCodeGeneratorV1
     }
 
     public function generateVariant(int $variant, string|int $key): string
-{
-    return match($variant) {
-        1 => $this->generate($key),
-        2 => $this->generateVariant2($key), // vagy delegálj V2 service-nek
-        3 => $this->generateVariant3($key),
-        default => throw new \InvalidArgumentException("Unknown variant: $variant"),
-    };
-}
-
-// ha nincs V2 logika itt, delegáld:
-protected function generateVariant2(string|int $key): string
-{
-    if (class_exists(\App\Services\JumpCodeGeneratorV2::class)) {
-        return app()->make(\App\Services\JumpCodeGeneratorV2::class)->generate($key);
+    {
+        return match ($variant) {
+            1 => $this->generate($key),
+            2 => $this->generateVariant2($key), // vagy delegálj V2 service-nek
+            3 => $this->generateVariant3($key),
+            default => throw new \InvalidArgumentException("Unknown variant: $variant"),
+        };
     }
-    // egyéb fallback vagy hiba
-    throw new \RuntimeException('V2 generator not available');
-}
 
-protected function generateVariant3(string|int $key): string
-{
-    if (class_exists(\App\Services\JumpCodeGeneratorV3::class)) {
-        return app()->make(\App\Services\JumpCodeGeneratorV3::class)->generate($key);
+    // ha nincs V2 logika itt, delegáld:
+    protected function generateVariant2(string|int $key): string
+    {
+        if (class_exists(\App\Services\JumpCodeGeneratorV2::class)) {
+            return app()->make(\App\Services\JumpCodeGeneratorV2::class)->generate($key);
+        }
+        // egyéb fallback vagy hiba
+        throw new \RuntimeException('V2 generator not available');
     }
-    // egyéb fallback vagy hiba
-    throw new \RuntimeException('V2 generator not available');
-}
+
+    protected function generateVariant3(string|int $key): string
+    {
+        if (class_exists(\App\Services\JumpCodeGeneratorV3::class)) {
+            return app()->make(\App\Services\JumpCodeGeneratorV3::class)->generate($key);
+        }
+        // egyéb fallback vagy hiba
+        throw new \RuntimeException('V2 generator not available');
+    }
 }

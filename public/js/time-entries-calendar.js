@@ -17,34 +17,59 @@ document.addEventListener('alpine:init', () => {
     // esemény típus szűrők
     filters: { vacation: true, sick_leave: true, overtime: true, presence: false },
 
+    // --- ÚJ: cég szűrő ---
+    selectedCompany: 'all',
+
     // --- Állapot ---
-    feedUrl, markersUrl,
+    feedUrl,
+    markersUrl,
     cal: null,
     markers: new Map(),
+
+    selectedCompanyLabel() {
+      if (this.selectedCompany === 'all') return 'Mind';
+
+      const select = this.$el.querySelector('select[x-model="selectedCompany"]');
+      if (!select) return 'Mind';
+
+      const option = select.options[select.selectedIndex];
+      return option ? option.text : 'Mind';
+    },
+
+    refetchEvents() {
+      if (this.cal) {
+        this.cal.refetchEvents();
+      }
+    },
 
     // Látható napcellákra felhelyezi az osztályokat a markers Map alapján (FC v5 kompat)
     applyMarkersToCells() {
       if (!this.$refs.cal) return;
-      // v5 dayGrid: .fc-daygrid-day[data-date="YYYY-MM-DD"]
+
       const cells = this.$refs.cal.querySelectorAll('.fc-daygrid-day');
       cells.forEach(cell => {
-        const key = cell.getAttribute('data-date'); // pl. "2025-10-23"
+        const key = cell.getAttribute('data-date');
         if (!key) return;
 
-        // először töröljük a korábbi jelöléseket (idempotens frissítés)
-        cell.classList.remove('fc-holiday-cell', 'fc-workday-cell', 'fc-restday-cell', 'fc-sunday-cell', 'fc-saturday-cell');
+        cell.classList.remove(
+          'fc-holiday-cell',
+          'fc-workday-cell',
+          'fc-restday-cell',
+          'fc-sunday-cell',
+          'fc-saturday-cell'
+        );
 
-        // hétvége jelölései
+        cell.removeAttribute('title');
+
         const d = new Date(key + 'T00:00:00');
         if (this.showSunday && d.getDay() === 0) cell.classList.add('fc-sunday-cell');
         if (this.showSaturday && d.getDay() === 6) cell.classList.add('fc-saturday-cell');
 
-        // marker alapú jelölések
         const marks = this.markers.get(key) || [];
         for (const m of marks) {
-          if (m.kind === 'holiday' && this.showHolidays)        cell.classList.add('fc-holiday-cell');
+          if (m.kind === 'holiday' && this.showHolidays) cell.classList.add('fc-holiday-cell');
           if (m.kind === 'workday' && this.showWorkdayOverrides) cell.classList.add('fc-workday-cell');
-          if (m.kind === 'restday'  && this.showRestOverrides)   cell.classList.add('fc-restday-cell');
+          if (m.kind === 'restday' && this.showRestOverrides) cell.classList.add('fc-restday-cell');
           if (m.title) cell.title = (cell.title ? cell.title + '\n' : '') + m.title;
         }
       });
@@ -53,24 +78,26 @@ document.addEventListener('alpine:init', () => {
     // Jelölők (ünnepnap / áthelyezett napok) betöltése a back-endről
     async loadMarkers(range) {
       const p = new URLSearchParams({ start: range.startStr, end: range.endStr });
-      const res = await fetch(`${this.markersUrl}?${p.toString()}`, { credentials:'include' });
+      const res = await fetch(`${this.markersUrl}?${p.toString()}`, { credentials: 'include' });
+
       if (!res.ok) {
         console.error('Marker fetch failed', res.status, await res.text());
         this.markers = new Map();
         this.applyMarkersToCells();
         return;
       }
+
       const data = await res.json();
       const m = new Map();
+
       data.forEach(x => {
-        const key = onlyYmd(x.date); // "YYYY-MM-DD"
+        const key = onlyYmd(x.date);
         if (!key) return;
         if (!m.has(key)) m.set(key, []);
         m.get(key).push({ kind: x.kind, title: x.title });
       });
-      this.markers = m;
 
-      // v5: nincs rerenderDates → kézzel frissítjük a DOM-ot
+      this.markers = m;
       this.applyMarkersToCells();
     },
 
@@ -91,52 +118,68 @@ document.addEventListener('alpine:init', () => {
           dayMaxEventRows: true,
 
           events: (info, ok, fail) => {
-            const types = Object.entries(this.filters).filter(([, on]) => on).map(([k]) => k);
-            const p = new URLSearchParams({ start: info.startStr, end: info.endStr });
+            const types = Object.entries(this.filters)
+              .filter(([, on]) => on)
+              .map(([k]) => k);
+
+            const p = new URLSearchParams({
+              start: info.startStr,
+              end: info.endStr,
+              company_id: this.selectedCompany,
+            });
+
             types.forEach(t => p.append('types[]', t));
+
             fetch(`${this.feedUrl}?${p.toString()}`, { credentials: 'include' })
               .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
-              .then(ok).catch(fail);
+              .then(ok)
+              .catch(fail);
           },
 
           datesSet: async (range) => {
-            await this.loadMarkers(range);   // markers frissítése minden nézetváltáskor
-            this.applyMarkersToCells();      // biztos ami biztos
+            await this.loadMarkers(range);
+            this.applyMarkersToCells();
           },
 
-          // Hagyhatjuk, de nem erre támaszkodunk a frissítésnél
           dayCellDidMount: (arg) => {
-            // csak első renderkor lefutó inicial jelölés
             const key = ymd(arg.date);
             const d = arg.date;
+
             if (this.showSunday && d.getDay() === 0) arg.el.classList.add('fc-sunday-cell');
             if (this.showSaturday && d.getDay() === 6) arg.el.classList.add('fc-saturday-cell');
 
             const marks = this.markers.get(key) || [];
             for (const m of marks) {
-              if (m.kind === 'holiday' && this.showHolidays)        arg.el.classList.add('fc-holiday-cell');
+              if (m.kind === 'holiday' && this.showHolidays) arg.el.classList.add('fc-holiday-cell');
               if (m.kind === 'workday' && this.showWorkdayOverrides) arg.el.classList.add('fc-workday-cell');
-              if (m.kind === 'restday'  && this.showRestOverrides)   arg.el.classList.add('fc-restday-cell');
+              if (m.kind === 'restday' && this.showRestOverrides) arg.el.classList.add('fc-restday-cell');
               if (m.title) arg.el.title = (arg.el.title ? arg.el.title + '\n' : '') + m.title;
             }
           },
 
           eventDidMount: (info) => {
             const p = info.event.extendedProps || {};
-            info.el.title = `${info.event.title}\nStátusz: ${p.status ?? '-'}\nMegjegyzés: ${p.note ?? '-'}`;
+            info.el.title =
+              `${info.event.title}\n` +
+              `Státusz: ${p.status ?? '-'}\n` +
+              `Megjegyzés: ${p.note ?? '-'}\n` +
+              `Cég: ${p.company_name ?? '-'}`;
           },
         });
 
         this.cal.render();
 
-        // watcherek – v5: manuális DOM frissítés kell
-        this.$watch('filters',      () => this.cal?.refetchEvents(), { deep: true });
-        this.$watch('showSunday',   () => this.applyMarkersToCells());
+        this.$watch('filters', () => this.cal?.refetchEvents(), { deep: true });
+        this.$watch('showSunday', () => this.applyMarkersToCells());
         this.$watch('showSaturday', () => this.applyMarkersToCells());
         this.$watch('showHolidays', () => this.applyMarkersToCells());
         this.$watch('showWorkdayOverrides', () => this.applyMarkersToCells());
-        this.$watch('showRestOverrides',    () => this.applyMarkersToCells());
+        this.$watch('showRestOverrides', () => this.applyMarkersToCells());
+
+        // ÚJ: cégváltás figyelése
+        this.$watch('selectedCompany', () => this.cal?.refetchEvents());
       };
+
       boot();
     },
   }));

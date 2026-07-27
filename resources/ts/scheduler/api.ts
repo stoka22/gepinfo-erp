@@ -26,8 +26,10 @@ async function fetchJSON<T = any>(url: string, options: RequestInit = {}): Promi
   try { data = text ? JSON.parse(text) : null } catch { /* ignore */ }
 
   if (!resp.ok) {
-    const msg = (data && (data.error || data.message)) || text || `HTTP ${resp.status}`
-    throw new Error(msg)
+     const firstErr = data?.errors
+     ? Object.values(data.errors as Record<string, string[]>)[0]?.[0] : null
+   const msg = firstErr ||  data?.error ||  data?.message ||  text ||  `HTTP ${resp.status}`
+   throw new Error(msg)
   }
   return data as T
 }
@@ -119,26 +121,45 @@ export async function resizeTask(opts: {
 }
 
 /* -------------------- draft split (create or update) -------------------- */
-export type SaveSplitBody = {
-  id?: string              // "split_{id}" – update esetén
-  machine_id: number
-  partner_order_item_id?: number | null
+export type SaveSplitInput = {
+  id?: string                 // "split_{id}" update-hez
+  machineId: number
+  partnerOrderItemId?: number | null
+  partner_product_item_id?: number | string | null
   title?: string | null
-  start: string            // ISO
+  start: string
   end: string
   ratePph: number
-  batchSize?: number
-  qtyFrom?: number
+  batchSize: number
+  qtyFrom: number
+  qtyTo: number
+  qtyTotal: number
+  qty: number
 }
 export type SaveSplitResp = {
   ok: boolean
   item: Task
 }
 
-export async function saveSplit(body: SaveSplitBody): Promise<SaveSplitResp> {
-  return fetchJSON<SaveSplitResp>('/api/scheduler/splits', {
+export async function saveSplit(p: SaveSplitInput) {
+  return fetchJSON('/api/scheduler/splits', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      id: p.id,
+      machine_id: p.machineId,
+      partner_order_item_id: p.partnerOrderItemId ?? null,
+      title: p.title ?? null,
+      start: p.start,
+      end: p.end,
+
+      ratePph: p.ratePph,
+      batchSize: p.batchSize,
+
+      qty_from: p.qtyFrom,
+      qty_to: p.qtyTo,
+      qty_total: p.qtyTotal,
+      qty: p.qty,
+    }),
   })
 }
 

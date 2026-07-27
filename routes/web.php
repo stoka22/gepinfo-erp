@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
@@ -11,10 +12,11 @@ use App\Http\Controllers\Scheduler\TreeController;
 use App\Http\Controllers\Scheduler\ResourceController;
 
 // 1) Régi /login -> Filament USER login
-Route::get('/login', fn () => redirect()->route('filament.user.auth.login'))->name('login');
+Route::get('/login', fn() => redirect()->route('filament.user.auth.login'))->name('login');
 //Route::get('jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.index');
 Route::post('jump-codes/generate', [JumpCodeController::class, 'generate'])->name('jumpcodes.generate');
-Route::get('/jump-codes', fn () => view('jumpcodes.public'))->name('jumpcodes.public');
+//Route::get('/jump-codes', fn () => view('jumpcodes.public'))->name('jumpcodes.public');
+Route::get('/jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.public');
 
 // Főoldal (maradhat ahogy van)
 Route::get('/', function () {
@@ -41,7 +43,7 @@ Route::get('/', function () {
             WHERE m.active = 1
             GROUP BY m.id, m.name
             ORDER BY m.name
-        SQL, [$y22,$t06,$t06,$t14,$t14,$t22,$t00,$t24]);
+        SQL, [$y22, $t06, $t06, $t14, $t14, $t22, $t00, $t24]);
 
         return collect($rows)->map(function ($r) {
             $diff   = $r->last_at ? \Illuminate\Support\Carbon::parse($r->last_at)->diffInMinutes(now()) : PHP_INT_MAX;
@@ -65,7 +67,7 @@ Route::get('/', function () {
 });
 
 // Authos nézetek
-Route::view('dashboard', 'livewire.dashboard')->middleware(['auth','verified'])->name('dashboard');
+Route::view('dashboard', 'livewire.dashboard')->middleware(['auth', 'verified'])->name('dashboard');
 Route::view('profile', 'profile')->middleware(['auth'])->name('profile');
 
 // Eszközök/machines
@@ -73,8 +75,8 @@ Route::middleware(['auth'])->group(function () {
     Route::view('/devices', 'livewire.devices.index')->name('devices.index');
     Route::post('/devices/approve/{pending}', [PendingDeviceController::class, 'approve'])->name('devices.approve');
     Route::resource('machines', MachineController::class);
-    Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntriesCalendarFeedController::class)
-        ->name('time-entries.calendar.events');
+    //Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntriesCalendarFeedController::class)->name('time-entries.calendar.events');
+    Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntryCalendarController::class) ->name('time-entries.calendar.events');
     //Route::get('/time-entries/calendar-markers', \App\Http\Controllers\CalendarMarkersController::class)->name('time-entries.calendar.markers');
     Route::get('/time-entries/calendar-markers', \App\Http\Controllers\TimeEntryCalendarMarkersController::class)
         ->name('time-entries.calendar.markers');

@@ -1,10 +1,7 @@
 {{-- Kártya – Filament 3 jellegű --}}
 <div class="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-800/60">
-  {{-- Kártya fejléce --}}
-  <div class="flex items-center gap-3 px-6 pt-6">
-    <x-heroicon-o-key class="icon-6 text-indigo-600 dark:text-indigo-400"/>
-    <h2 class="text-2xl font-semibold tracking-tight">Ugrókód generátor</h2>
-  </div>
+  
+  
 
   {{-- Kártya tartalom --}}
   <div class="px-6 pb-6 pt-4">
@@ -33,7 +30,7 @@
         <div>
           <span class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Változat</span>
           <div class="flex flex-col gap-2">
-            @foreach ([1=>'Paraméter',2=>'GPS Temp',3=>'GPS Unlock'] as $val => $label)
+            @foreach ([1=>'Settings',2=>'Calibration',3=>'GPS Temp',4=>'GPS Unlock'] as $val => $label)
               <label class="inline-flex items-center gap-2">
                 <input type="radio" name="variant" value="{{ $val }}"
                        class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400"
