@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useScheduler } from '../store'
 import type { Resource, RowItem } from '../types'
+import { TOP_SCROLL_H, TIMELINE_H } from '../utils/constants'
+import ItemPickerModal, { Item } from './ItemPickerModal'
 
 /**
  * ÚJ ResourceTree
@@ -106,27 +108,13 @@ export default function ResourceTree() {
   }, [grouped, q, showMachines, showWorkstations, setVisibleRows, setCollapsedRows])
 
   return (
-    <div className="space-y-2">
+    <div>
       {/* Fejléc / Szűrők */}
-      <div className="flex items-center gap-2 p-2">
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="Keresés..."
-          className="w-full px-2 py-1 rounded-md bg-black/10 outline-none"
-        />
-        <label className="flex items-center gap-1 text-xs opacity-80">
-          <input type="checkbox" checked={showMachines} onChange={e => setShowMachines(e.target.checked)} />
-          Gépek
-        </label>
-        <label className="flex items-center gap-1 text-xs opacity-80">
-          <input type="checkbox" checked={showWorkstations} onChange={e => setShowWorkstations(e.target.checked)} />
-          Munkaállomások
-        </label>
-      </div>
+
+
 
       {/* Listák */}
-      <div className="space-y-2 p-2">
+      <div className=" p-2">
         {showMachines && grouped.machines.length > 0 && (
           <GroupBlock title="Gépek" items={grouped.machines} rowHeight={rowHeight} />
         )}
@@ -149,7 +137,7 @@ function GroupBlock({ title, items, rowHeight }: { title: string, items: Resourc
           <span className="font-semibold">{title}</span>
         </div>
       </div>
-      <div className="mt-1 space-y-1">
+      <div >
         {items.map(r => (
           <MachineRow key={r.id} resource={r} rowHeight={rowHeight} />
         ))}
@@ -159,27 +147,95 @@ function GroupBlock({ title, items, rowHeight }: { title: string, items: Resourc
 }
 
 /** Gép / munkaállomás sor (draft + gombbal) */
+/** Gép / munkaállomás sor (draft + gombbal) */
+/** Gép / munkaállomás sor (ikonos gombokkal) */
 function MachineRow({ resource, rowHeight }: { resource: Resource, rowHeight: number }) {
   const createDraft = useScheduler(s => s.createDraftSegment)
-  const totals = useScheduler(s => s.totals) as Record<number, number> | undefined
-  const planned = totals?.[Number(resource.id)] ?? 0
+  const totals      = useScheduler(s => s.totals) as Record<number, number> | undefined
+  const planned     = totals?.[Number(resource.id)] ?? 0
 
-  // célmennyiség-heurisztika
+  // csak a + gombhoz kell modál
+  const [isPickerOpen, setPickerOpen] = useState(false)
+
   type ResourceWithTarget = Resource & { targetQty?: number; target_qty?: number; target?: number }
-  const rw = resource as ResourceWithTarget
+  const rw     = resource as ResourceWithTarget
   const target = Number(rw.targetQty ?? rw.target_qty ?? rw.target ?? 0)
 
-  const onAdd = () => {
-    const rate = Number((rw as any).defaultRatePph ?? (rw as any).ratePph ?? 100) || 100
+  const baseRate =
+    Number((rw as any).defaultRatePph ?? (rw as any).ratePph ?? 100) || 100
+
+  // közös: honnan induljon az új hasáb (utolsó vége vagy most)
+  const calcStartISO = () => {
+    const allTasks = useScheduler.getState().tasks as any[]
+    const machineIdNum = Number(resource.id)
+
+    const lastEndMs = allTasks
+      .filter(t => Number(t.resourceId) === machineIdNum)
+      .reduce((max, t) => {
+        const ms = +new Date(t.end as any)
+        return Number.isFinite(ms) && ms > max ? ms : max
+      }, 0)
+
+    const now = new Date()
+    const startDate = lastEndMs > now.getTime() ? new Date(lastEndMs) : now
+    return startDate.toISOString()
+  }
+
+  // ➕ Munkafolyamat – itt KELL a modál (termék választás)
+  const onAddWorkflow = () => {
+    setPickerOpen(true)
+  }
+
+  // modálban kiválasztott termék → normál munkafolyamat hasáb
+  const handleItemSelected = (item: Item) => {
+    const qty     = 300
+    const ratePph = baseRate
+    const startISO = calcStartISO()
+
+    const title = `${item.name} – ${item.sku} - Dolgozó`
+
     createDraft({
       machineId: Number(resource.id),
-      productNodeId: '',   // nincs fa
-      processNodeId: '',   // nincs fa
-      title: `${resource.name} • 100 db`,
-      qty: 100,
-      ratePph: rate,
+      productNodeId: String(item.id), // ide megy a termék azonosító
+      processNodeId: '',
+      title,
+      qty,
+      ratePph,
+      start: startISO,
+    } as any)
+
+    setPickerOpen(false)
+  }
+
+  // 🛠 / ⚙ speciális hasábok – NEM kell modál
+  const createServiceDraft = (type: 'maintenance' | 'setup') => {
+    const qty     = 300
+    const ratePph = baseRate
+    const startISO = calcStartISO()
+
+    let title: string
+    if (type === 'maintenance') {
+      title = `${resource.name} – Javítás`
+    } else {
+      title = `${resource.name} – Beállítás`
+    }
+
+    createDraft({
+      machineId: Number(resource.id),
+      productNodeId: '',   // ezekhez nem választunk terméket
+      processNodeId: '',
+      title,
+      qty,
+      ratePph,
+      start: startISO,
     } as any)
   }
+
+  const onAddMaintenance = () => createServiceDraft('maintenance')
+  const onAddSetup       = () => createServiceDraft('setup')
+
+  const iconBtn =
+    'w-7 h-7 flex items-center justify-center rounded-md text-xs border hover:opacity-80';
 
   return (
     <div style={{ paddingLeft: 14, height: rowHeight, display: 'flex', alignItems: 'center' }}>
@@ -187,15 +243,56 @@ function MachineRow({ resource, rowHeight }: { resource: Resource, rowHeight: nu
         <span className="truncate">
           {resource.name} {`(${Math.round(target)} db / ${Math.round(planned)} db)`}
         </span>
-        <button
-          type="button"
-          className="px-2 py-0.5 rounded-md text-sm hover:opacity-80 border"
-          onClick={onAdd}
-          title="Hasáb hozzáadása"
-        >
-          +
-        </button>
+
+        <div className="flex items-center gap-1 ml-auto">
+          {/* Munkafolyamat hozzáadása – plusz ikon (MODÁL) */}
+          <button
+            type="button"
+            className={`${iconBtn} bg-neutral-800/70`}
+            onClick={onAddWorkflow}
+            title="Munkafolyamat hozzáadása"
+          >
+            ＋
+          </button>
+
+          {/* Javítás – piros ikonos gomb (NINCS modál) */}
+          <button
+            type="button"
+            className={iconBtn}
+            style={{
+              backgroundColor: 'rgba(248,113,113,0.9)',
+              borderColor: 'rgba(127,29,29,0.9)',
+              color: '#fff',
+            }}
+            onClick={onAddMaintenance}
+            title="Javítás hasáb hozzáadása"
+          >
+            🛠
+          </button>
+
+          {/* Beállítás – sárga ikonos gomb (NINCS modál) */}
+          <button
+            type="button"
+            className={iconBtn}
+            style={{
+              backgroundColor: 'rgba(252,211,77,0.95)',
+              borderColor: 'rgba(180,83,9,0.9)',
+              color: '#000',
+            }}
+            onClick={onAddSetup}
+            title="Beállítás hasáb hozzáadása"
+          >
+            ⚙
+          </button>
+        </div>
       </div>
+
+      {/* csak a normál munkafolyamathoz használt termékválasztó */}
+      <ItemPickerModal
+        open={isPickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleItemSelected}
+      />
     </div>
   )
 }

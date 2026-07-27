@@ -126,7 +126,10 @@ class WindowPolicy
         $windows = [];
 
         foreach ($patterns as $p) {
-            if (!$p->appliesToDow((int)$day->dayOfWeek)) continue; // napmaszk
+            // ShiftPattern::days_mask a hétfő=0..vasárnap=6 konvenciót használja
+            // (ld. dayMap()/ShiftPatternResource), a Carbon::dayOfWeek viszont
+            // vasárnap=0-ról indul – ezért kell dayOfWeekIso-1-re konvertálni.
+            if (!$p->appliesToDow($day->dayOfWeekIso - 1)) continue;
 
             $start = $day->copy()->setTimeFromTimeString($p->start_time);
             $end   = $day->copy()->setTimeFromTimeString($p->end_time);

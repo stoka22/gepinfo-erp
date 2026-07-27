@@ -188,11 +188,11 @@ class EmployeeTable
                                 'phone' => 'Telefon',
                                 'shift' => 'Műszak minta',
                             ])
-                            ->default(['name', 'company', 'position'])
+                            ->default(['name', 'company', 'position', 'phone', 'shift'])
                             ->columns(2),
                     ])
                     ->action(function (array $data) {
-                        $cols = $data['columns'] ?? ['name', 'company', 'position'];
+                        $cols = $data['columns'] ?? ['name', 'company', 'position', 'phone', 'shift'];
                         $company = $data['company'] ?? null;
 
                         $q = EmployeeResource::getEloquentQuery()->clone();
@@ -203,7 +203,7 @@ class EmployeeTable
                             ->orderBy('name')
                             ->get();
 
-                        $headers = [];
+                        $headers = ['Sorszám'];
                         foreach ($cols as $c) {
                             $headers[] = match ($c) {
                                 'name' => 'Név',
@@ -227,8 +227,11 @@ class EmployeeTable
                         }
                         $html .= '</tr></thead><tbody>';
 
+                        $sorszam = 0;
                         foreach ($rows as $r) {
+                            $sorszam++;
                             $html .= '<tr>';
+                            $html .= '<td>' . $sorszam . '</td>';
                             foreach ($cols as $c) {
                                 $val = match ($c) {
                                     'name' => $r->name,

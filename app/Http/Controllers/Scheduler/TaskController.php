@@ -9,10 +9,15 @@ use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use App\Models\ProductionTask;
 use App\Models\ProductionSplit;
+use App\Services\Scheduling\WindowPolicy;
 use Illuminate\Support\Carbon;
 
 class TaskController extends Controller
 {
+    public function __construct(private WindowPolicy $windowPolicy)
+    {
+    }
+
     /**
      * Gantt sávok a kért idősávban (committed + draft).
      * Kérés: from, to (date), resource_id (opcionális).
@@ -81,6 +86,9 @@ class TaskController extends Controller
                 'productName'   => $t->item->name ?? null,
                 'partnerName'   => $t->partner->name ?? null,
                 'orderCode'     => $t->order->order_no ?? null,
+                'cycleTimeSec'   => $t->workStep && $t->workStep->cycle_time_sec !== null
+                            ? (float)$t->workStep->cycle_time_sec
+                            : null,
                 
                 'operationName' => $t->workStep->name ?? null,
                 'capableMachineIds' => $capableIds,
@@ -103,37 +111,60 @@ class TaskController extends Controller
 
         $splits = $sq->orderBy('start')->get();
 
-        $draftPayload = $splits->map(function (ProductionSplit $s) {
-            $partnerName = $s->orderItem?->order?->partner?->name;
-            $orderCode   = $s->orderItem?->order?->order_no;
-            $productSku  = $s->orderItem?->product?->sku;
-            $product = $s->orderItem?->product;
-            $processId = $s->orderItem?->workflow_step_id;
+$draftPayload = $splits->map(function (ProductionSplit $s) {
+    $partnerName = $s->orderItem?->order?->partner?->name;
+    $orderCode   = $s->orderItem?->order?->order_no;
+    $productSku  = $s->orderItem?->product?->sku;
 
-            return [
-                'id'        => 'split_' . $s->id,
-                'resourceId'=> $s->machine_id,
-                'title'     => $s->title ?? ($productSku ?: 'Tervezett művelet'),
-                'start'     => optional($s->start)->format('Y-m-d\TH:i:s'),
-                'end'       => optional($s->end)->format('Y-m-d\TH:i:s'),
-                'qtyTotal'  => (int)($s->qty_total ?? 0),
-                'qtyFrom'   => (int)($s->qty_from ?? 0),
-                'qtyTo'     => (int)($s->qty_to ?? 0),
-                'ratePph'   => $s->rate_pph !== null ? (float)$s->rate_pph : null,
-                'batchSize' => $s->batch_size !== null ? (int)$s->batch_size : null,
-                'partnerName'   => $partnerName,
-                'orderCode'     => $orderCode,
-                'productSku'    => $productSku,
-                'operationName' => $s->title,
-                'capableMachineIds' => [],
-                'updatedAt' => optional($s->updated_at)->toIso8601String(),
-                'committed' => false,
-                'productNodeId' => $product?->id,       // ⬅️
-                'processNodeId' => $processId,          // ⬅️
-                'productSku'    => $product?->sku,
-                'productName'   => $product?->name, 
-            ];
-        });
+    // termék + gép adatok
+    $product   = $s->orderItem?->product;
+    $itemId    = $product?->id ?? $s->orderItem?->item_id;
+    $machineId = $s->machine_id;
+    $processId = $s->orderItem?->workflow_step_id;
+
+    // --- ciklusidő lekérése termék + gép szerint ---
+    $cycleTimeSec = null;
+    if ($itemId && $machineId) {
+        $cycleTimeSec = DB::table('item_work_steps as iws')
+            ->join('item_work_step_machine as iwsm', 'iwsm.item_work_step_id', '=', 'iws.id')
+            ->where('iws.item_id', $itemId)
+            ->where('iwsm.machine_id', $machineId)
+            ->value('iws.cycle_time_sec');
+
+        if ($cycleTimeSec !== null) {
+            $cycleTimeSec = (float) $cycleTimeSec;
+        }
+    }
+
+    return [
+        'id'        => 'split_' . $s->id,
+        'resourceId'=> $s->machine_id,
+        'title'     => $s->title ?? ($productSku ?: 'Tervezett művelet'),
+        'start'     => optional($s->start)->format('Y-m-d\TH:i:s'),
+        'end'       => optional($s->end)->format('Y-m-d\TH:i:s'),
+        'qtyTotal'  => (int)($s->qty_total ?? 0),
+        'qtyFrom'   => (int)($s->qty_from ?? 0),
+        'qtyTo'     => (int)($s->qty_to ?? 0),
+        'ratePph'   => $s->rate_pph !== null ? (float)$s->rate_pph : null,
+        'batchSize' => $s->batch_size !== null ? (int)$s->batch_size : null,
+        'partnerName'   => $partnerName,
+        'orderCode'     => $orderCode,
+        'productSku'    => $productSku,
+
+        // 🔹 ÚJ: ciklusidő mp-ben, ebből fog számolni a frontend
+        'cycleTimeSec'  => $cycleTimeSec,
+
+        'operationName' => $s->title,
+        'capableMachineIds' => [],
+        'updatedAt' => optional($s->updated_at)->toIso8601String(),
+        'committed' => false,
+        'productNodeId' => $product?->id,
+        'processNodeId' => $processId,
+        'productSku'    => $product?->sku,
+        'productName'   => $product?->name,
+    ];
+});
+
 
         $items  = $committedPayload->concat($draftPayload)->values();
 
@@ -177,7 +208,19 @@ class TaskController extends Controller
         // ⬅️ NEM vágjuk le a másodperceket
         $start = Carbon::parse($data['start']);
         $end   = Carbon::parse($data['end']);
-        $durSec = max(60, $end->diffInSeconds($start)); // min. 60s
+        // Alapértelmezett: kliens által küldött tartam másodpercben
+        $durSec = $end->diffInSeconds($start);
+
+        // Ha a kliensnél a hasáb hossza batch_size-ban (óra) jön,
+        // akkor abból számoljuk a durációt, hogy biztosan ugyanaz legyen.
+        if ($batch !== null && $batch > 0) {
+            $durSec = max($durSec, (int)round($batch * 3600));
+        }
+
+        // Biztonsági minimum: 1 perc
+        if ($durSec < 60) {
+            $durSec = 60;
+        }
 
         DB::beginTransaction();
         try {
@@ -210,14 +253,30 @@ class TaskController extends Controller
                 $start = $s; $end = $e;
             }
 
+            // Műszakablak / tiltott sáv ellenőrzése (csak ha a gépre van beállítva shift-hozzárendelés)
+            if (!$this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())) {
+                DB::rollBack();
+                return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
+            }
+
             // darabszám számolása a VÉGSŐ tartamból
             $hours  = $durSec / 3600.0;
             $rawQty = (int)floor($hours * $rate);
-            $qty    = $rawQty <= 0 ? 0 : ($batch ? (int)floor($rawQty / $batch) * $batch : $rawQty);
+                        // batch_size = "csomagméret" → erre kerekítjük a mennyiséget,
+            // de NEM nyomjuk nullára, ha kicsi a tartam
+            if ($batch && $batch > 0 && $rawQty > 0) {
+                $qty = (int)floor($rawQty / $batch) * $batch;
+                if ($qty === 0) {
+                    $qty = $batch;
+                }
+            } else {
+                $qty = max(0, $rawQty);
+            }
 
             $payload = [
                 'machine_id' => $rid,
                 'partner_order_item_id' => $data['partner_order_item_id'] ?? null,
+                'partner_product_item_id' => $data['partner_product_item_id'] ?? null,
                 'title'      => $data['title'] ?? null,
                 'start'      => $start,
                 'end'        => $end,
@@ -252,14 +311,10 @@ class TaskController extends Controller
                     'ratePph'      => (float)$split->rate_pph,
                     'batchSize'    => $split->batch_size !== null ? (int)$split->batch_size : null,
                     'committed'    => false,
-                    'productNodeId' => $split->partner_order_item_id
-                        ? optional($split->orderItem->product)->id
-                        : null,
-                    'processNodeId' => $split->partner_order_item_id
-                        ? $split->orderItem->workflow_step_id
-                        : null,
-                    'productSku'    => optional($split->orderItem->product)->sku,
-                    'productName'   => optional($split->orderItem->product)->name,
+                    'productNodeId' => $split->orderItem?->product?->id,
+                    'processNodeId' => $split->orderItem?->workflow_step_id,
+                    'productSku'    => $split->orderItem?->product?->sku,
+                    'productName'   => $split->orderItem?->product?->name,
                 ],
             ]);
 
@@ -303,6 +358,11 @@ class TaskController extends Controller
             abort(409, 'A feladat időközben módosult.');
         }
 
+        $rid = $data['machine_id'] ?? $task->machine_id;
+        if (!$this->windowPolicy->isWithinAllowed($rid, $data['starts_at'], $data['ends_at'])) {
+            return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
+        }
+
         $task->fill($data)->save();
         return response()->noContent();
     }
@@ -318,6 +378,10 @@ class TaskController extends Controller
 
         if ($task->updated_at->ne(Carbon::parse($r->input('updated_at')))) {
             abort(409, 'A feladat időközben módosult.');
+        }
+
+        if (!$this->windowPolicy->isWithinAllowed($task->machine_id, $data['starts_at'], $data['ends_at'])) {
+            return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
         }
 
         $task->update($data);
@@ -340,7 +404,8 @@ class TaskController extends Controller
         $data = $r->validate([
             'id'         => ['nullable','string'],
             'machine_id' => ['required','integer','exists:machines,id'],
-            'partner_order_item_id' => ['nullable','integer','exists:partner_order_items,id'],
+            //'partner_order_item_id' => ['nullable','integer','exists:partner_order_items,id'],
+            'partner_product_item_id' => ['nullable','integer','exists:items,id'],
             'title'      => ['nullable','string','max:255'],
             'start'      => ['required','date'],
             'end'        => ['required','date','after:start'],
@@ -353,6 +418,11 @@ class TaskController extends Controller
         $rate  = (float)$data['ratePph'];
         $batch = $data['batchSize'] ?? null;
 
+        $currentSplitId = null;
+        if (!empty($data['id']) && str_starts_with($data['id'], 'split_')) {
+            $currentSplitId = (int)substr($data['id'], 6);
+        }
+
         // ⬅️ NEM vágjuk le a másodperceket
         $start = Carbon::parse($data['start']);
         $end   = Carbon::parse($data['end']);
@@ -361,7 +431,7 @@ class TaskController extends Controller
         DB::beginTransaction();
         try {
             // --- Ütközésvizsgálat ugyanazon a gépen (szélérintkezés megengedett) ---
-            $overlap = function(Carbon $s, Carbon $e) use ($rid) {
+            $overlap = function(Carbon $s, Carbon $e) use ($rid, $currentSplitId) {
                 $has = ProductionTask::query()
                     ->where('machine_id', $rid)
                     ->whereNotNull('starts_at')->whereNotNull('ends_at')
@@ -371,13 +441,19 @@ class TaskController extends Controller
                     ->exists();
 
                 if (!$has) {
-                    $has = ProductionSplit::query()
+                    $qs = ProductionSplit::query()
                         ->where('machine_id', $rid)->where('is_committed', false)
                         ->whereNotNull('start')->whereNotNull('end')
                         ->where(function($q) use ($s,$e){
                             $q->where('end','>', $s)->where('start','<', $e);
-                        })
-                        ->exists();
+                        });
+
+                    // ⬅️ SAJÁT split kizárása, ha update
+                    if ($currentSplitId !== null) {
+                        $qs->where('id', '!=', $currentSplitId);
+                    }
+
+                    $has = $qs->exists();
                 }
                 return $has;
             };
@@ -389,6 +465,12 @@ class TaskController extends Controller
                 $start = $s; $end = $e;
             }
 
+            // Műszakablak / tiltott sáv ellenőrzése (csak ha a gépre van beállítva shift-hozzárendelés)
+            if (!$this->windowPolicy->isWithinAllowed($rid, $start->toDateTimeString(), $end->toDateTimeString())) {
+                DB::rollBack();
+                return response()->json(['error' => 'A választott időszak a gép műszakablakán kívül esik, vagy tiltott sávba ütközik.'], 422);
+            }
+
             // darabszám számolása a VÉGSŐ tartamból
             $hours  = $durSec / 3600.0;
             $rawQty = (int)floor($hours * $rate);
@@ -396,6 +478,7 @@ class TaskController extends Controller
 
             $payload = [
                 'machine_id' => $rid,
+                'partner_product_item_id' => $data['partner_product_item_id'] ?? null,
                 'partner_order_item_id' => $data['partner_order_item_id'] ?? null,
                 'title'      => $data['title'] ?? null,
                 'start'      => $start,
@@ -542,6 +625,32 @@ class TaskController extends Controller
         return response()->json([
             'start' => $s->toIso8601String(),
             'end'   => $e->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * Az adott napra érvényes (globális) műszakablak: az adott napra illeszkedő
+     * ShiftPattern rekordok közül a legkorábbi kezdés és legkésőbbi zárás.
+     * GET /api/scheduler/shift-window?date=YYYY-MM-DD
+     */
+    public function shiftWindow(Request $r)
+    {
+        $data = $r->validate([
+            'date' => ['required', 'date'],
+        ]);
+
+        $day = Carbon::parse($data['date']);
+        $dow = $day->dayOfWeekIso - 1; // hétfő=0 .. vasárnap=6, ld. ShiftPattern::appliesToDow
+
+        $patterns = \App\Models\ShiftPattern::all()->filter(fn ($p) => $p->appliesToDow($dow));
+
+        if ($patterns->isEmpty()) {
+            return response()->json(['error' => 'no shift'], 404);
+        }
+
+        return response()->json([
+            'start' => $patterns->min('start_time'),
+            'end'   => $patterns->max('end_time'),
         ]);
     }
 }

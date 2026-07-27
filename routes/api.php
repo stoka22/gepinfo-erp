@@ -122,5 +122,5 @@ Route::prefix('scheduler')
 
         // Következő szabad idősáv és műszak-ablak (a SPA hívja)
         Route::get('next-slot',           [TaskController::class, 'nextSlot']);
-       // Route::get('shift-window',        [TaskController::class, 'shiftWindow']);
+        Route::get('shift-window',        [TaskController::class, 'shiftWindow']);
     });
