@@ -42,8 +42,8 @@ class FeaturesRelationManager extends RelationManager
                     ]),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),   // pivot mezők szerkesztése
-                Tables\Actions\DetachAction::make(), // leválasztás
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),   // pivot mezők szerkesztése
+                Tables\Actions\DetachAction::make()->label('')->tooltip('Leválasztás'), // leválasztás
             ]);
     }
 }

@@ -112,9 +112,9 @@ class ItemResource extends Resource
                 ->indicator('Típus'),
         ])
         ->actions([
-            Tables\Actions\ViewAction::make(),
-            Tables\Actions\EditAction::make(),
-            Tables\Actions\DeleteAction::make(),
+            Tables\Actions\ViewAction::make()->label('')->tooltip('Megtekintés'),
+            Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+            Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
         ]);
     }
 

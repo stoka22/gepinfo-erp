@@ -528,11 +528,12 @@ class EmployeeTable
                     })
                     ->successNotificationTitle('Kijelentkezve'),
 
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
-                Tables\Actions\RestoreAction::make()->label(''),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Archiválás'),
+                Tables\Actions\RestoreAction::make()->label('')->tooltip('Visszaállítás'),
                 Tables\Actions\ForceDeleteAction::make()
-                    ->label('Végleges törlés')
+                    ->label('')
+                    ->tooltip('Végleges törlés')
                     ->visible(fn($record) => ($record?->trashed() ?? false)
                         && (Filament::auth()->user()?->role ?? null) === 'admin'),
             ])
@@ -542,17 +543,21 @@ class EmployeeTable
                     ->icon('heroicon-o-printer')
                     ->color('gray')
                     ->form([
-                        Forms\Components\DatePicker::make('month')
-                            ->label('Hónap')
-                            ->native(false)
-                            ->displayFormat('Y. F')
-                            ->default(now()->startOfMonth())
+                        Forms\Components\CheckboxList::make('months')
+                            ->label('Hónap(ok) — '.now()->year)
+                            ->options([
+                                '01' => 'Január',   '02' => 'Február', '03' => 'Március',
+                                '04' => 'Április',  '05' => 'Május',   '06' => 'Június',
+                                '07' => 'Július',   '08' => 'Augusztus', '09' => 'Szeptember',
+                                '10' => 'Október',  '11' => 'November', '12' => 'December',
+                            ])
+                            ->default([now()->format('m')])
+                            ->columns(3)
                             ->required(),
                     ])
                     ->action(function (\Illuminate\Support\Collection $records, array $data) {
-                        $month = \Carbon\CarbonImmutable::parse($data['month']);
-                        $periodStart = $month->startOfMonth();
-                        $periodEnd = $month->endOfMonth();
+                        $year = now()->year;
+                        $months = collect($data['months'] ?? [])->sort()->values();
 
                         $employees = $records
                             ->reject(fn (Employee $e) => $e->trashed())
@@ -568,9 +573,15 @@ class EmployeeTable
                         }
 
                         $service = app(\App\Services\AttendanceSheetService::class);
-                        $sheets = $employees
-                            ->map(fn (Employee $e) => $service->buildForEmployee($e->loadMissing('company'), $periodStart, $periodEnd))
-                            ->all();
+                        $sheets = [];
+                        foreach ($employees as $employee) {
+                            $employee->loadMissing('company');
+                            foreach ($months as $m) {
+                                $periodStart = \Carbon\CarbonImmutable::createFromDate($year, (int) $m, 1)->startOfMonth();
+                                $periodEnd = $periodStart->endOfMonth();
+                                $sheets[] = $service->buildForEmployee($employee, $periodStart, $periodEnd);
+                            }
+                        }
 
                         $html = view('exports.attendance-sheet', [
                             'sheets'    => $sheets,
@@ -583,11 +594,13 @@ class EmployeeTable
                         $dompdf->setPaper('A4', 'portrait');
                         $dompdf->render();
 
+                        $filenameMonths = $months->implode('_') ?: now()->format('m');
+
                         return new StreamedResponse(function () use ($dompdf) {
                             echo $dompdf->output();
                         }, 200, [
                             'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => 'attachment; filename="jelenleti_iv_'.$month->format('Y_m').'.pdf"',
+                            'Content-Disposition' => 'attachment; filename="jelenleti_iv_'.$year.'_'.$filenameMonths.'.pdf"',
                         ]);
                     })
                     ->deselectRecordsAfterCompletion(),

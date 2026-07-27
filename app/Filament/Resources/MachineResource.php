@@ -106,7 +106,7 @@ class MachineResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
-                    ->label('Szerk')
+                    ->label('')
                     ->icon('heroicon-o-pencil-square')
                     ->iconButton()
                     ->tooltip('Szerkesztés'),

@@ -94,6 +94,8 @@ class PartnerOrderItemSplitsPage extends Page implements Tables\Contracts\HasTab
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
+                    ->label('')
+                    ->tooltip('Szerkesztés')
                     ->mutateFormDataUsing(function (array $data, ProductionSplit $record): array {
                         $row = $this->orderItem->fresh(['splits']);
                         $producedWithoutThis = (float)$row->splits()->where('id', '!=', $record->id)->sum('qty');
@@ -110,6 +112,8 @@ class PartnerOrderItemSplitsPage extends Page implements Tables\Contracts\HasTab
                     })
                     ->after(fn () => $this->orderItem->refresh()),
                 Tables\Actions\DeleteAction::make()
+                    ->label('')
+                    ->tooltip('Törlés')
                     ->after(fn () => $this->orderItem->refresh()),
             ])
             ->emptyStateHeading('Még nincs rész-gyártás')

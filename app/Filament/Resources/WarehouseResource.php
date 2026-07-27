@@ -41,7 +41,10 @@ class WarehouseResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('Név')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('location')->label('Helyszín')->toggleable(),
             ])
-            ->actions([ Tables\Actions\EditAction::make(), Tables\Actions\DeleteAction::make() ]);
+            ->actions([
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
+            ]);
     }
 
     public static function getEloquentQuery(): Builder

@@ -27,9 +27,10 @@ class CardImportResource extends Resource
                 Tables\Columns\TextColumn::make('created_at')->dateTime()->label('Létrehozva')->sortable(),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Megtekintés'),
                 Tables\Actions\DeleteAction::make()
-                    ->label('Import törlése')
+                    ->label('')
+                    ->tooltip('Import törlése')
                     ->modalHeading('Import és sorainak törlése')
                     ->modalDescription('A kiválasztott import összes staging sorát is töröljük.')
                     ->before(function (CardImport $record) {

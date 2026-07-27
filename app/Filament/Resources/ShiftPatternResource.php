@@ -14,8 +14,7 @@ class ShiftPatternResource extends Resource
 {
     protected static ?string $model = ShiftPattern::class;
     protected static ?string $navigationIcon = 'heroicon-o-clock';
-   // protected static ?string $navigationGroup = 'Tervezés';
-   protected static ?string $navigationGroup = 'Termelés';
+    protected static ?string $navigationGroup = 'Termelés';
     protected static ?string $label = 'Műszak minta';
     protected static ?string $pluralLabel = 'Műszak minták';
 
@@ -79,8 +78,8 @@ class ShiftPatternResource extends Resource
             Tables\Columns\TextColumn::make('start_time')->label('Kezdés'),
             Tables\Columns\TextColumn::make('end_time')->label('Vége'),
         ])->actions([
-            Tables\Actions\EditAction::make(),
-            Tables\Actions\DeleteAction::make(),
+            Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+            Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
         ])->bulkActions([
             Tables\Actions\DeleteBulkAction::make(),
         ]);

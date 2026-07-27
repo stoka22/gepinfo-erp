@@ -37,6 +37,41 @@ class TimeEntriesRelationManager extends RelationManager
         return TimeEntry::class;
     }
 
+    /** presence típushoz: hours számítása és status beállítása (ld. TimeEntryResource\Forms\TimeEntryForm). */
+    private static function recalcPresence(Forms\Set $set, Forms\Get $get): void
+    {
+        $type = $get('type') instanceof \BackedEnum ? $get('type')->value : $get('type');
+        if ($type !== TimeEntryType::Presence->value) {
+            return;
+        }
+
+        $sd = $get('start_date');
+        $st = $get('start_time');
+        $ed = $get('end_date') ?: $sd;
+        $et = $get('end_time');
+
+        if (! $sd || ! $st) {
+            $set('hours', null);
+            return;
+        }
+
+        $in  = Carbon::parse("{$sd} " . ($st ?: '00:00'));
+        $out = $et ? Carbon::parse("{$ed} {$et}") : null;
+
+        if ($out && $out->lessThan($in)) {
+            $out->addDay();
+        }
+
+        if ($out) {
+            $minutes = max(0, $in->diffInMinutes($out));
+            $set('hours', round($minutes / 60, 2));
+            $set('status', TimeEntryStatus::CheckedOut->value);
+        } else {
+            $set('hours', 0.00);
+            $set('status', TimeEntryStatus::CheckedIn->value);
+        }
+    }
+
     public function form(Form $form): Form
     {
         return $form->schema([
@@ -47,27 +82,87 @@ class TimeEntriesRelationManager extends RelationManager
                 ->default(fn() => Auth::id())
                 ->dehydrated(),
 
-            Forms\Components\Select::make('type')->label('Típus')->options([
-                TimeEntryType::Vacation->value  => 'Szabadság',
-                TimeEntryType::Overtime->value  => 'Túlóra',
-                TimeEntryType::SickLeave->value => 'Táppénz',
-                TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
-            ])->required()->live(),
-            Forms\Components\DatePicker::make('start_date')->label('Dátum')->required(),
-            Forms\Components\DatePicker::make('start_time')->label('Kezdet')->required(),
-            Forms\Components\DatePicker::make('end_time')->label('Vége')
-                ->visible(fn(Forms\Get $get) => $get('type') !== TimeEntryType::Overtime->value)
-                ->afterOrEqual('start_date'),
+            Forms\Components\Select::make('type')->label('Típus')
+                ->options([
+                    TimeEntryType::Presence->value  => 'Jelenlét',
+                    TimeEntryType::Vacation->value  => 'Szabadság',
+                    TimeEntryType::Overtime->value  => 'Túlóra',
+                    TimeEntryType::SickLeave->value => 'Táppénz',
+                    TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
+                ])
+                ->default(TimeEntryType::Presence->value)
+                ->required()
+                ->live()
+                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get) {
+                    $type = $state instanceof \BackedEnum ? $state->value : $state;
+
+                    if ($type === TimeEntryType::Presence->value) {
+                        $set('status', TimeEntryStatus::CheckedIn->value);
+                    } else {
+                        $set('status', TimeEntryStatus::Pending->value);
+                        $set('start_time', null);
+                        $set('end_time', null);
+
+                        if ($type !== TimeEntryType::Overtime->value) {
+                            $set('hours', null);
+                        }
+                    }
+
+                    static::recalcPresence($set, $get);
+                }),
+
+            Forms\Components\DatePicker::make('start_date')
+                ->label('Dátum')
+                ->required()
+                ->afterStateUpdated(fn ($state, Forms\Set $set, Forms\Get $get) => static::recalcPresence($set, $get)),
+
+            Forms\Components\DatePicker::make('end_date')
+                ->label('Vég dátum')
+                ->visible(fn (Forms\Get $get) =>
+                    ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) !== TimeEntryType::Overtime->value
+                    && ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) !== TimeEntryType::Presence->value
+                )
+                ->afterOrEqual('start_date')
+                ->afterStateUpdated(fn ($state, Forms\Set $set, Forms\Get $get) => static::recalcPresence($set, $get)),
+
+            Forms\Components\TimePicker::make('start_time')
+                ->label('Belépés ideje')
+                ->seconds(false)
+                ->minutesStep(5)
+                ->visible(fn (Forms\Get $get) => ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === TimeEntryType::Presence->value)
+                ->required(fn (Forms\Get $get) => ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === TimeEntryType::Presence->value)
+                ->afterStateUpdated(fn ($state, Forms\Set $set, Forms\Get $get) => static::recalcPresence($set, $get)),
+
+            Forms\Components\TimePicker::make('end_time')
+                ->label('Kilépés ideje')
+                ->seconds(false)
+                ->minutesStep(5)
+                ->visible(fn (Forms\Get $get) => ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === TimeEntryType::Presence->value)
+                ->afterStateUpdated(fn ($state, Forms\Set $set, Forms\Get $get) => static::recalcPresence($set, $get)),
 
             Forms\Components\TextInput::make('hours')->label('Órák')
                 ->numeric()->minValue(0.25)->step(0.25)
+                ->dehydrated(true)
                 ->visible(fn(Forms\Get $get) => $get('type') === TimeEntryType::Overtime->value),
 
-            Forms\Components\Select::make('status')->label('Státusz')->options([
-                TimeEntryStatus::Pending->value  => 'Függőben',
-                TimeEntryStatus::Approved->value => 'Jóváhagyva',
-                TimeEntryStatus::Rejected->value => 'Elutasítva',
-            ])->default(TimeEntryStatus::Pending->value)->required(),
+            Forms\Components\Select::make('status')
+                ->label(fn (Forms\Get $get) => $get('type') === TimeEntryType::Presence->value ? 'Jelenlét státusz' : 'Jóváhagyási státusz')
+                ->options(function (Forms\Get $get) {
+                    return $get('type') === TimeEntryType::Presence->value
+                        ? [
+                            TimeEntryStatus::CheckedIn->value  => 'Bejelentkezve',
+                            TimeEntryStatus::CheckedOut->value => 'Kijelentkezve',
+                          ]
+                        : [
+                            TimeEntryStatus::Pending->value  => 'Függőben',
+                            TimeEntryStatus::Approved->value => 'Jóváhagyva',
+                            TimeEntryStatus::Rejected->value => 'Elutasítva',
+                          ];
+                })
+                ->default(fn (Forms\Get $get) => $get('type') === TimeEntryType::Presence->value
+                    ? TimeEntryStatus::CheckedIn->value
+                    : TimeEntryStatus::Pending->value)
+                ->required(),
 
             Forms\Components\Textarea::make('note')->label('Megjegyzés')->rows(3),
         ])->columns(2);
@@ -82,7 +177,8 @@ class TimeEntriesRelationManager extends RelationManager
 
                 $q = TimeEntry::query();
                 return $ownerId
-                    ? $q->where('employee_id', $ownerId)->latest('start_date')
+                    // Felülvizsgálandó sorok mindig legelöl.
+                    ? $q->where('employee_id', $ownerId)->orderByDesc('needs_review')->orderByDesc('start_date')
                     : $q->whereRaw('1 = 0'); // sosem ad vissza rekordot, de Builder NEM null
             })
             ->columns([
@@ -160,6 +256,13 @@ class TimeEntriesRelationManager extends RelationManager
                             default => (string) $val,
                         };
                     }),
+
+                Tables\Columns\IconColumn::make('needs_review')
+                    ->label('Felülvizsgálandó')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-exclamation-triangle')
+                    ->trueColor('warning')
+                    ->falseIcon(''),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('month')
@@ -287,7 +390,6 @@ class TimeEntriesRelationManager extends RelationManager
                 Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
                 Tables\Actions\Action::make('approve')->label('')->tooltip('Jóváhagyás')->icon('heroicon-o-check-circle')->color('success')
                     ->visible(fn(TimeEntry $r) => Auth::user()?->can('approve', $r) && ($r->status->value ?? $r->status) === 'pending')
-
                     ->requiresConfirmation()
                     ->action(function (TimeEntry $r) {
                         $r->status = TimeEntryStatus::Approved;
@@ -310,9 +412,12 @@ class TimeEntriesRelationManager extends RelationManager
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        if (($data['type'] ?? null) === TimeEntryType::Overtime->value) {
+        $type = $data['type'] ?? null;
+
+        if ($type === TimeEntryType::Overtime->value) {
             $data['end_date'] = null;
-        } else {
+        } elseif ($type !== TimeEntryType::Presence->value) {
+            // Presence-nél a hours-t a recalcPresence számolja/a TimeEntryObserver véglegesíti.
             $data['hours'] = null;
         }
         return $data;

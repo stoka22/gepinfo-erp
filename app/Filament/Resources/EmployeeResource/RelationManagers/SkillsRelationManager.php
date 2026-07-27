@@ -69,6 +69,7 @@ class SkillsRelationManager extends RelationManager
                 // PIVOT szerkesztés – a formot mi töltjük és a pivotot frissítjük
                 Tables\Actions\EditAction::make()
                     ->label('')
+                    ->tooltip('Szerkesztés')
                     ->recordTitle(fn (Skill $r) => $r->name)
                     ->modalHeading(fn (Skill $r) => 'Szerkesztés – '.$r->name)
                     ->form([
@@ -101,7 +102,7 @@ class SkillsRelationManager extends RelationManager
                         );
                     }),
 
-                Tables\Actions\DetachAction::make()->label(''),
+                Tables\Actions\DetachAction::make()->label('')->tooltip('Leválasztás'),
             ])
 
             // (opcionális) szűrők – mindig a pivot tábla nevét írd!

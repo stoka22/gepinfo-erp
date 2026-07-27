@@ -185,7 +185,8 @@ class ItemsRelationManager extends RelationManager
             ])
             ->actions([
                 Tables\Actions\Action::make('generatePlanFromRecipe')
-                ->label('Ütemterv generálása (receptből)')
+                ->label('')
+                ->tooltip('Ütemterv generálása (receptből)')
                 ->icon('heroicon-o-play')
                 ->color('success')
                 ->requiresConfirmation(false)
@@ -231,6 +232,7 @@ class ItemsRelationManager extends RelationManager
 
                 Tables\Actions\EditAction::make()
                     ->label('')
+                    ->tooltip('Szerkesztés')
                     ->mutateFormDataUsing(function (array $data, \App\Models\PartnerOrderItem $record) {
                         if (empty($data['item_name_cache']) && !empty($data['item_id'])) {
                             $item = \App\Models\Item::select('name','unit')->find($data['item_id']);
@@ -240,11 +242,12 @@ class ItemsRelationManager extends RelationManager
                         $data['line_total'] = (float)($data['unit_price'] ?? 0) * (float)($data['qty_ordered'] ?? 0);
                         return $data;
                     }),
-                Tables\Actions\DeleteAction::make()->label(''),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
 
                 // Gyors rész-gyártás rögzítés gomb
                 Tables\Actions\Action::make('addSplit')
-                    ->label('Rész-gyártás hozzáadása')
+                    ->label('')
+                    ->tooltip('Rész-gyártás hozzáadása')
                     ->icon('heroicon-o-cog-6-tooth')
                     ->form([
                         TextInput::make('qty')->numeric()->minValue(0.001)->required(),

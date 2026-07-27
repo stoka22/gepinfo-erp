@@ -37,6 +37,9 @@ class BomComponentsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('component.unit')->label('Egység'),
             ])
             ->headerActions([ Tables\Actions\CreateAction::make() ])
-            ->actions([ Tables\Actions\EditAction::make(), Tables\Actions\DeleteAction::make() ]);
+            ->actions([
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
+            ]);
     }
 }

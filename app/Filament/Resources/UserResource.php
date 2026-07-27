@@ -154,8 +154,9 @@ class UserResource extends Resource
                     ->relationship('company', 'name'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
                 Tables\Actions\DeleteAction::make()
+                    ->label('')->tooltip('Törlés')
                     ->visible(fn (User $record) => Auth::id() !== $record->id), // ne tudd törölni magad
             ])
             ->bulkActions([

@@ -16,7 +16,6 @@ class ResourceShiftAssignmentResource extends Resource
 {
     protected static ?string $model = ResourceShiftAssignment::class;
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
-    //protected static ?string $navigationGroup = 'Tervezés';
     protected static ?string $navigationGroup = 'Termelés';
     protected static ?string $label = 'Műszak hozzárendelés';
     protected static ?string $pluralLabel = 'Műszak hozzárendelések';
@@ -72,8 +71,8 @@ class ResourceShiftAssignmentResource extends Resource
             Tables\Columns\TextColumn::make('valid_from')->date()->label('Ettől'),
             Tables\Columns\TextColumn::make('valid_to')->date()->label('Eddig'),
         ])->actions([
-            Tables\Actions\EditAction::make(),
-            Tables\Actions\DeleteAction::make(),
+            Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+            Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
         ])->bulkActions([
             Tables\Actions\DeleteBulkAction::make(),
         ]);

@@ -26,7 +26,7 @@ class MachinesRelationManager extends RelationManager
                 Tables\Actions\AttachAction::make()->preloadRecordSelect(),
             ])
             ->actions([
-                Tables\Actions\DetachAction::make(),
+                Tables\Actions\DetachAction::make()->label('')->tooltip('Leválasztás'),
             ]);
     }
 }

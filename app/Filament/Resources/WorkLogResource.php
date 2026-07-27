@@ -21,6 +21,7 @@ class WorkLogResource extends Resource
     protected static ?string $model = WorkLog::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document';
+    protected static ?string $navigationGroup = 'Dolgozók';
     protected static ?string $navigationLabel = 'Munkaidő napló';
     protected static ?string $pluralLabel = 'Munkaidő naplók';
 
@@ -115,8 +116,8 @@ class WorkLogResource extends Resource
                     ->default(0),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->bulkActions([
 

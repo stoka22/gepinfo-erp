@@ -76,9 +76,9 @@ class GoodsReceiptResource extends Resource
                 Tables\Columns\TextColumn::make('posted_at')->dateTime()->label('Könyvelve')->toggleable(),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make()->visible(fn($record)=>!$record->posted_at),
-                Tables\Actions\DeleteAction::make()->visible(fn($record)=>!$record->posted_at),
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Megtekintés'),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés')->visible(fn($record)=>!$record->posted_at),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés')->visible(fn($record)=>!$record->posted_at),
             ]);
     }
 

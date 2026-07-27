@@ -36,8 +36,8 @@ class PartnersRelationManager extends RelationManager
                 Tables\Actions\CreateAction::make(), // új partner és automatikus hozzárendelés a céghez
             ])
             ->actions([
-                Tables\Actions\DetachAction::make(),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\DetachAction::make()->label('')->tooltip('Leválasztás'),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
             ])
             ->bulkActions([
                 Tables\Actions\DetachBulkAction::make(),

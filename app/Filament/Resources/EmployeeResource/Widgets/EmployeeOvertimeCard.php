@@ -18,11 +18,6 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
 
     protected static bool $isLazy = true;
 
-    
-
-    // milyen type érték számít túlórának
-    private const OVERTIME_TYPES = ['overtime', 'tulora'];
-
     protected function getColumns(): int
     {
         // 2 doboz: éves + havi (mobilon 1, md-től 2 oszlop)
@@ -57,25 +52,25 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
                 ])
                 ->sum('hours');
         } elseif (Schema::hasTable('time_entries')) {
-            // time_entries-ben a túlóra a type mező szerint van jelölve.
-            // hours > 0: csak a ténylegesen ledolgozott túlóra, a negatív (napi import
-            // során a túlóra-keret terhére elszámolt hiányzás) nem számít bele.
+            // A jelenlét (presence) bejegyzések automatikusan elszámolt, nettó
+            // overtime_delta_minutes összege (ld. TimeEntryObserver) – a 8:30 alatti
+            // (negatív) napok is beleszámítanak, nem csak a ténylegesen túlórázottak.
             $yearly = (float) DB::table('time_entries')
                 ->where('employee_id', $eid)
+                ->where('type', 'presence')
                 ->whereYear('start_date', $y)
-                ->whereIn('type', self::OVERTIME_TYPES)
-                ->where('hours', '>', 0)
-                ->sum('hours');
+                ->whereNotNull('overtime_delta_minutes')
+                ->sum('overtime_delta_minutes') / 60;
 
             $monthly = (float) DB::table('time_entries')
                 ->where('employee_id', $eid)
+                ->where('type', 'presence')
                 ->whereBetween('start_date', [
                     now()->startOfMonth()->toDateString(),
                     now()->endOfMonth()->toDateString(),
                 ])
-                ->whereIn('type', self::OVERTIME_TYPES)
-                ->where('hours', '>', 0)
-                ->sum('hours');
+                ->whereNotNull('overtime_delta_minutes')
+                ->sum('overtime_delta_minutes') / 60;
         }
 
         return [

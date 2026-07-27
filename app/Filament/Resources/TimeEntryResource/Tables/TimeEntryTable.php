@@ -128,8 +128,13 @@ class TimeEntryTable
                     ])
                     ->query(function (Builder $query, array $data) {
                         $selected = $data['types'] ?? [];
-                        if (empty($selected)) return $query->whereRaw('1=0');
-                        return $query->whereIn('type', $selected);
+                        // A felülvizsgálandó sorok a típus-szűrőtől függetlenül mindig látszanak.
+                        return $query->where(function (Builder $q) use ($selected) {
+                            if (! empty($selected)) {
+                                $q->whereIn('type', $selected);
+                            }
+                            $q->orWhere('needs_review', true);
+                        });
                     })
                     ->indicateUsing(fn (array $data) => empty($data['types']) ? '0 típus' : count($data['types']).' típus'),
 
@@ -165,7 +170,8 @@ class TimeEntryTable
             ])
             ->actions([
                 Tables\Actions\Action::make('reviewAutoCheckout')
-                    ->label('Jóváhagyás')
+                    ->label('')
+                    ->tooltip('Jóváhagyás')
                     ->icon('heroicon-o-check-badge')
                     ->color('warning')
                     ->requiresConfirmation()
@@ -177,12 +183,16 @@ class TimeEntryTable
                     }),
 
                 Tables\Actions\EditAction::make()
+                    ->label('')
+                    ->tooltip('Szerkesztés')
                     ->visible(fn (TimeEntry $r) => Auth::user()->can('update', $r)),
 
                 // Jóváhagyás/elutasítás csak akkor releváns, ha NEM jelenlét a típus
                 Tables\Actions\Action::make('approve')
-                    ->label('Jóváhagy')
+                    ->label('')
+                    ->tooltip('Jóváhagy')
                     ->icon('heroicon-o-check-circle')
+                    ->color('success')
                     ->requiresConfirmation()
                     ->visible(fn (TimeEntry $r) =>
                         ($r->type->value ?? $r->type) !== 'presence'
@@ -196,8 +206,10 @@ class TimeEntryTable
                     }),
 
                 Tables\Actions\Action::make('reject')
-                    ->label('Elutasít')
+                    ->label('')
+                    ->tooltip('Elutasít')
                     ->icon('heroicon-o-x-circle')
+                    ->color('danger')
                     ->requiresConfirmation()
                     ->visible(fn (TimeEntry $r) =>
                         ($r->type->value ?? $r->type) !== 'presence'
@@ -210,7 +222,9 @@ class TimeEntryTable
                         $r->save();
                     }),
 
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->label('')
+                    ->tooltip('Törlés'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkAction::make('approveSelected')

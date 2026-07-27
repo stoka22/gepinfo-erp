@@ -38,8 +38,8 @@ class MachinesRelationManager extends RelationManager
                 Tables\Actions\CreateAction::make(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

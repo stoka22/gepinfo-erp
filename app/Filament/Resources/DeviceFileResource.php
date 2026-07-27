@@ -90,10 +90,11 @@ class DeviceFileResource extends Resource
                     ->sortable(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
 
                 Tables\Actions\Action::make('download')
-                    ->label('Letöltés')
+                    ->label('')
+                    ->tooltip('Letöltés')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->url(fn (DeviceFile $record): string => Storage::disk('public')->url($record->file_path))
                     ->openUrlInNewTab()
@@ -101,7 +102,7 @@ class DeviceFileResource extends Resource
                         filled($record->file_path) && Storage::disk('public')->exists($record->file_path)
                     ),
 
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->defaultSort('created_at', 'desc');
     }

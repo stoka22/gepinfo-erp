@@ -66,8 +66,10 @@ class CompanyGroupResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
+                    ->label('')->tooltip('Szerkesztés')
                     ->visible(fn () => Auth::user()?->can('company_groups.update') || Auth::user()?->hasRole('admin')),
                 Tables\Actions\DeleteAction::make()
+                    ->label('')->tooltip('Törlés')
                     ->visible(fn () => Auth::user()?->can('company_groups.delete') || Auth::user()?->hasRole('admin')),
             ]);
     }

@@ -31,11 +31,13 @@ class FirmwareResource extends Resource
                 Tables\Columns\TextColumn::make('published_at')->label('Kiadás')->dateTime('Y-m-d H:i')->sortable(),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Megtekintés'),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
                 Tables\Actions\Action::make('download')
-                    ->label('Letöltés')
+                    ->label('')
+                    ->tooltip('Letöltés')
+                    ->icon('heroicon-o-arrow-down-tray')
                     ->url(fn (Firmware $r) => \Illuminate\Support\Facades\Storage::url($r->file_path))
                     ->openUrlInNewTab(),
             ])

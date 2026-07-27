@@ -17,7 +17,11 @@ class PulseResource extends Resource
 {
     protected static ?string $model = Pulse::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon  = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationGroup = 'Eszközök';
+    protected static ?string $navigationLabel = 'Eszköz impulzusok';
+    protected static ?string $modelLabel      = 'Impulzus';
+    protected static ?string $pluralLabel     = 'Eszköz impulzusok';
 
     public static function form(Form $form): Form
     {
@@ -72,7 +76,7 @@ class PulseResource extends Resource
                 //
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

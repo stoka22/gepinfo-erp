@@ -29,6 +29,7 @@ class AttendanceSheetService
             ->keyBy(fn (TimeEntry $e) => $e->start_date->toDateString());
 
         $days = [];
+        $monthlyWorkedMinutes = 0;
         $d = $periodStart;
         while ($d->lte($periodEnd)) {
             $dateStr = $d->toDateString();
@@ -42,11 +43,14 @@ class AttendanceSheetService
 
             $regularLabel = null;
             $overtimeLabel = null;
-            if ($entry && $entry->start_time && $entry->end_time) {
+            if ($entry && $entry->start_date && $entry->start_time && $entry->end_date && $entry->end_time) {
                 $workedMinutes = $this->overtimeService->workedMinutes($entry);
-                [$regularMinutes, $overtimeMinutes] = $this->overtimeService->splitMinutes($workedMinutes);
+                [$regularMinutes] = $this->overtimeService->splitMinutes($workedMinutes);
                 $regularLabel = $this->formatMinutes($regularMinutes);
-                $overtimeLabel = $overtimeMinutes > 0 ? $this->formatMinutes($overtimeMinutes) : null;
+                // Előjeles eltérés a 8:30-tól: 8:30 alatt negatív – ez a túlóra-keret
+                // terhére megy (ld. TimeEntryObserver / OvertimeBalanceService::applyDelta).
+                $overtimeLabel = $this->formatMinutes($this->overtimeService->deltaMinutes($workedMinutes));
+                $monthlyWorkedMinutes += $workedMinutes;
             }
 
             $days[] = [
@@ -69,18 +73,27 @@ class AttendanceSheetService
 
         $vb = VacationBalance::where('employee_id', $employee->id)->where('year', $year)->first();
 
-        // hours > 0: csak a ténylegesen ledolgozott túlóra (a negatív = keret terhére elszámolt hiányzás).
-        $yearlyOvertime = (float) TimeEntry::where('employee_id', $employee->id)
+        // A jelenléti sorok "Túlóra" oszlopával összhangban: a jelenlét alapján automatikusan
+        // elszámolt overtime_delta_minutes nettó összege – a 8:30 alatti (negatív) napok is
+        // beleszámítanak, nem csak a ténylegesen túlórázott napok.
+        $yearlyOvertimeMinutes = (int) TimeEntry::where('employee_id', $employee->id)
+            ->where('type', TimeEntryType::Presence->value)
             ->whereYear('start_date', $year)
-            ->where('type', TimeEntryType::Overtime->value)
-            ->where('hours', '>', 0)
-            ->sum('hours');
+            ->whereNotNull('overtime_delta_minutes')
+            ->sum('overtime_delta_minutes');
 
-        $monthlyOvertime = (float) TimeEntry::where('employee_id', $employee->id)
+        $monthlyOvertimeMinutes = (int) TimeEntry::where('employee_id', $employee->id)
+            ->where('type', TimeEntryType::Presence->value)
             ->whereBetween('start_date', [$periodStart->toDateString(), $periodEnd->toDateString()])
-            ->where('type', TimeEntryType::Overtime->value)
-            ->where('hours', '>', 0)
-            ->sum('hours');
+            ->whereNotNull('overtime_delta_minutes')
+            ->sum('overtime_delta_minutes');
+
+        $yearlyWorkedMinutes = (int) TimeEntry::where('employee_id', $employee->id)
+            ->where('type', TimeEntryType::Presence->value)
+            ->whereYear('start_date', $year)
+            ->whereNotNull('end_time')
+            ->selectRaw("COALESCE(SUM(TIMESTAMPDIFF(MINUTE, CONCAT(start_date,' ',start_time), CONCAT(COALESCE(end_date,start_date),' ',end_time))),0) as m")
+            ->value('m');
 
         return [
             'employeeName' => $employee->name,
@@ -93,17 +106,23 @@ class AttendanceSheetService
                 'remaining' => $vb?->remaining_days ?? 0.0,
             ],
             'overtime' => [
-                'yearly'  => $yearlyOvertime,
-                'monthly' => $monthlyOvertime,
+                'yearly'  => $this->formatMinutes($yearlyOvertimeMinutes),
+                'monthly' => $this->formatMinutes($monthlyOvertimeMinutes),
+            ],
+            'workedHours' => [
+                'yearly'  => $this->formatMinutes($yearlyWorkedMinutes),
+                'monthly' => $this->formatMinutes($monthlyWorkedMinutes),
             ],
         ];
     }
 
-    /** Percek H:MM formátumban, pl. 510 -> "8:30". */
+    /** Percek előjeles H:MM formátumban, pl. 510 -> "8:30", -45 -> "-0:45". */
     private function formatMinutes(int $minutes): string
     {
-        $h = intdiv($minutes, 60);
-        $m = $minutes % 60;
-        return sprintf('%d:%02d', $h, $m);
+        $sign = $minutes < 0 ? '-' : '';
+        $abs = abs($minutes);
+        $h = intdiv($abs, 60);
+        $m = $abs % 60;
+        return sprintf('%s%d:%02d', $sign, $h, $m);
     }
 }

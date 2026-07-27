@@ -56,7 +56,8 @@ class PendingDeviceResource extends Resource
                 // Tables\Actions\EditAction::make(),
 
                 Tables\Actions\Action::make('approve')
-                    ->label('Jóváhagyás')
+                    ->label('')
+                    ->tooltip('Jóváhagyás')
                     ->icon('heroicon-o-check')
                     ->color('success')
                     ->form([
@@ -93,7 +94,7 @@ class PendingDeviceResource extends Resource
                             ->send();
                     }),
 
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

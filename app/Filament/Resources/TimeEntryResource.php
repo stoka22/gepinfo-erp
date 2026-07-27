@@ -128,7 +128,9 @@ class TimeEntryResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->whereIn('company_id', static::accessibleCompanyIds());
+            ->whereIn('company_id', static::accessibleCompanyIds())
+            // Felülvizsgálandó sorok mindig legelöl, függetlenül az aktuális rendezéstől.
+            ->orderByDesc('needs_review');
     }
 
     public static function getPages(): array

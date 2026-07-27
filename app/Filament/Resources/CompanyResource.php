@@ -100,10 +100,13 @@ class CompanyResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()
+                    ->label('')->tooltip('Megtekintés')
                     ->visible(fn () => Auth::user()?->can('companies.view')),
                 Tables\Actions\EditAction::make()
+                    ->label('')->tooltip('Szerkesztés')
                     ->visible(fn () => Auth::user()?->can('companies.update')),
                 Tables\Actions\DeleteAction::make()
+                    ->label('')->tooltip('Törlés')
                     ->visible(fn () => Auth::user()?->can('companies.delete')),
             ]);
     }

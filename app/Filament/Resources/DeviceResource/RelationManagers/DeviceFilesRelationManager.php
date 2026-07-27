@@ -59,11 +59,13 @@ class DeviceFilesRelationManager extends RelationManager
             ])
             ->actions([
                 Tables\Actions\Action::make('download')
-                    ->label('Letöltés')
+                    ->label('')
+                    ->tooltip('Letöltés')
+                    ->icon('heroicon-o-arrow-down-tray')
                     ->url(fn ($record) => Storage::url($record->file_path))
                     ->openUrlInNewTab(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->defaultSort('created_at', 'desc');
     }

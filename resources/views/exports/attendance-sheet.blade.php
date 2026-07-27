@@ -46,9 +46,16 @@
             </tr>
             <tr>
                 <td colspan="3">
-                    <strong>Túlóra:</strong>
-                    Összes éves: {{ number_format($sheet['overtime']['yearly'], 1) }} óra,
-                    Aktuális havi: {{ number_format($sheet['overtime']['monthly'], 1) }} óra
+                    <strong>Túlóra (egyenleg):</strong>
+                    Összes éves: {{ $sheet['overtime']['yearly'] }},
+                    Aktuális havi: {{ $sheet['overtime']['monthly'] }}
+                </td>
+            </tr>
+            <tr>
+                <td colspan="3">
+                    <strong>Ledolgozott munkaóra:</strong>
+                    Összes éves: {{ $sheet['workedHours']['yearly'] }},
+                    Aktuális havi: {{ $sheet['workedHours']['monthly'] }}
                 </td>
             </tr>
         </table>

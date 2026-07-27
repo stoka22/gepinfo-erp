@@ -129,6 +129,8 @@ class WorkStepsRelationManager extends RelationManager
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
+                    ->label('')
+                    ->tooltip('Szerkesztés')
                     ->mutateFormDataUsing(function (array $data): array {
                         /** @var \App\Models\Item $owner */
                         $owner = $this->getOwnerRecord();
@@ -139,7 +141,7 @@ class WorkStepsRelationManager extends RelationManager
                         }
                         return $data;
                     }),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->bulkActions([ Tables\Actions\DeleteBulkAction::make() ]);
     }

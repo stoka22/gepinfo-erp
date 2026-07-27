@@ -48,7 +48,10 @@ class FirmwaresRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('published_at')->dateTime('Y-m-d H:i'),
             ])
             ->headerActions([ Tables\Actions\CreateAction::make() ])
-            ->actions([ Tables\Actions\EditAction::make(), Tables\Actions\DeleteAction::make() ])
+            ->actions([
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
+            ])
             ->defaultSort('published_at','desc');
     }
 }

@@ -38,8 +38,8 @@ class CardResource extends Resource
                 Tables\Columns\TextColumn::make('assigned_at')->dateTime()->toggleable(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Törlés'),
             ])
             ->defaultSort('id', 'desc');
     }
