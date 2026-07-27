@@ -194,6 +194,11 @@ jobs:
             "$PHP" "$ART" migrate --force || true
           fi
 
+          # Éves szabadságkeret önjavítás minden deploy-nál: a scheduler (yearlyOn jan.1)
+          # megosztott tárhelyen nem biztos, hogy fut, ez pótolja/frissíti updateOrCreate-tel,
+          # tehát nem destruktív, ha többször is lefut.
+          "$PHP" "$ART" vacation:rebuild --ansi || true
+
           # current felülírása biztosan
           [ -L "$REM/current" ] || rm -rf "$REM/current"
           ln -sfnT "$REM/releases/$REL" "$REM/current"
