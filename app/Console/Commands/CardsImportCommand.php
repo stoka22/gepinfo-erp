@@ -26,7 +26,7 @@ class CardsImportCommand extends Command
             return self::FAILURE;
         }
 
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+        $spreadsheet = \App\Support\SpreadsheetEncoding::loadNormalized($path);
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, true, true);
 

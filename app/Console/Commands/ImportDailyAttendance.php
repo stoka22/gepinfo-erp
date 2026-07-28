@@ -10,11 +10,11 @@ use App\Models\TimeEntry;
 use App\Models\VacationBalance;
 use App\Services\Calendar\WorkdayResolver;
 use App\Services\Overtime\OvertimeBalanceService;
+use App\Support\SpreadsheetEncoding;
 use App\Support\TimeRounding;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class ImportDailyAttendance extends Command
@@ -46,7 +46,7 @@ class ImportDailyAttendance extends Command
         }
 
         /** @var Worksheet $sheet */
-        $sheet = IOFactory::load($file)->getActiveSheet();
+        $sheet = SpreadsheetEncoding::loadNormalized($file)->getActiveSheet();
         $highestRow = (int) $sheet->getHighestRow();
 
         if ($highestRow < 3) {

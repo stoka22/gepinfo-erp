@@ -2,11 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Support\SpreadsheetEncoding;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Carbon\CarbonImmutable;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as XlsDate;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
@@ -42,7 +42,7 @@ class ImportSessionsXls extends Command
         }
 
         /** @var Worksheet $sheet */
-        $sheet = IOFactory::load($file)->getActiveSheet();
+        $sheet = SpreadsheetEncoding::loadNormalized($file)->getActiveSheet();
         $highestRow = (int) $sheet->getHighestRow();
         $highestColIndex = Coordinate::columnIndexFromString($sheet->getHighestColumn());
         

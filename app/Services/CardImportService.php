@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Models\Card;
 use App\Models\CardImport;
 use App\Models\CardImportRow;
+use App\Support\SpreadsheetEncoding;
 use Illuminate\Support\Str;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class CardImportService
 {
@@ -16,7 +16,7 @@ class CardImportService
             throw new \InvalidArgumentException('Fájl nem található: ' . $absolutePath);
         }
 
-        $sheet = IOFactory::load($absolutePath)->getActiveSheet();
+        $sheet = SpreadsheetEncoding::loadNormalized($absolutePath)->getActiveSheet();
         $rows  = $sheet->toArray(null, true, true, true);
         if (! $rows || count($rows) === 0) {
             throw new \RuntimeException('Üres fájl.');

@@ -6,6 +6,17 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **XLS import javítás – "fake xls" HTML export kódolási hiba**: a `PhpOffice\PhpSpreadsheet\Reader\Exception:
+  Failed to load file ... as a DOM Document` hiba (éles környezetben, WorkLog import útján
+  jelentkezett) azért történt, mert sok magyar beléptető/időfigyelő rendszer "xls" exportja
+  valójában egy HTML-táblázat .xls kiterjesztéssel, Windows-1250 kódolásban — a
+  PhpSpreadsheet HTML-olvasójának belső, UTF-8-at feltételező reguláris kifejezése emiatt
+  némán null-t adott vissza, amit a könyvtár "sérült fájl" hibaként jelentett, félrevezetve.
+  Új `App\Support\SpreadsheetEncoding` segédosztály normalizálja a fájlt (a saját charset
+  deklarációjából vagy Windows-1250 feltételezéssel UTF-8-ra konvertálva) MINDEN xls-import
+  belépési pontnál (napi jelenlét import, munkanapló import, kártya import, session import)
+  betöltés előtt. Valós, hibát okozó fájlformátummal reprodukálva és tesztelve.
+
 - **Deploy pipeline – csomag-manifeszt javítás (tyúk-tojás hiba)**: a korábbi
   `package:discover || true` önmagában nem tudta helyrehozni a megosztott
   `bootstrap/cache/packages.php`/`services.php` fájlt, mert a HIBÁS manifeszt betöltése

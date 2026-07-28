@@ -3,8 +3,8 @@
 namespace App\Imports;
 
 use App\Models\WorkLog;
+use App\Support\SpreadsheetEncoding;
 use Illuminate\Support\Facades\Log;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use DateTime;
 
@@ -27,7 +27,7 @@ class WorkLogsImport
 
     public function import(string $filePath): void
     {
-        $spreadsheet = IOFactory::load($filePath);
+        $spreadsheet = SpreadsheetEncoding::loadNormalized($filePath);
         $sheet = $spreadsheet->getActiveSheet();
 
         foreach ($sheet->getRowIterator(2) as $row) {
