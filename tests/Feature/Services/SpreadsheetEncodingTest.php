@@ -45,6 +45,39 @@ it('loads a Windows-1250-encoded HTML "fake xls" that does declare a charset', f
     unlink($path);
 });
 
+it('strips a <style> block using the old CSS-hiding comment trick that breaks the DOM parser', function () {
+    // Valós Excel "mentés weblapként" export minta: a <style> blokk egy régi,
+    // "<!--...-->"  CSS-elrejtő trükköt használ, ami libxml HTML-parserénél
+    // "Incorrectly opened comment" hibát/korai leállást okoz nagy fájloknál.
+    $html = "<html><head><style><!--table\n\t{mso-displayed-decimal-separator:\",\";}\n--></style></head>"
+        . "<body><table><tr><td>Nagy Noémi Pálma</td><td>Összeszerelő</td></tr></table></body></html>";
+    $path = fakeXlsFile($html);
+
+    $sheet = SpreadsheetEncoding::loadNormalized($path)->getActiveSheet();
+
+    expect($sheet->getCell('A1')->getValue())->toBe('Nagy Noémi Pálma');
+    expect($sheet->getCell('B1')->getValue())->toBe('Összeszerelő');
+
+    unlink($path);
+});
+
+it('does not fail on a harmless DOM warning (e.g. a duplicate id attribute) turned into an exception by Laravel', function () {
+    // DOMDocument::loadHTML() PHP warningot dob ártalmatlan HTML-hibáknál is (pl. duplikált
+    // id, ami gyakori az Excel "mentés weblapként" exportokban a <link id="shLink"> elemnél,
+    // ha az egyszer a feltételes jelölőn belül, egyszer kívül is szerepel). Laravel ezt
+    // kivétellé alakítja, amit a PhpSpreadsheet Html olvasója BÁRMILYEN más okból eredő
+    // hibaként kezelne — enélkül a libxml-hibakezelés bekapcsolása nélkül ez a teszt elhasalna.
+    $html = "<html><head><link id=\"dup\" href=\"a\"><link id=\"dup\" href=\"b\"></head>"
+        . "<body><table><tr><td>Nagy Noémi Pálma</td></tr></table></body></html>";
+    $path = fakeXlsFile($html);
+
+    $sheet = SpreadsheetEncoding::loadNormalized($path)->getActiveSheet();
+
+    expect($sheet->getCell('A1')->getValue())->toBe('Nagy Noémi Pálma');
+
+    unlink($path);
+});
+
 it('leaves an already-valid-UTF-8 HTML "fake xls" untouched', function () {
     $html = "<html><body><table><tr><td>Nagy Noémi Pálma</td></tr></table></body></html>";
     $path = fakeXlsFile($html); // already UTF-8, no conversion

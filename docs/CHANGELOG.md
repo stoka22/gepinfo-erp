@@ -6,6 +6,56 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **XLS import – nagy/összetett Excel "mentés weblapként" exportok megbízható beolvasása**:
+  három, egymást átfedő ok miatt hasalt el a "Failed to load ... as a DOM Document" hiba
+  nagy, több dolgozós exporteknél: (1) a `<style>` blokk régi CSS-elrejtő trükkje
+  (`<!--table {...}-->`), (2) Microsoft "downlevel-revealed" feltételes jelölők
+  (`<![if ...]>`/`<![endif]>`) — mindkettő néhány sor után teljesen leállította a
+  feldolgozást, hiba nélkül, adatvesztést okozva; (3) a `DOMDocument::loadHTML()` egy
+  ártalmatlan HTML-figyelmeztetésnél (pl. duplikált `id`) is PHP warningot dob, amit Laravel
+  kivétellé alakít, a PhpSpreadsheet pedig bármilyen kivételt végzetes hibaként kezel, még ha
+  a dokumentum valójában hibátlanul felépült. Mindhármat kezeli az `App\Support\SpreadsheetEncoding`
+  — egy 54 000+ soros, 34 MB-os valós export fájllal végponttól végpontig tesztelve (55 sorból
+  54 305-re javítva).
+- **XLS import – üres/fejléc-nélküli-adat lap kezelése**: ha valaki egy csak fejlécet
+  tartalmazó (adat nélküli) lapot tölt fel — pl. tévedésből az Excel "mentés weblapként"
+  export "keret" .xls fájlját a tényleges adatot tartalmazó .htm helyett —, a
+  `RowIterator(2)` hívás "Start row (2) is beyond highest row (1)" hibával elhasalt.
+  Mostantól ilyenkor egyszerűen nincs importálható sor, nem crash.
+- **`work-logs:import` CLI parancs**: nagy (a webes feltöltés `upload_max_filesize`/memória/
+  időkorlátait meghaladó) munkanapló exportokhoz, SSH-ról futtatható. Ugyanazt a
+  `WorkLogsImport` logikát használja, mint a webes varázsló (dry-run összesítő, automatikus
+  névegyeztetés); a nem azonosítható neveket dolgozó nélkül importálja, ezeket utólag a
+  Munkaidő napló listában, a meglévő "Összekapcsolás dolgozóval" tömeges művelettel lehet
+  hozzárendelni (vagy előbb létrehozni a hiányzó dolgozói adatlapot). Valós, 16 000+ soros
+  bináris XLS export fájllal tesztelve.
+- **`work-logs:import` – memóriakeret és egyszeri fájlbeolvasás**: a parancs magának emeli a
+  memóriakeretet (1024M) induláskor, hogy ne a CLI alapértelmezett (gyakran 128M) korlátjába
+  ütközzön nagy fájloknál. Emellett a `WorkLogsImport` API kiegészült a `unmatchedNamesFromRows()`
+  / `resolveParsedRows()` / `importResolvedRows()` metódusokkal, hogy az összesítés, az
+  egyeztetés és a mentés ugyanazt a már beolvasott sor-tömböt használja újra a fájl
+  háromszori újraolvasása/feldolgozása helyett.
+
+- **Munkanapló import – "fájl nem található" javítás + ellenőrző lépés**: a varázsló 2.
+  lépése ("Dolgozó párosítás") hibásan jelezte, hogy a fájl nem található — a
+  lépések között a FileUpload állapota még nem a végleges, lemezre mentett elérési
+  út, hanem egy Livewire ideiglenes feltöltési objektum, amit a kód eddig csak
+  string-ként próbált kezelni. Mostantól mindkét alakot (ideiglenes fájl-objektum és
+  végleges tárolt útvonal) helyesen felismeri. Emellett új, harmadik "Ellenőrzés"
+  lépés jelenik meg importálás előtt: összesítést mutat (hány sor lesz dolgozóhoz
+  rendelve / hány marad dolgozó nélkül), a dolgozó nélkül maradó sorokat kiemelve —
+  a tényleges import csak ennek megtekintése/jóváhagyása után indul. Valós
+  Livewire/Filament varázsló-teszttel (fájlfeltöltés → dinamikus mezőgenerálás →
+  kézi hozzárendelés → import) végponttól végpontig ellenőrizve.
+
+- **Munkanapló import – dolgozó-párosítás varázslóval**: az XLS import mostantól két
+  lépésben történik: (1) fájl feltöltése, (2) azokhoz a nevekhez, amikhez nem található
+  automatikus (kis-/nagybetűtől független, pontos) névegyezés egy dolgozóval, egy
+  legördülő választó jelenik meg soronként, ahol kiválasztható a helyes dolgozó (vagy
+  üresen hagyható, ha később kerül hozzárendelésre a listában). Korábban ezek a sorok
+  csendben, dolgozó nélkül kerültek be. `App\Imports\WorkLogsImport` felbontva
+  `parseRows()` / `unmatchedNames()` / `import()` metódusokra.
+
 - **Munkanapló (WorkLog) import javítás – hétvégi/ünnepi/távollét sorok kihagyása**: éles
   tesztelés után kiderült, hogy azok a sorok, amiknek van neve, de nincs tényleges
   be-/kilépési időpontja (hétvége, ünnep, távollét napok), feleslegesen bekerültek a

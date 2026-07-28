@@ -4,13 +4,15 @@ namespace App\Filament\Resources;
 
 use Filament\Forms;
 use Filament\Tables;
+use App\Models\Employee;
 use App\Models\WorkLog;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-//use Filament\Notifications\Collection;
+use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
 use App\Filament\Resources\WorkLogResource\Pages\EditWorkLog;
 use App\Filament\Resources\WorkLogResource\Pages\ListWorkLogs;
@@ -166,19 +168,48 @@ class WorkLogResource extends Resource
                 Tables\Actions\Action::make('import')
                     ->label('Importálás XLS-ből')
                     ->icon('heroicon-o-arrow-up-tray')
-                    ->form([
-                        Forms\Components\FileUpload::make('file')
-                            ->label('XLS fájl')
-                            ->disk('public')
-                            ->directory('imports')
-                            ->required(),
-
+                    ->steps([
+                        Forms\Components\Wizard\Step::make('Fájl feltöltése')
+                            ->schema([
+                                Forms\Components\FileUpload::make('file')
+                                    ->label('XLS fájl')
+                                    ->disk('public')
+                                    ->directory('imports')
+                                    ->live()
+                                    ->required(),
+                            ]),
+                        Forms\Components\Wizard\Step::make('Dolgozó párosítás')
+                            ->schema(fn (Get $get) => static::unmatchedNameFields($get('file'))),
+                        Forms\Components\Wizard\Step::make('Ellenőrzés')
+                            ->schema(fn (Get $get) => static::previewFields($get)),
                     ])
                     ->action(function (array $data) {
-                        $path = $data['file']; // pl. "imports/abc.xlsx"
-                        $fullPath = Storage::disk('public')->path($path);
+                        $fullPath = static::resolveUploadedFilePath($data['file'] ?? null);
 
-                        (new \App\Imports\WorkLogsImport)->import($fullPath);
+                        if ($fullPath === null) {
+                            Notification::make()
+                                ->title('A fájl nem található, próbáld újra feltölteni.')
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
+                        $import = new \App\Imports\WorkLogsImport;
+
+                        $assignments = [];
+                        foreach ($import->unmatchedNames($fullPath) as $nev) {
+                            $key = static::unmatchedNameFieldKey($nev);
+                            if (! empty($data[$key])) {
+                                $assignments[$nev] = (int) $data[$key];
+                            }
+                        }
+
+                        $count = $import->import($fullPath, $assignments);
+
+                        Notification::make()
+                            ->title("Import kész ({$count} sor)")
+                            ->success()
+                            ->send();
                     }),
                 Tables\Actions\Action::make('truncate')
                     ->label('Tábla törlése')
@@ -200,6 +231,127 @@ class WorkLogResource extends Resource
             'index' => ListWorkLogs::route('/'),
             'create' => CreateWorkLog::route('/create'),
             'edit' => EditWorkLog::route('/{record}/edit'),
+        ];
+    }
+
+    /**
+     * A varázsló lépései között a FileUpload állapota még nem a végleges, lemezre
+     * mentett elérési út — amíg az egész űrlap be nem lett küldve (az action() előtt
+     * dehidratálva), egy Livewire ideiglenes feltöltési objektum (TemporaryUploadedFile).
+     * Ez mindkét alakot kezeli, és a fájl tényleges, éppen olvasható elérési útját adja.
+     */
+    protected static function resolveUploadedFilePath(mixed $uploadedFile): ?string
+    {
+        if (is_array($uploadedFile)) {
+            $uploadedFile = reset($uploadedFile) ?: null;
+        }
+
+        if ($uploadedFile instanceof \Illuminate\Http\UploadedFile) {
+            $real = $uploadedFile->getRealPath();
+            return ($real && is_file($real)) ? $real : null;
+        }
+
+        if (is_string($uploadedFile) && $uploadedFile !== '') {
+            $path = Storage::disk('public')->path($uploadedFile);
+            return is_file($path) ? $path : null;
+        }
+
+        return null;
+    }
+
+    /** A "Dolgozó párosítás" varázsló-lépés mezői: minden automatikusan nem egyező névhez egy Select. */
+    protected static function unmatchedNameFields(mixed $uploadedFile): array
+    {
+        if (empty($uploadedFile)) {
+            return [
+                Forms\Components\Placeholder::make('info')
+                    ->label('')
+                    ->content('Előbb tölts fel egy fájlt az előző lépésben.'),
+            ];
+        }
+
+        $fullPath = static::resolveUploadedFilePath($uploadedFile);
+
+        if ($fullPath === null) {
+            return [
+                Forms\Components\Placeholder::make('info')
+                    ->label('')
+                    ->content('A fájl nem található, próbáld újra feltölteni.'),
+            ];
+        }
+
+        $unmatched = (new \App\Imports\WorkLogsImport)->unmatchedNames($fullPath);
+
+        if (empty($unmatched)) {
+            return [
+                Forms\Components\Placeholder::make('info')
+                    ->label('')
+                    ->content('Minden névhez sikerült automatikusan dolgozót azonosítani.'),
+            ];
+        }
+
+        $employeeOptions = Employee::orderBy('name')->pluck('name', 'id');
+
+        $fields = [
+            Forms\Components\Placeholder::make('info')
+                ->label('')
+                ->content('A következő nevekhez nem található automatikusan egyező dolgozó — válaszd ki kézzel, vagy hagyd üresen, ha később rendeled hozzá a listában.'),
+        ];
+
+        foreach ($unmatched as $nev) {
+            $fields[] = Forms\Components\Select::make(static::unmatchedNameFieldKey($nev))
+                ->label($nev)
+                ->options($employeeOptions)
+                ->searchable()
+                ->placeholder('— nincs hozzárendelve —');
+        }
+
+        return $fields;
+    }
+
+    /** Egyedi, biztonságos form-mezőnév egy tetszőleges (importból származó) névhez. */
+    protected static function unmatchedNameFieldKey(string $nev): string
+    {
+        return 'assign_' . md5($nev);
+    }
+
+    /**
+     * Az "Ellenőrzés" varázsló-lépés tartalma: a ténylegesen importálásra kerülő sorok
+     * összesítője, a dolgozó nélkül maradó (problémás) sorok kiemelésével — az import
+     * csak ennek megtekintése/jóváhagyása után indul el (a végső "Importálás" gombbal).
+     */
+    protected static function previewFields(Get $get): array
+    {
+        $fullPath = static::resolveUploadedFilePath($get('file'));
+
+        if ($fullPath === null) {
+            return [
+                Forms\Components\Placeholder::make('info')
+                    ->label('')
+                    ->content('A fájl nem található, lépj vissza és töltsd fel újra.'),
+            ];
+        }
+
+        $import = new \App\Imports\WorkLogsImport;
+
+        $assignments = [];
+        foreach ($import->unmatchedNames($fullPath) as $nev) {
+            $value = $get(static::unmatchedNameFieldKey($nev));
+            if (! empty($value)) {
+                $assignments[$nev] = (int) $value;
+            }
+        }
+
+        $rows = $import->resolveRows($fullPath, $assignments);
+        $problemRows = array_values(array_filter($rows, fn (array $row) => $row['employee_id'] === null));
+
+        return [
+            Forms\Components\View::make('filament.forms.worklog-import-preview')
+                ->viewData([
+                    'total' => count($rows),
+                    'okCount' => count($rows) - count($problemRows),
+                    'problemRows' => $problemRows,
+                ]),
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Imports;
 
+use App\Models\Employee;
 use App\Models\WorkLog;
 use App\Support\SpreadsheetEncoding;
 use Illuminate\Support\Facades\Log;
@@ -25,10 +26,27 @@ class WorkLogsImport
         'dec.'   => 'Dec.',
     ];
 
-    public function import(string $filePath): void
+    /**
+     * A fájlból kiolvasott, megtisztított sorok (hétvégi/ünnepi/távollét sorok nélkül),
+     * még adatbázis-írás nélkül. Ez az alapja mind a dolgozó-párosítás
+     * felderítésének, mind a tényleges importnak.
+     *
+     * @return array<int, array{nev:string, munkakor:?string, helyiseg:?string, belepesi_pont:?string, kezdes:?string, kilepesi_pont:?string, vege:?string, ido:?string}>
+     */
+    public function parseRows(string $filePath): array
     {
         $spreadsheet = SpreadsheetEncoding::loadNormalized($filePath);
         $sheet = $spreadsheet->getActiveSheet();
+
+        $rows = [];
+
+        // Ha a lapon nincs a fejlécen (1. sor) kívül semmi (pl. valaki a "keret" .xls
+        // fájlt tölti fel az Excel "mentés weblapként" exportnál a tényleges adatokat
+        // tartalmazó .htm helyett), a RowIterator(2) hívás kivételt dobna — ilyenkor
+        // egyszerűen nincs mit importálni.
+        if ($sheet->getHighestRow() < 2) {
+            return $rows;
+        }
 
         // A HTML-alapú "fake xls" exportoknál soronként eltérhet a cellák száma (pl. egy
         // üres/rövidebb sor), ezért a sor saját legmagasabb oszlopa helyett a TELJES lap
@@ -60,17 +78,126 @@ class WorkLogsImport
                 continue;
             }
 
-            WorkLog::create([
-                'nev'            => $value(0),
-                'munkakor'       => $value(1),
-                'helyiseg'       => $value(2),
-                'belepesi_pont'  => $value(3),
-                'kezdes'         => $kezdes,
-                'kilepesi_pont'  => $value(5),
-                'vege'           => $vege,
-                'ido'            => $value(7),
-            ]);
+            $rows[] = [
+                'nev'           => $value(0),
+                'munkakor'      => $value(1),
+                'helyiseg'      => $value(2),
+                'belepesi_pont' => $value(3),
+                'kezdes'        => $kezdes,
+                'kilepesi_pont' => $value(5),
+                'vege'          => $vege,
+                'ido'           => $value(7),
+            ];
         }
+
+        return $rows;
+    }
+
+    /**
+     * A fájlban szereplő nevek közül azok, amikhez (kis-/nagybetűtől függetlenül,
+     * pontos egyezéssel) NEM található dolgozó – ezekhez kézzel kell választani
+     * importáláskor, hogy ne maradjanak dolgozó nélkül.
+     *
+     * @return array<int, string>
+     */
+    public function unmatchedNames(string $filePath): array
+    {
+        return $this->unmatchedNamesFromRows($this->parseRows($filePath));
+    }
+
+    /**
+     * Ugyanaz, mint az unmatchedNames(), de már beolvasott sorokból – hogy nagy
+     * fájloknál ne kelljen többször újraolvasni/feldolgozni ugyanazt a fájlt.
+     *
+     * @param  array<int, array{nev:string}>  $rows
+     * @return array<int, string>
+     */
+    public function unmatchedNamesFromRows(array $rows): array
+    {
+        $employeeIdsByName = $this->employeeIdsByName();
+
+        return collect($rows)
+            ->pluck('nev')
+            ->unique()
+            ->reject(fn (string $nev) => $employeeIdsByName->has(mb_strtolower(trim($nev))))
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * A sorok névvel kiegészítve, feloldott (vagy fel nem oldott) dolgozó-azonosítóval –
+     * ez adja az importálás előtti ellenőrző előnézet alapját is, hogy a problémás
+     * (dolgozó nélkül maradó) sorok megjelenítés előtt kiderüljenek.
+     *
+     * @param  array<string, int|null>  $employeeAssignments
+     * @return array<int, array{nev:string, munkakor:?string, helyiseg:?string, belepesi_pont:?string, kezdes:?string, kilepesi_pont:?string, vege:?string, ido:?string, employee_id:?int}>
+     */
+    public function resolveRows(string $filePath, array $employeeAssignments = []): array
+    {
+        return $this->resolveParsedRows($this->parseRows($filePath), $employeeAssignments);
+    }
+
+    /**
+     * Ugyanaz, mint a resolveRows(), de már beolvasott sorokból.
+     *
+     * @param  array<int, array{nev:string}>  $rows
+     * @param  array<string, int|null>  $employeeAssignments
+     * @return array<int, array{nev:string, munkakor:?string, helyiseg:?string, belepesi_pont:?string, kezdes:?string, kilepesi_pont:?string, vege:?string, ido:?string, employee_id:?int}>
+     */
+    public function resolveParsedRows(array $rows, array $employeeAssignments = []): array
+    {
+        $employeeIdsByName = $this->employeeIdsByName();
+
+        return array_map(
+            fn (array $row) => $row + [
+                'employee_id' => $employeeIdsByName->get(mb_strtolower(trim($row['nev'])))
+                    ?? $employeeAssignments[$row['nev']]
+                    ?? null,
+            ],
+            $rows
+        );
+    }
+
+    /**
+     * Importálja a fájlt: minden sort a névhez automatikusan párosított dolgozóhoz
+     * rendel (kis-/nagybetűtől független pontos névegyezés). Azokra a nevekre,
+     * amikhez nincs automatikus egyezés, a $employeeAssignments-ben megadott
+     * kézi hozzárendelést használja (nev => employee_id); ha egy névhez ott sincs
+     * megadva semmi, a sor dolgozó nélkül kerül be (a listán később kézzel is
+     * hozzárendelhető).
+     *
+     * @param  array<string, int|null>  $employeeAssignments
+     */
+    public function import(string $filePath, array $employeeAssignments = []): int
+    {
+        return $this->importResolvedRows($this->resolveRows($filePath, $employeeAssignments));
+    }
+
+    /**
+     * Ugyanaz, mint az import(), de már feloldott (employee_id-vel kiegészített) sorokból –
+     * hogy nagy fájloknál a beolvasás/egyeztetés/mentés lépések ne olvassák be
+     * többször ugyanazt a (akár több tíz MB-os) fájlt.
+     *
+     * @param  array<int, array{nev:string, munkakor:?string, helyiseg:?string, belepesi_pont:?string, kezdes:?string, kilepesi_pont:?string, vege:?string, ido:?string, employee_id:?int}>  $resolvedRows
+     */
+    public function importResolvedRows(array $resolvedRows): int
+    {
+        $count = 0;
+
+        foreach ($resolvedRows as $row) {
+            WorkLog::create($row);
+            $count++;
+        }
+
+        return $count;
+    }
+
+    /** Dolgozó-azonosítók név szerint (kisbetűsítve, trimmelve), a pontos-egyezés kereséséhez. */
+    protected function employeeIdsByName(): \Illuminate\Support\Collection
+    {
+        return Employee::pluck('id', 'name')
+            ->mapWithKeys(fn ($id, $name) => [mb_strtolower(trim((string) $name)) => $id]);
     }
 
     protected function parseDate($cell, string $field, int $rowIndex): ?string

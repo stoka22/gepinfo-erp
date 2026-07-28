@@ -1,6 +1,8 @@
 <?php
 
 use App\Imports\WorkLogsImport;
+use App\Models\Company;
+use App\Models\Employee;
 use App\Models\WorkLog;
 
 function worklogFakeXls(string $html): string
@@ -10,6 +12,22 @@ function worklogFakeXls(string $html): string
 
     return $path;
 }
+
+it('returns no rows (instead of crashing) for a sheet with only a header row', function () {
+    // Az Excel "mentés weblapként" export egy több fájlból álló csomagot hoz létre: a
+    // fő .xls csak egy "keret" (frameset) 1 sornyi tartalommal, a valódi adat egy
+    // különálló .htm fájlban van. Ha valaki véletlenül a keret-fájlt tölti fel, a
+    // RowIterator(2) hívás korábban "Start row (2) is beyond highest row (1)" hibával
+    // elhasalt ahelyett, hogy egyszerűen jelezné: nincs importálható sor.
+    $html = '<html><body><table><tr><td>Csak fejléc</td></tr></table></body></html>';
+    $path = worklogFakeXls($html);
+
+    $import = new WorkLogsImport;
+    expect($import->parseRows($path))->toBe([]);
+    expect($import->unmatchedNames($path))->toBe([]);
+
+    unlink($path);
+});
 
 it('imports a row with fewer cells than the header without crashing (short row)', function () {
     // Ez pontosan az éles "Undefined array key 6" hibát reprodukálja: a HTML-alapú
@@ -63,6 +81,66 @@ it('imports a full row with all columns correctly', function () {
     expect($row)->not->toBeNull();
     expect($row->kilepesi_pont)->toBe('Kapu 2');
     expect($row->ido)->toBe('08:25');
+
+    unlink($path);
+});
+
+it('auto-matches an employee by exact name, case-insensitively, without needing manual assignment', function () {
+    $company = Company::create(['name' => 'Teszt Kft.']);
+    Employee::create(['name' => 'Kovács János', 'company_id' => $company->id]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>kovács jános</td><td>Operátor</td><td>Üzem</td><td>Kapu 1</td><td>2026. jan. 5. 08:00:00</td><td>Kapu 1</td><td>2026. jan. 5. 16:00:00</td><td>08:00</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    $import = new WorkLogsImport;
+    expect($import->unmatchedNames($path))->toBe([]);
+
+    $count = $import->import($path);
+    expect($count)->toBe(1);
+
+    $row = WorkLog::where('nev', 'kovács jános')->first();
+    expect($row->employee_id)->toBe(Employee::where('name', 'Kovács János')->value('id'));
+
+    unlink($path);
+});
+
+it('lists a name as unmatched when no employee matches, and leaves it employee-less without an override', function () {
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Ismeretlen Dolgozó</td><td>Operátor</td><td>Üzem</td><td>Kapu 1</td><td>2026. jan. 5. 08:00:00</td><td>Kapu 1</td><td>2026. jan. 5. 16:00:00</td><td>08:00</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    $import = new WorkLogsImport;
+    expect($import->unmatchedNames($path))->toBe(['Ismeretlen Dolgozó']);
+
+    $import->import($path);
+
+    $row = WorkLog::where('nev', 'Ismeretlen Dolgozó')->first();
+    expect($row)->not->toBeNull();
+    expect($row->employee_id)->toBeNull();
+
+    unlink($path);
+});
+
+it('assigns the employee chosen via the manual override map for an unmatched name', function () {
+    $company = Company::create(['name' => 'Teszt Kft.']);
+    $employee = Employee::create(['name' => 'Teljesen Más Név', 'company_id' => $company->id]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Ismeretlen Dolgozó</td><td>Operátor</td><td>Üzem</td><td>Kapu 1</td><td>2026. jan. 5. 08:00:00</td><td>Kapu 1</td><td>2026. jan. 5. 16:00:00</td><td>08:00</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    $import = new WorkLogsImport;
+    $import->import($path, ['Ismeretlen Dolgozó' => $employee->id]);
+
+    $row = WorkLog::where('nev', 'Ismeretlen Dolgozó')->first();
+    expect($row->employee_id)->toBe($employee->id);
 
     unlink($path);
 });
