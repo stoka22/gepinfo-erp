@@ -6,6 +6,18 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **Deploy pipeline – csomag-manifeszt javítás (tyúk-tojás hiba)**: a korábbi
+  `package:discover || true` önmagában nem tudta helyrehozni a megosztott
+  `bootstrap/cache/packages.php`/`services.php` fájlt, mert a HIBÁS manifeszt betöltése
+  már a bootstrap fázisban elhasal (`Class "Laravel\Breeze\BreezeServiceProvider" not
+  found`, mivel a Breeze csak `require-dev`-ben van, éles `--no-dev` telepítésnél nincs
+  jelen) — méghozzá minden artisan-hívásnál, BELEÉRTVE magát a `package:discover`-t is,
+  ami épp ezt lenne hivatott javítani. Ez `php artisan tinker`-rel manuálisan kiderült;
+  a futó FPM workerek OPcache miatt addig nem érezték meg, de egy újraindításnál a teljes
+  oldalt levitte volna. Végleges javítás: a deploy script mostantól a manifeszt-fájlokat
+  proaktívan törli (`rm -f`) minden artisan-hívás ELŐTT, így a keret mindig tiszta lappal,
+  a ténylegesen telepített csomagokból építi újra.
+
 - **Jelenléti ív – utólagos javítás jelölése**: a nap sorszáma mellett `*` jelzi, ha egy
   bejegyzést utólag (a rögzítés után) valaki manuálisan javított, vagy egy felülvizsgálandó
   (auto-kiléptetett/hiányos) bejegyzést jóváhagytak. Lábjegyzet magyarázza a jelölést.

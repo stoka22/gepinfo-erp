@@ -175,14 +175,19 @@ jobs:
           # jogosultságok
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
 
+          # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
+          # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
+          # laravel/breeze) tartalmazó manifeszt marad érvényben egy --no-dev telepítés után,
+          # AKKOR MÁR MAGA A BOOTSTRAP elhasal (a hiányzó osztály miatt) — méghozzá minden egyes
+          # artisan-hívásnál, BELEÉRTVE a package:discover-t is, ami épp ezt lenne hivatott
+          # kijavítani (tyúk-tojás probléma). Ezért itt, MIELŐTT bármilyen artisan-parancs
+          # lefutna, egyszerűen töröljük a manifesztet — enélkül a keret üres listáról indulva
+          # magától újraépíti a következő bootoláskor, a ténylegesen telepített (Breeze
+          # nélküli) csomagokból, sosem hasalhat el egy fantom-osztályon.
+          rm -f "$REM/shared/bootstrap/cache/packages.php" "$REM/shared/bootstrap/cache/services.php"
+
           # cachek (ABSZOLÚT artisan úttal)
           "$PHP" "$ART" optimize:clear || true
-
-          # A csomag-manifeszt (bootstrap/cache/packages.php) a shared/ alatt van,
-          # tehát release-ek között megosztott és sosem frissül magától, mivel a
-          # composer install --no-scripts miatt a package:discover sosem fut le.
-          # Enélkül egy régi, dev-függőséget (pl. laravel/breeze) még tartalmazó
-          # manifeszt marad érvényben --no-dev telepítés után is -> fatal error.
           "$PHP" "$ART" package:discover --ansi || true
 
           "$PHP" "$ART" config:cache  || true
