@@ -89,3 +89,43 @@ it('is idempotent when the same event_id is sent twice', function () {
 
     expect(TimeEntry::where('employee_id', $this->employee->id)->count())->toBe(1);
 });
+
+it('stores the location sent on check-in', function () {
+    postTerminalEvent(terminalEvent(['location' => 'Gyártócsarnok 1']))->assertOk();
+
+    $entry = TimeEntry::where('employee_id', $this->employee->id)->first();
+    expect($entry->location)->toBe('Gyártócsarnok 1');
+});
+
+it('still detects a resent check-in event_id as duplicate after the entry has been checked out', function () {
+    // A kilépés event_id-ja NEM írhatja felül a belépés event_id-ját a note mezőben,
+    // különben egy utólag megismételt belépés-esemény már nem lenne felismerhető duplikátumként.
+    postTerminalEvent(terminalEvent(['event_id' => 'evt-in-1']))->assertOk();
+    postTerminalEvent(terminalEvent([
+        'direction' => 'out',
+        'timestamp' => '2026-01-05 16:30:00',
+        'event_id'  => 'evt-out-1',
+    ]))->assertOk();
+
+    postTerminalEvent(terminalEvent(['event_id' => 'evt-in-1']))
+        ->assertOk()
+        ->assertJson(['ok' => true, 'duplicate' => true]);
+
+    postTerminalEvent(terminalEvent([
+        'direction' => 'out',
+        'timestamp' => '2026-01-05 16:30:00',
+        'event_id'  => 'evt-out-1',
+    ]))
+        ->assertOk()
+        ->assertJson(['ok' => true, 'duplicate' => true]);
+
+    expect(TimeEntry::where('employee_id', $this->employee->id)->count())->toBe(1);
+});
+
+it('converts an explicit UTC timestamp to the application timezone', function () {
+    postTerminalEvent(terminalEvent(['timestamp' => '2026-01-05T07:00:00Z']))->assertOk();
+
+    $entry = TimeEntry::where('employee_id', $this->employee->id)->first();
+    expect($entry->start_date->toDateString())->toBe('2026-01-05');
+    expect($entry->start_time->format('H:i:s'))->toBe('08:00:00'); // Europe/Budapest, téli időszámítás: UTC+1
+});

@@ -31,6 +31,11 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
   (pl. `Z`) küldi az időbélyeget, a rendszer mostantól helyesen magyar helyi időre konvertálja
   (korábban nyersen, konverzió nélkül tárolta volna, ami eltolt check-in/check-out időt okozott
   volna).
+- **Beléptető terminál webhook – idempotencia javítás**: a kilépés eseménye eddig felülírta a
+  belépés `event_id`-jét a note mezőben, így egy utólag megismételt belépés-esemény már nem lett
+  volna felismerhető duplikátumként (kilépés UTÁN újraküldött azonos belépés-esemény plusz,
+  felesleges bejegyzést hozott volna létre). Mostantól a két esemény azonosítója egymás mellett
+  megmarad, mindkét irányban helyesen működik a duplikáció-szűrés. Valós curl-teszttel igazolva.
 - Proaktív napi digest (needs-review / alacsony készlet / offline eszközök figyelmeztetés).
 - Gyártási kapacitáselemzés: gépkihasználtság, csúszásveszélyes rendelési tételek, EDD-sorrendes
   gyártandó termékek lista becsült határidővel, recept nélküli tételek kimutatása.

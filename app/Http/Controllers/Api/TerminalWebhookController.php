@@ -108,11 +108,17 @@ class TerminalWebhookController extends Controller
             }
 
             // Az órák és a túlóra-keret módosítása a TimeEntryObserver-ben történik.
+            // A note-hoz HOZZÁFŰZZÜK (nem felülírjuk!) a kilépés event_id-ját, hogy a
+            // belépés eredeti terminal_event_id-ja megmaradjon a dedup-hoz — ellenkező
+            // esetben egy utólag megismételt belépés-esemény már nem lenne felismerhető
+            // duplikátumként, mert a note időközben a kilépés event_id-jára cserélődött volna.
+            $combinedNote = $note ? trim(($open->note ? $open->note . ';' : '') . $note) : $open->note;
+
             $open->update([
                 'end_date' => $ts->toDateString(),
                 'end_time' => $ts->format('H:i:s'),
                 'status'   => TimeEntryStatus::CheckedOut->value,
-                'note'     => $note ?? $open->note,
+                'note'     => $combinedNote,
             ]);
         }
 
