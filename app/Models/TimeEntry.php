@@ -20,7 +20,7 @@ class TimeEntry extends Model
     protected $fillable = [
         'employee_id','company_id','type','status',
         'start_date','start_time','raw_start_time','end_date','end_time',
-        'hours','worked_minutes','note','requested_by','approved_by',
+        'hours','worked_minutes','note','location','requested_by','approved_by',
         'entry_method','is_modified','modified_by',
         'needs_review','overtime_delta_minutes','overtime_settled_at',
     ];

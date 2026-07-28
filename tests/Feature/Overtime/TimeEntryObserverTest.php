@@ -143,6 +143,86 @@ it('reverses the old delta and applies the new one when a settled entry is corre
     expect($balance->balance_minutes)->toBe(-30);
 });
 
+it('aggregates multiple daily check-in/check-out segments into a single day delta', function () {
+    $employee = overtimeEmployee();
+
+    // 08:00-12:00 (4h) + 13:00-18:00 (5h) = 9h total -> +30 perc túlóra (nem két külön -270/+? hiba).
+    $e1 = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '08:00:00',
+    ]);
+    $e1->update(['end_date' => '2026-01-05', 'end_time' => '12:00:00', 'status' => 'checked_out']);
+
+    $e2 = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '13:00:00',
+    ]);
+    $e2->update(['end_date' => '2026-01-05', 'end_time' => '18:00:00', 'status' => 'checked_out']);
+
+    $e1->refresh();
+    $e2->refresh();
+
+    expect($e1->overtime_delta_minutes + $e2->overtime_delta_minutes)->toBe(30);
+
+    $balance = OvertimeBalance::where('employee_id', $employee->id)->first();
+    expect($balance->balance_minutes)->toBe(30);
+
+    // Utólagos korrekció az egyik szakaszon: a napi összeg helyesen frissül, nem duplázódik.
+    $e1->update(['end_time' => '12:15:00']); // +15 perc -> napi delta most +45
+    $e1->refresh();
+    $e2->refresh();
+    $balance->refresh();
+
+    expect($e1->overtime_delta_minutes + $e2->overtime_delta_minutes)->toBe(45);
+    expect($balance->balance_minutes)->toBe(45);
+});
+
+it('does not settle any segment of a day while another segment still needs review', function () {
+    $employee = overtimeEmployee();
+
+    $e1 = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '08:00:00',
+    ]);
+    $e1->update(['end_date' => '2026-01-05', 'end_time' => '12:00:00', 'status' => 'checked_out']);
+    $e1->refresh();
+    expect($e1->overtime_settled_at)->not->toBeNull();
+
+    // Második szakasz felülvizsgálatra vár -> a nap már nem zárható le véglegesen.
+    $e2 = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_out',
+        'start_date' => '2026-01-05',
+        'start_time' => '13:00:00',
+        'end_date' => '2026-01-05',
+        'end_time' => '20:00:00',
+        'needs_review' => true,
+    ]);
+
+    // Jóváhagyás: mindkét szakasz együttes idejéből számol, nem csak a sajátjából.
+    $e2->update(['needs_review' => false]);
+    $e1->refresh();
+    $e2->refresh();
+
+    expect($e1->overtime_delta_minutes + $e2->overtime_delta_minutes)->toBe(150); // (4h+7h=660perc) - 510
+    $balance = OvertimeBalance::where('employee_id', $employee->id)->first();
+    expect($balance->balance_minutes)->toBe(150);
+});
+
 it('ignores non-presence entries entirely', function () {
     $employee = overtimeEmployee();
     $user = overtimeUser($employee->company_id);

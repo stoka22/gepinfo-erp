@@ -237,23 +237,26 @@ class ShiftPresenceTable extends BaseWidget
                         ),
                     Tables\Filters\TernaryFilter::make('has_overtime')
                         ->label('Van túlóra ma')
+                        // Napi több be-/kilépés esetén a szakaszok overtime_delta_minutes értéke
+                        // egyenként nem feltétlenül pozitív (ld. TimeEntryObserver napi elszámolás),
+                        // csak az ÖSSZEGÜK adja a helyes napi túlórát – ezért SUM > 0, nem EXISTS.
                         ->queries(
-                            true: fn (Builder $q) => $q->whereExists(function ($sub) {
-                                $sub->select(DB::raw(1))
-                                    ->from('time_entries as te2')
-                                    ->whereColumn('te2.employee_id', 'employees.id')
-                                    ->where('te2.type', TimeEntryType::Presence->value)
-                                    ->whereDate('te2.start_date', Carbon::today())
-                                    ->where('te2.overtime_delta_minutes', '>', 0);
-                            }),
-                            false: fn (Builder $q) => $q->whereNotExists(function ($sub) {
-                                $sub->select(DB::raw(1))
-                                    ->from('time_entries as te2')
-                                    ->whereColumn('te2.employee_id', 'employees.id')
-                                    ->where('te2.type', TimeEntryType::Presence->value)
-                                    ->whereDate('te2.start_date', Carbon::today())
-                                    ->where('te2.overtime_delta_minutes', '>', 0);
-                            }),
+                            true: fn (Builder $q) => $q->whereRaw(
+                                '(select coalesce(sum(te2.overtime_delta_minutes), 0)
+                                    from time_entries te2
+                                    where te2.employee_id = employees.id
+                                      and te2.type = ?
+                                      and te2.start_date = ?) > 0',
+                                [TimeEntryType::Presence->value, Carbon::today()->toDateString()]
+                            ),
+                            false: fn (Builder $q) => $q->whereRaw(
+                                '(select coalesce(sum(te2.overtime_delta_minutes), 0)
+                                    from time_entries te2
+                                    where te2.employee_id = employees.id
+                                      and te2.type = ?
+                                      and te2.start_date = ?) <= 0',
+                                [TimeEntryType::Presence->value, Carbon::today()->toDateString()]
+                            ),
                             blank: fn (Builder $q) => $q
                         ),
     

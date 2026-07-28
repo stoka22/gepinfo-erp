@@ -45,3 +45,8 @@
 .vscode/
 .DS_Store
 Thumbs.db
+
+# --- Dokumentációk: generált PDF-ek, amik éles titkot (token/kulcs) tartalmazhatnak ---
+# A forrás (.md/.blade.php sablon) verziókövetve marad, csak a legenerált, valós
+# secretet tartalmazó kimenet van kizárva.
+/docs/terminal-webhook-api.pdf

@@ -5,6 +5,7 @@ namespace App\Services\Overtime;
 use App\Models\OvertimeBalance;
 use App\Models\TimeEntry;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class OvertimeBalanceService
 {
@@ -50,6 +51,22 @@ class OvertimeBalanceService
         }
 
         return $delta;
+    }
+
+    /**
+     * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának együttes
+     * ledolgozott ideje percben. A 8:30-as szabályt és a hibahatárokat mindig erre az összegre
+     * kell alkalmazni, NEM az egyes szakaszokra külön-külön – különben napi több be-/kilépés
+     * (pl. ebédszünet) esetén minden szakasz önmagában "hiányos munkanapnak" tűnne, és
+     * többszörösen (tévesen) terhelné/jóváírná a túlóra-keretet.
+     *
+     * @param  Collection<int, TimeEntry>  $entriesForDay  egy adott (dolgozó, dátum) pár Presence bejegyzései
+     */
+    public function totalWorkedMinutesForDay(Collection $entriesForDay): int
+    {
+        return (int) $entriesForDay
+            ->filter(fn (TimeEntry $e) => $e->start_date && $e->start_time && $e->end_date && $e->end_time)
+            ->sum(fn (TimeEntry $e) => $this->workedMinutes($e));
     }
 
     /** [rendes_percek, túlóra_percek] egy napi ledolgozott idő alapján (8:30 felett túlóra). */

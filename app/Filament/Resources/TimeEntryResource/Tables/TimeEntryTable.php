@@ -57,6 +57,7 @@ class TimeEntryTable
                 Tables\Columns\TextColumn::make('start_date')->date()->label('Kezdet')->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('end_date')->date()->label('Vége')->sortable()->placeholder('—')->toggleable(),
                 Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('location')->label('Helyszín')->placeholder('—')->searchable()->toggleable(isToggledHiddenByDefault: true),
 
                 // ⬇ Egyetlen status oszlop — mindkét domain-t kezeli
                 Tables\Columns\BadgeColumn::make('status')

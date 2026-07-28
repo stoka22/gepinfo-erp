@@ -27,6 +27,7 @@ class TerminalWebhookController extends Controller
             'direction'  => ['required', 'in:in,out'],
             'timestamp'  => ['required', 'date'],
             'event_id'   => ['nullable', 'string'], // opcionális, de erősen ajánlott dedup-hoz
+            'location'   => ['nullable', 'string', 'max:255'], // bejelentkezési helyszín (több telephely esetén)
         ]);
 
         $card = Card::with('employee')
@@ -40,7 +41,9 @@ class TerminalWebhookController extends Controller
         }
 
         $employee = $card->employee;
-        $ts = Carbon::parse($data['timestamp']);
+        // Ha a szolgáltató UTC-t vagy más eltolást küld (pl. "...Z"), konvertáljuk az alkalmazás
+        // időzónájára, hogy a start_time/end_time mindig helyi (magyar) időt tükrözzön.
+        $ts = Carbon::parse($data['timestamp'])->setTimezone(config('app.timezone'));
 
         // Idempotencia: ha a szolgáltató küld event_id-t, és már feldolgoztuk, ne duplikáljunk.
         if (!empty($data['event_id'])) {
@@ -87,6 +90,7 @@ class TerminalWebhookController extends Controller
                 'end_time'     => null,
                 'hours'        => null,
                 'note'         => $note,
+                'location'     => $data['location'] ?? null,
                 'requested_by' => $requestedBy,
                 'approved_by'  => $requestedBy,
             ]);

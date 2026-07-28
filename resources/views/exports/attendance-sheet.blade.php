@@ -87,6 +87,13 @@
                     </tr>
                 @endforeach
             </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" style="text-align:right"><strong>Havi túlóra összesen:</strong></td>
+                    <td><strong>{{ $sheet['overtime']['monthly'] }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
         </table>
 
         <p class="meta">Az árnyékolt sorok munkaszüneti napot vagy pihenőnapot jelölnek. A visszamenőleges időszakra rögzített jelenléti adatok automatikusan feltöltve. A * jelölés utólagosan javított/módosított bejegyzést jelent.</p>

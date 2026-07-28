@@ -68,6 +68,17 @@ class TimeEntryObserver
         }
     }
 
+    /**
+     * A jelenlét lezárásakor számoljuk el az órákat és a túlóra-keret módosítását.
+     *
+     * FONTOS: napi több be-/kilépés (pl. ebédszünet) esetén a 8:30-as szabályt a NAP ÖSSZES
+     * lezárt szakaszának együttes ledolgozott idejére kell alkalmazni, nem erre a szakaszra
+     * önmagában – különben minden szakasz külön "hiányos munkanapnak" tűnne, és a rendszer
+     * többszörösen terhelné a keretet. Ezért a napi delta a nap összes szakaszára egyszer
+     * kerül kiszámításra, és a különbséget mindig arra a szakaszra könyveljük, amelyik
+     * éppen mentésre kerül – így a nap szakaszainak overtime_delta_minutes összege mindig
+     * pontosan a helyes napi eltérést adja, függetlenül attól, hány szakasz van aznap.
+     */
     private function settlePresence(TimeEntry $entry): void
     {
         if ($entry->status !== TimeEntryStatus::CheckedOut) {
@@ -84,21 +95,33 @@ class TimeEntryObserver
             return;
         }
 
-        $wasSettled = (bool) $entry->getOriginal('overtime_settled_at');
-        $newDelta = $this->service->deltaMinutes($worked);
+        $siblings = TimeEntry::where('employee_id', $entry->employee_id)
+            ->where('type', TimeEntryType::Presence->value)
+            ->whereDate('start_date', $entry->start_date->toDateString())
+            ->when($entry->exists, fn ($q) => $q->where('id', '!=', $entry->id))
+            ->get();
 
-        if ($wasSettled) {
-            $oldDelta = (int) $entry->getOriginal('overtime_delta_minutes');
-            if ($newDelta === $oldDelta) {
-                return;
-            }
-            // Korrekció: a régi hatást visszavonjuk, az újat alkalmazzuk.
-            $this->service->applyDelta($entry->employee_id, $entry->company_id, $newDelta - $oldDelta);
-        } else {
-            $this->service->applyDelta($entry->employee_id, $entry->company_id, $newDelta);
+        // Amíg a nap bármelyik szakasza felülvizsgálatra vár, a teljes napi ledolgozott idő
+        // bizonytalan – nem számolunk el, amíg mindegyik szakasz rendezve nincs.
+        if ($siblings->contains(fn (TimeEntry $s) => $s->needs_review)) {
+            return;
         }
 
-        $entry->overtime_delta_minutes = $newDelta;
+        $siblingsWorked = $this->service->totalWorkedMinutesForDay($siblings);
+        $totalWorked = $siblingsWorked + $worked;
+        $newDayDelta = $this->service->deltaMinutes($totalWorked);
+
+        $siblingsAppliedDelta = (int) $siblings->sum(fn (TimeEntry $s) => (int) ($s->overtime_delta_minutes ?? 0));
+        $newEntryDelta = $newDayDelta - $siblingsAppliedDelta;
+
+        $wasSettled = (bool) $entry->getOriginal('overtime_settled_at');
+        $oldEntryDelta = $wasSettled ? (int) $entry->getOriginal('overtime_delta_minutes') : 0;
+
+        if ($newEntryDelta !== $oldEntryDelta) {
+            $this->service->applyDelta($entry->employee_id, $entry->company_id, $newEntryDelta - $oldEntryDelta);
+        }
+
+        $entry->overtime_delta_minutes = $newEntryDelta;
         $entry->overtime_settled_at = now();
     }
 

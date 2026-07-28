@@ -232,6 +232,7 @@ class TimeEntriesRelationManager extends RelationManager
                     ->label('Vége')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—'),
+                Tables\Columns\TextColumn::make('location')->label('Helyszín')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\BadgeColumn::make('status')->label('Státusz')
                     ->color(function ($state) {
                         $val = $state instanceof \BackedEnum ? $state->value : $state;
