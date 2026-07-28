@@ -33,6 +33,23 @@ it('imports a row with fewer cells than the header without crashing (short row)'
     unlink($path);
 });
 
+it('skips a row that has a name but no start/end time (weekend/holiday/absence row)', function () {
+    // Az éles fájlban a hétvégi/ünnepi/távollét napokhoz is van egy sor a dolgozó nevével,
+    // de tényleges be-/kilépési időpont nélkül – ezeket NEM szabad munkanapló-bejegyzésként
+    // importálni.
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Hetvegi Sor Teszt</td><td>Operátor</td><td>Üzem</td><td></td><td></td><td></td><td></td><td></td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    expect(WorkLog::where('nev', 'Hetvegi Sor Teszt')->exists())->toBeFalse();
+
+    unlink($path);
+});
+
 it('imports a full row with all columns correctly', function () {
     $html = '<html><body><table>'
         . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'

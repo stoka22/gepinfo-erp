@@ -51,14 +51,23 @@ class WorkLogsImport
                 continue;
             }
 
+            $kezdes = isset($cells[4]) ? $this->parseDate($cells[4], 'kezdes', $row->getRowIndex()) : null;
+            $vege = isset($cells[6]) ? $this->parseDate($cells[6], 'vege', $row->getRowIndex()) : null;
+
+            // Nincs sem belépés, sem kilépés időpont rögzítve (hétvége/ünnep/távollét sor) –
+            // ez nem tényleges munkanapló-bejegyzés, nem importáljuk.
+            if ($kezdes === null && $vege === null) {
+                continue;
+            }
+
             WorkLog::create([
                 'nev'            => $value(0),
                 'munkakor'       => $value(1),
                 'helyiseg'       => $value(2),
                 'belepesi_pont'  => $value(3),
-                'kezdes'         => isset($cells[4]) ? $this->parseDate($cells[4], 'kezdes', $row->getRowIndex()) : null,
+                'kezdes'         => $kezdes,
                 'kilepesi_pont'  => $value(5),
-                'vege'           => isset($cells[6]) ? $this->parseDate($cells[6], 'vege', $row->getRowIndex()) : null,
+                'vege'           => $vege,
                 'ido'            => $value(7),
             ]);
         }

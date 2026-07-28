@@ -6,6 +6,14 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **Munkanapló (WorkLog) import javítás – hétvégi/ünnepi/távollét sorok kihagyása**: éles
+  tesztelés után kiderült, hogy azok a sorok, amiknek van neve, de nincs tényleges
+  be-/kilépési időpontja (hétvége, ünnep, távollét napok), feleslegesen bekerültek a
+  munkanaplóba. Az import mostantól kihagyja azokat a sorokat, ahol sem a kezdés, sem a
+  végzés időpont nem olvasható ki. A korábbi hibás importból bekerült üres sorok
+  eltávolítására lásd a docs/CHANGELOG.md-hez tartozó SSH/tinker útmutatót (a
+  felhasználóval megosztva, nem verziókövetett adat-visszaállítási lépés).
+
 - **Munkanapló (WorkLog) import javítás – rövidebb sorok kezelése**: az előző kódolási
   javítás után a "fake xls" HTML export importja tovább jutott, de egy `Undefined array
   key 6` hibával elhasalt olyan soroknál, ahol kevesebb `<td>` cella szerepelt, mint a
