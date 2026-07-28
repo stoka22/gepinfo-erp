@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Models\Employee;
 use App\Models\TimeEntry;
@@ -28,6 +29,46 @@ class AttendanceSheetService
             ->get()
             ->keyBy(fn (TimeEntry $e) => $e->start_date->toDateString());
 
+        // Távollét jellegű bejegyzések (szabadság, túlóra terhére, táppénz, igazolatlan),
+        // amik a vizsgált időszakot érintik – dátumonként feloldva, hogy minden nap megkapja a jellegét.
+        $absenceEntries = TimeEntry::query()
+            ->where('employee_id', $employee->id)
+            ->where(function ($q) {
+                // Szabadság/táppénz/igazolatlan mindig távollét; a "túlóra" típus csak akkor,
+                // ha negatív órával a túlóra-keret terhére elszámolt hiányzást jelöl (nem
+                // a ténylegesen ledolgozott, pozitív túlóra-jóváírást).
+                $q->whereIn('type', [
+                    TimeEntryType::Vacation->value,
+                    TimeEntryType::SickLeave->value,
+                    TimeEntryType::UnauthorizedAbsence->value,
+                ])->orWhere(function ($q2) {
+                    $q2->where('type', TimeEntryType::Overtime->value)->where('hours', '<', 0);
+                });
+            })
+            ->where(function ($q) use ($periodStart, $periodEnd) {
+                $q->where('start_date', '<=', $periodEnd->toDateString())
+                    ->where(function ($q2) use ($periodStart) {
+                        $q2->where('end_date', '>=', $periodStart->toDateString())
+                            ->orWhereNull('end_date');
+                    });
+            })
+            ->get();
+
+        $absenceByDate = [];
+        foreach ($absenceEntries as $absence) {
+            $fromStr = $absence->start_date->toDateString();
+            $toStr = ($absence->end_date ?? $absence->start_date)->toDateString();
+            $cursor = CarbonImmutable::parse(max($fromStr, $periodStart->toDateString()));
+            $last = CarbonImmutable::parse(min($toStr, $periodEnd->toDateString()));
+            while ($cursor->lte($last)) {
+                $absenceByDate[$cursor->toDateString()] = [
+                    'label'      => $this->absenceLabel($absence),
+                    'isModified' => (bool) $absence->is_modified,
+                ];
+                $cursor = $cursor->addDay();
+            }
+        }
+
         $days = [];
         $monthlyWorkedMinutes = 0;
         $d = $periodStart;
@@ -35,11 +76,14 @@ class AttendanceSheetService
             $dateStr = $d->toDateString();
             $holidayName = $this->workdayResolver->holidayName($d);
             $entry = $presenceByDate->get($dateStr);
+            $absence = $absenceByDate[$dateStr] ?? null;
 
-            $note = $holidayName;
+            $note = $holidayName ?? $absence['label'] ?? null;
             if (! $note && $d->isWeekend() && ! $entry) {
                 $note = 'Pihenőnap';
             }
+
+            $isModified = (bool) $entry?->is_modified || (bool) ($absence['isModified'] ?? false);
 
             $regularLabel = null;
             $overtimeLabel = null;
@@ -64,6 +108,7 @@ class AttendanceSheetService
                 'end'           => $entry?->end_time?->format('H:i'),
                 'hoursLabel'    => $regularLabel,
                 'overtimeLabel' => $overtimeLabel,
+                'isModified'    => $isModified,
             ];
 
             $d = $d->addDay();
@@ -114,6 +159,27 @@ class AttendanceSheetService
                 'monthly' => $this->formatMinutes($monthlyWorkedMinutes),
             ],
         ];
+    }
+
+    /** Egy távollét jellegű bejegyzés magyar megnevezése a jelenléti íven, a jóváhagyás állapotával. */
+    private function absenceLabel(TimeEntry $absence): string
+    {
+        $type = $absence->type instanceof TimeEntryType ? $absence->type->value : (string) $absence->type;
+
+        $label = match ($type) {
+            TimeEntryType::Vacation->value => 'Szabadság',
+            TimeEntryType::SickLeave->value => 'Táppénz',
+            TimeEntryType::UnauthorizedAbsence->value => 'Igazolatlan távollét',
+            TimeEntryType::Overtime->value => 'Túlóra terhére',
+            default => 'Távollét',
+        };
+
+        $status = $absence->status instanceof TimeEntryStatus ? $absence->status->value : (string) $absence->status;
+        if ($status === TimeEntryStatus::Pending->value) {
+            $label .= ' (jóváhagyásra vár)';
+        }
+
+        return $label;
     }
 
     /** Percek előjeles H:MM formátumban, pl. 510 -> "8:30", -45 -> "-0:45". */

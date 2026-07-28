@@ -4,7 +4,6 @@ namespace App\Providers\Filament;
 
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Pages;
 use Filament\Navigation\NavigationGroup;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -37,7 +36,7 @@ class UserPanelProvider extends PanelProvider
             
             // csak a Vezérlőpult marad a főoldalnak
             ->pages([
-                Pages\Dashboard::class,
+                \App\Filament\Pages\UserDashboard::class,
                 \App\Filament\Pages\CapabilityMatrix::class,
             ])
             ->homeUrl(fn () => route('filament.user.pages.dashboard'))

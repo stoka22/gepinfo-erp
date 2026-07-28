@@ -18,6 +18,21 @@ it('computes a positive delta above the standard workday and negative below it',
         ->and($service->deltaMinutes(400))->toBe(-110);
 });
 
+it('applies tolerance bands around the standard workday', function () {
+    $service = new OvertimeBalanceService();
+
+    // korai távozás hibahatáron belül (<=2 perc hiány) -> 0
+    expect($service->deltaMinutes(509))->toBe(0)
+        ->and($service->deltaMinutes(508))->toBe(0)
+        // hibahatáron túli hiány -> valódi negatív eltérés
+        ->and($service->deltaMinutes(507))->toBe(-3)
+        // túlóra hibahatáron belül (<=10 perc) -> 0
+        ->and($service->deltaMinutes(511))->toBe(0)
+        ->and($service->deltaMinutes(520))->toBe(0)
+        // hibahatáron túli túlóra -> teljes eltérés számít, visszamenőlegesen
+        ->and($service->deltaMinutes(521))->toBe(11);
+});
+
 it('computes worked minutes handling an overnight shift', function () {
     $company = Company::create(['name' => 'Test Kft.']);
     $employee = Employee::create(['name' => 'Éjszakás', 'company_id' => $company->id]);

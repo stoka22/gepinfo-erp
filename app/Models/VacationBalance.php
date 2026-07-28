@@ -2,11 +2,14 @@
 // app/Models/VacationBalance.php
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class VacationBalance extends Model
 {
+    use Auditable;
+
     protected $fillable = [
         'employee_id','year','company_id',
         'base_days','age_extra_days',

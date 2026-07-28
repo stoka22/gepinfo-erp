@@ -25,6 +25,11 @@ class CompanyGroupResource extends Resource
         return (bool) ($u?->hasRole('admin') || $u?->can('company_groups.viewAny'));
     }
 
+    public static function canViewAny(): bool { return static::shouldRegisterNavigation(); }
+    public static function canCreate(): bool { return static::shouldRegisterNavigation(); }
+    public static function canEdit($record): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('company_groups.update')); }
+    public static function canDelete($record): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('company_groups.delete')); }
+
     public static function getNavigationBadge(): ?string
     {
         try {

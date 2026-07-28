@@ -387,6 +387,19 @@ class TimeEntriesRelationManager extends RelationManager
                 Tables\Actions\CreateAction::make()
             ])
             ->actions([
+                Tables\Actions\Action::make('reviewAutoCheckout')
+                    ->label('')
+                    ->tooltip('Jóváhagyás (automatikus kiléptetés ellenőrzése)')
+                    ->icon('heroicon-o-check-badge')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalDescription('Automatikus (12 órás) kiléptetés vagy hiányos be-/kilépés. Ha az időpont nem pontos, előbb szerkeszd, majd hagyd jóvá, hogy a túlóra-keret elszámolásra kerüljön.')
+                    ->visible(fn (TimeEntry $r) => $r->needs_review && Auth::user()?->can('update', $r))
+                    ->action(function (TimeEntry $r) {
+                        $r->needs_review = false;
+                        $r->save();
+                        Notification::make()->title('Felülvizsgálva')->success()->send();
+                    }),
                 Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
                 Tables\Actions\Action::make('approve')->label('')->tooltip('Jóváhagyás')->icon('heroicon-o-check-circle')->color('success')
                     ->visible(fn(TimeEntry $r) => Auth::user()?->can('approve', $r) && ($r->status->value ?? $r->status) === 'pending')

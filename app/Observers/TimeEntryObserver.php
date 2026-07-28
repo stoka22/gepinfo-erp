@@ -6,6 +6,7 @@ use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Models\TimeEntry;
 use App\Services\Overtime\OvertimeBalanceService;
+use Illuminate\Support\Facades\Auth;
 
 class TimeEntryObserver
 {
@@ -23,6 +24,8 @@ class TimeEntryObserver
      */
     public function saving(TimeEntry $entry): void
     {
+        $this->trackManualCorrection($entry);
+
         if ($entry->type === TimeEntryType::Presence) {
             $this->settlePresence($entry);
             return;
@@ -32,6 +35,36 @@ class TimeEntryObserver
         // Csak jóváhagyáskor terheli ténylegesen a keretet, ld. daily-import absence logika.
         if ($entry->type === TimeEntryType::Overtime && (float) ($entry->hours ?? 0) < 0) {
             $this->settleOvertimeConsumption($entry);
+        }
+    }
+
+    /**
+     * Utólagos, emberi javítás jelölése (jelenléti íven * jelöléshez): egy már korábban
+     * rögzített idő/dátum/típus/óra érték módosítása, vagy egy felülvizsgálandó
+     * (auto-kiléptetett/hiányos) bejegyzés jóváhagyása. Az első alkalommal kitöltött mező
+     * (pl. rendes kiléptetés, vagy az import maga) NEM számít javításnak.
+     */
+    private function trackManualCorrection(TimeEntry $entry): void
+    {
+        if (! $entry->exists || ! Auth::check()) {
+            return;
+        }
+
+        $correctedField = false;
+        foreach (['start_date', 'start_time', 'raw_start_time', 'end_date', 'end_time', 'hours', 'type'] as $field) {
+            if ($entry->isDirty($field) && $entry->getOriginal($field) !== null) {
+                $correctedField = true;
+                break;
+            }
+        }
+
+        $reviewResolved = $entry->isDirty('needs_review')
+            && $entry->getOriginal('needs_review')
+            && ! $entry->needs_review;
+
+        if ($correctedField || $reviewResolved) {
+            $entry->is_modified = true;
+            $entry->modified_by = Auth::id();
         }
     }
 

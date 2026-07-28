@@ -76,7 +76,7 @@
             <tbody>
                 @foreach($sheet['days'] as $day)
                     <tr class="{{ $day['isHoliday'] ? 'holiday-row' : ($day['isWeekend'] ? 'weekend-row' : '') }}">
-                        <td class="day-col">{{ $day['dayNumber'] }}</td>
+                        <td class="day-col">{{ $day['dayNumber'] }}{{ $day['isModified'] ? '*' : '' }}</td>
                         <td>{{ $day['date'] }} ({{ $day['dayName'] }})</td>
                         <td>{{ $day['start'] ?? '' }}</td>
                         <td>{{ $day['end'] ?? '' }}</td>
@@ -89,7 +89,7 @@
             </tbody>
         </table>
 
-        <p class="meta">Az árnyékolt sorok munkaszüneti napot vagy pihenőnapot jelölnek. A visszamenőleges időszakra rögzített jelenléti adatok automatikusan feltöltve.</p>
+        <p class="meta">Az árnyékolt sorok munkaszüneti napot vagy pihenőnapot jelölnek. A visszamenőleges időszakra rögzített jelenléti adatok automatikusan feltöltve. A * jelölés utólagosan javított/módosított bejegyzést jelent.</p>
     </div>
 @endforeach
 </body>

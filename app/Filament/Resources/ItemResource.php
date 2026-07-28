@@ -35,6 +35,10 @@ class ItemResource extends Resource
                 Forms\Components\TextInput::make('sku')->label('Cikkszám')->maxLength(64),
                 Forms\Components\TextInput::make('name')->label('Megnevezés')->required(),
                 Forms\Components\TextInput::make('unit')->label('Egység')->default('db')->maxLength(16),
+                Forms\Components\TextInput::make('min_qty')
+                    ->label('Rendelési szint (opcionális)')
+                    ->numeric()->minValue(0)->step(0.001)
+                    ->helperText('Ha kitöltött, és a készlet ez alá esik, a napi riasztás jelzi.'),
                 Forms\Components\Select::make('kind')->label('Típus')->required()
                     ->options([
                         'alkatresz'  => 'Alkatrész',

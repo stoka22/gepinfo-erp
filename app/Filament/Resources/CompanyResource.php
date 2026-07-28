@@ -30,6 +30,14 @@ class CompanyResource extends Resource
         return (bool) ($u?->hasRole('admin') || $u?->can('companies.viewAny'));
     }
 
+    // Ugyanazok a finomabb (view/update/delete) jogosultságok érvényesüljenek közvetlen
+    // URL-elérésnél is, nem csak a táblázat gombjainak láthatóságánál.
+    public static function canViewAny(): bool { return static::shouldRegisterNavigation(); }
+    public static function canCreate(): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('companies.viewAny')); }
+    public static function canEdit($record): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('companies.update')); }
+    public static function canView($record): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('companies.view')); }
+    public static function canDelete($record): bool { return (bool) (Auth::user()?->hasRole('admin') || Auth::user()?->can('companies.delete')); }
+
     public static function form(Forms\Form $form): Forms\Form
     {
         return $form->schema([

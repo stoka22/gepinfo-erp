@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class Item extends Model
 {
     protected $fillable = [
-        'company_id','sku','name','unit','kind','is_active'
+        'company_id','sku','name','unit','kind','is_active','min_qty'
     ];
 
     protected $casts = [
         'is_active' => 'bool',
+        'min_qty'   => 'decimal:3',
     ];
 
     public function company(): BelongsTo { return $this->belongsTo(Company::class); }

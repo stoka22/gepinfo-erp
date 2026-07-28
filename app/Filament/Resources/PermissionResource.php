@@ -22,6 +22,12 @@ class PermissionResource extends Resource
         return $u?->hasRole('admin') || $u?->can('manage users');
     }
 
+    public static function canViewAny(): bool { return static::shouldRegisterNavigation(); }
+    public static function canCreate(): bool { return static::shouldRegisterNavigation(); }
+    public static function canEdit($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canView($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canDelete($record): bool { return static::shouldRegisterNavigation(); }
+
     public static function form(Forms\Form $form): Forms\Form
     {
         return $form->schema([

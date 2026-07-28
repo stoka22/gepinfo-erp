@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Shift;
+use App\Models\Concerns\Auditable;
 use App\Models\Pivots\EmployeeSkill;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Auth;
 
 class Employee extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, Auditable;
 
     protected $fillable = [
         //'user_id',

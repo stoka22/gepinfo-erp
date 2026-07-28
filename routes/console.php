@@ -24,3 +24,8 @@ Schedule::command('attendance:auto-checkout')
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/attendance-auto-checkout.log'));
+
+Schedule::command('digest:daily')
+    ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/daily-digest.log'));

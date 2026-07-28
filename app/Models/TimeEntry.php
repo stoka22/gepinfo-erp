@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,6 +15,8 @@ use Illuminate\Support\Carbon;
 
 class TimeEntry extends Model
 {
+    use Auditable;
+
     protected $fillable = [
         'employee_id','company_id','type','status',
         'start_date','start_time','raw_start_time','end_date','end_time',

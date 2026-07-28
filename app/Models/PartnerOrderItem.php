@@ -69,12 +69,12 @@ class PartnerOrderItem extends Model
 
     public function recalcFromSplits(): void
     {
-        $this->qty_produced = (float)$this->splits()->sum('qty');
+        // qty_total: a Gantt-alapú ütemező ezt tölti (a régi 'qty' oszlop innen már nem frissül).
+        $this->qty_produced = (float) $this->splits()->sum('qty_total');
         $this->status = $this->qty_produced <= 0 ? 'open'
             : ($this->qty_produced < $this->qty_ordered ? 'partial' : 'fulfilled');
-        $this->
-        
-        save();
+
+        $this->save();
     }
 
     public function recalcEta(): void

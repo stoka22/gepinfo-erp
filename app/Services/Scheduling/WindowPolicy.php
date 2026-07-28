@@ -67,6 +67,25 @@ class WindowPolicy
         return $probe;
     }
 
+    /**
+     * Az adott napon (00:00–24:00) elérhető össz. munkaidő másodpercben
+     * (műszakok uniója, szünetek nélkül). Ha nincs shift-konfiguráció a gépen,
+     * 24 órát ad vissza (ld. isWithinAllowed: konfiguráció hiányában mindig engedett).
+     */
+    public function availableSecondsForDay(int $machineId, Carbon $day): int
+    {
+        $hasShift = ResourceShiftAssignment::where('resource_id', $machineId)->exists();
+        if (! $hasShift) {
+            return 86400;
+        }
+
+        $seconds = 0;
+        foreach ($this->dayShiftWindows($machineId, $day->copy()->startOfDay()) as [$s, $e]) {
+            $seconds += abs($e->diffInSeconds($s));
+        }
+        return $seconds;
+    }
+
     // --- belső segédek (egyszerű implementáció) ---
 
     protected function isInsideShifts(int $machineId, Carbon $s, Carbon $e): bool

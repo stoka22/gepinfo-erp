@@ -22,6 +22,13 @@ class RoleResource extends Resource
         return $u?->hasRole('admin') || $u?->can('manage users');
     }
 
+    // Ugyanaz a szabály érvényesüljön a közvetlen URL-elérésnél is, ne csak a menüben.
+    public static function canViewAny(): bool { return static::shouldRegisterNavigation(); }
+    public static function canCreate(): bool { return static::shouldRegisterNavigation(); }
+    public static function canEdit($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canView($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canDelete($record): bool { return static::shouldRegisterNavigation(); }
+
     public static function form(Forms\Form $form): Forms\Form
     {
         return $form->schema([

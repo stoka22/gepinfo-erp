@@ -10,6 +10,11 @@ use App\Http\Controllers\Scheduler\TaskController;
 use App\Http\Controllers\Scheduler\TreeController;
 //use App\Http\Controllers\TimeEntryCalendarController;
 use App\Http\Controllers\Scheduler\ResourceController;
+use App\Http\Controllers\MyAttendanceSheetController;
+
+Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::class, 'download'])
+    ->middleware('auth')
+    ->name('my-attendance-sheet');
 
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn() => redirect()->route('filament.user.auth.login'))->name('login');

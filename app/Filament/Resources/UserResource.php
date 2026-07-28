@@ -27,6 +27,12 @@ class UserResource extends Resource
         return $u?->hasRole('admin') || $u?->can('manage users') || $u?->can('access admin panel');
     }
 
+    public static function canViewAny(): bool { return static::shouldRegisterNavigation(); }
+    public static function canCreate(): bool { return static::shouldRegisterNavigation(); }
+    public static function canEdit($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canView($record): bool { return static::shouldRegisterNavigation(); }
+    public static function canDelete($record): bool { return static::shouldRegisterNavigation(); }
+
     public static function getNavigationBadge(): ?string
     {
         return (string) static::getEloquentQuery()->count();
