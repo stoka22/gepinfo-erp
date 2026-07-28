@@ -30,8 +30,14 @@ class WorkLogsImport
         $spreadsheet = SpreadsheetEncoding::loadNormalized($filePath);
         $sheet = $spreadsheet->getActiveSheet();
 
+        // A HTML-alapú "fake xls" exportoknál soronként eltérhet a cellák száma (pl. egy
+        // üres/rövidebb sor), ezért a sor saját legmagasabb oszlopa helyett a TELJES lap
+        // legmagasabb oszlopáig kényszerítjük az iterálást, hogy minden sor egyenlő
+        // hosszúságú (üresekkel kitöltött) cellalistát adjon.
+        $highestColumn = $sheet->getHighestColumn();
+
         foreach ($sheet->getRowIterator(2) as $row) {
-            $cellIterator = $row->getCellIterator();
+            $cellIterator = $row->getCellIterator('A', $highestColumn);
             $cellIterator->setIterateOnlyExistingCells(false);
 
             $cells = [];
@@ -39,19 +45,21 @@ class WorkLogsImport
                 $cells[] = $cell;
             }
 
-            if (empty(trim((string)$cells[0]->getValue()))) {
+            $value = fn (int $i): ?string => isset($cells[$i]) ? trim((string) $cells[$i]->getValue()) : null;
+
+            if (empty($value(0))) {
                 continue;
             }
 
             WorkLog::create([
-                'nev'            => trim((string)$cells[0]->getValue()) ?? null,
-                'munkakor'       => trim((string)$cells[1]->getValue()) ?? null,
-                'helyiseg'       => trim((string)$cells[2]->getValue()) ?? null,
-                'belepesi_pont'  => trim((string)$cells[3]->getValue()) ?? null,
-                'kezdes'         => $this->parseDate($cells[4], 'kezdes', $row->getRowIndex()),
-                'kilepesi_pont'  => trim((string)$cells[5]->getValue()) ?? null,
-                'vege'           => $this->parseDate($cells[6], 'vege', $row->getRowIndex()),
-                'ido'            => trim((string)$cells[7]->getValue()) ?? null,
+                'nev'            => $value(0),
+                'munkakor'       => $value(1),
+                'helyiseg'       => $value(2),
+                'belepesi_pont'  => $value(3),
+                'kezdes'         => isset($cells[4]) ? $this->parseDate($cells[4], 'kezdes', $row->getRowIndex()) : null,
+                'kilepesi_pont'  => $value(5),
+                'vege'           => isset($cells[6]) ? $this->parseDate($cells[6], 'vege', $row->getRowIndex()) : null,
+                'ido'            => $value(7),
             ]);
         }
     }

@@ -6,6 +6,14 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **Munkanapló (WorkLog) import javítás – rövidebb sorok kezelése**: az előző kódolási
+  javítás után a "fake xls" HTML export importja tovább jutott, de egy `Undefined array
+  key 6` hibával elhasalt olyan soroknál, ahol kevesebb `<td>` cella szerepelt, mint a
+  fejlécben (pl. hiányzó kilépési pont/vég/idő). A sor-cellák listáját mostantól a LAP
+  (nem a sor) legmagasabb oszlopáig kényszerítjük, és minden mezőolvasás `isset()`
+  védelemmel történik — a hiányzó mezők `null`/üres értéket kapnak összeomlás helyett.
+  Valós hibát reprodukáló szintetikus fájllal tesztelve.
+
 - **XLS import javítás – "fake xls" HTML export kódolási hiba**: a `PhpOffice\PhpSpreadsheet\Reader\Exception:
   Failed to load file ... as a DOM Document` hiba (éles környezetben, WorkLog import útján
   jelentkezett) azért történt, mert sok magyar beléptető/időfigyelő rendszer "xls" exportja
