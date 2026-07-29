@@ -6,6 +6,14 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-28
 
+- **Munkanapló tábla – oszlopok elrejthetők, "Idő" formátum javítva**: minden oszlop
+  elrejthető/megjeleníthető (oszlop-választó ikon), a Helyiség/Belépési pont/Kilépési
+  pont oszlop alapértelmezetten rejtve van (kevésbé zsúfolt nézet). Az "Idő" oszlop
+  mostantól mindig óra:perc (pl. "3:57") formátumban jelenik meg — korábban az Excel
+  export nyers nap-törtrész értéke (pl. "0.16458333333333") jelent meg formázatlanul.
+  Ugyanez a javítás az importálásnál is érvényesül (`WorkLogsImport::formatIdo()`), így
+  az új importok is tiszta formátumban kerülnek be.
+
 - **XLS import – nagy/összetett Excel "mentés weblapként" exportok megbízható beolvasása**:
   három, egymást átfedő ok miatt hasalt el a "Failed to load ... as a DOM Document" hiba
   nagy, több dolgozós exporteknél: (1) a `<style>` blokk régi CSS-elrejtő trükkje

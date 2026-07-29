@@ -86,7 +86,7 @@ class WorkLogsImport
                 'kezdes'        => $kezdes,
                 'kilepesi_pont' => $value(5),
                 'vege'          => $vege,
-                'ido'           => $value(7),
+                'ido'           => self::formatIdo($value(7)),
             ];
         }
 
@@ -191,6 +191,31 @@ class WorkLogsImport
         }
 
         return $count;
+    }
+
+    /**
+     * Az "Idő" cella órák:percek formátumra hozása. Az Excel export egyes celláit
+     * nap-törtrészként (pl. "0.16458333333333" = kb. 3 óra 57 perc) tárolja, mást már
+     * eleve "H:MM" szöveges formátumban — mindkettőt egységes "H:MM" alakra hozzuk.
+     * Ugyanezt a logikát a megjelenítés (WorkLogResource tábla) is újrahasznosítja a
+     * korábban, ennek a javításnak az elkészülte előtt importált, nyers tört-alakú
+     * sorok helyes kijelzéséhez.
+     */
+    public static function formatIdo(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+
+        if (! is_numeric($value)) {
+            return $value;
+        }
+
+        $totalMinutes = (int) round(((float) $value) * 24 * 60);
+        $hours = intdiv($totalMinutes, 60);
+        $minutes = $totalMinutes % 60;
+
+        return sprintf('%d:%02d', $hours, $minutes);
     }
 
     /** Dolgozó-azonosítók név szerint (kisbetűsítve, trimmelve), a pontos-egyezés kereséséhez. */

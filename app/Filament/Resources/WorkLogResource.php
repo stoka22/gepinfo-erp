@@ -79,23 +79,29 @@ class WorkLogResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('nev')->label('Név')->searchable()->sortable(),
+                Tables\Columns\TextColumn::make('nev')->label('Név')->searchable()->sortable()->toggleable(),
 
                 Tables\Columns\TextColumn::make('employee.name')
                     ->label('Dolgozó')
                     ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(),
                 Tables\Columns\IconColumn::make('is_archived')
                     ->label('Archivált')
-                    ->boolean(),
+                    ->boolean()
+                    ->toggleable(),
 
-                Tables\Columns\TextColumn::make('munkakor')->label('Munkakör')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('helyiseg')->label('Helyiség')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('belepesi_pont')->label('Belépési pont')->sortable(),
-                Tables\Columns\TextColumn::make('kezdes')->label('Kezdés')->dateTime()->sortable(),
-                Tables\Columns\TextColumn::make('kilepesi_pont')->label('Kilépési pont')->sortable(),
-                Tables\Columns\TextColumn::make('vege')->label('Vége')->dateTime()->sortable(),
-                Tables\Columns\TextColumn::make('ido')->label('Idő')->sortable(),
+                Tables\Columns\TextColumn::make('munkakor')->label('Munkakör')->searchable()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('helyiseg')->label('Helyiség')->searchable()->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('belepesi_pont')->label('Belépési pont')->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('kezdes')->label('Kezdés')->dateTime()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('kilepesi_pont')->label('Kilépési pont')->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('vege')->label('Vége')->dateTime()->sortable()->toggleable(),
+                Tables\Columns\TextColumn::make('ido')->label('Idő')->sortable()->toggleable()
+                    ->formatStateUsing(fn (?string $state) => \App\Imports\WorkLogsImport::formatIdo($state)),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('munkakor')

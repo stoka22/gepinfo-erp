@@ -85,6 +85,30 @@ it('imports a full row with all columns correctly', function () {
     unlink($path);
 });
 
+it('converts a raw Excel day-fraction "ido" value to H:MM on import', function () {
+    // Az Excel export egyes celláit nap-törtrészként adja vissza (pl. "0.16458333333333"
+    // ~ 3 óra 57 perc), nem pedig "3:57" szöveges alakban — ezt kell H:MM formára hozni.
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Tört Idő Teszt</td><td>Op</td><td>Uzem</td><td>K1</td><td>2026. jan. 5. 08:00:00</td><td>K1</td><td>2026. jan. 5. 11:57:00</td><td>0.16458333333333</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    $row = WorkLog::where('nev', 'Tört Idő Teszt')->first();
+    expect($row->ido)->toBe('3:57');
+
+    unlink($path);
+});
+
+it('formatIdo leaves an already-formatted H:MM string untouched and passes through empty values', function () {
+    expect(WorkLogsImport::formatIdo('3:57'))->toBe('3:57');
+    expect(WorkLogsImport::formatIdo(''))->toBe('');
+    expect(WorkLogsImport::formatIdo(null))->toBeNull();
+    expect(WorkLogsImport::formatIdo('0.5'))->toBe('12:00');
+});
+
 it('auto-matches an employee by exact name, case-insensitively, without needing manual assignment', function () {
     $company = Company::create(['name' => 'Teszt Kft.']);
     Employee::create(['name' => 'Kovács János', 'company_id' => $company->id]);
