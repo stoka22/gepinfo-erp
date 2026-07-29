@@ -23,7 +23,7 @@ class CardService
         }
 
         // Kártya létezzen és ne legyen másnál
-        $card = Card::where('uid', $uid)->first();
+        $card = $this->findByNormalizedUid($uid);
         if (! $card) {
             throw ValidationException::withMessages([
                 'uid' => 'A megadott kártya (UID) nem létezik a rendszerben.',
@@ -78,5 +78,18 @@ class CardService
     {
         $u = strtoupper($uid);
         return str_replace([' ', '-', ':', '.'], '', $u);
+    }
+
+    /**
+     * A tárolt cards.uid értékek nincsenek normalizálva (a Card::create() a nyers
+     * stringet menti), ezért a keresésnél is normalizálva kell összevetni mindkét
+     * oldalt — egy egyszerű `where('uid', $normalizedUid)` sosem találna egyezést
+     * olyan UID-oknál, amik kötőjelet/szóközt/kettőspontot tartalmaznak.
+     */
+    protected function findByNormalizedUid(string $normalizedUid): ?Card
+    {
+        return Card::query()
+            ->get()
+            ->first(fn (Card $c) => $this->normalizeUid($c->uid) === $normalizedUid);
     }
 }

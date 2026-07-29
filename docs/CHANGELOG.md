@@ -6,6 +6,38 @@ lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene b
 
 ## 2026-07-29
 
+- **`CardService::assignByUid()` – kötőjeles/szóközös kártya-UID hozzárendelése hibázott**:
+  éles tesztelés közben derült ki, hogy a "Kártya hozzárendelése" művelet (Dolgozók lista)
+  minden olyan kártyánál elhasalt ("A megadott kártya (UID) nem létezik a rendszerben"),
+  aminek a UID-je kötőjelet, szóközt, kettőspontot vagy pontot tartalmazott (pl.
+  "TESZT-WEBHOOK-0001") — a szolgáltatás a bevitt UID-t normalizálta (ezeket a karaktereket
+  eltávolítva) keresés előtt, de a `cards.uid` oszlopban tárolt érték normalizálatlan
+  maradt, így sosem volt egyezés. Mostantól a keresés mindkét oldalon normalizálva
+  hasonlít, PHP-oldali összevetéssel (`CardService::findByNormalizedUid()`). A terminál
+  webhook saját kártya-keresését ez NEM érinti (az pontos, nem-normalizált egyezést vár,
+  és ez már korábban is helyesen működött). Reprodukálva és javítva lokálisan, új
+  `tests/Feature/Services/CardServiceTest.php` teszttel lefedve.
+
+- **Új `docs/terminal-webhook-test-plan.pdf` – élesben futtatható tesztterv a webhookhoz**:
+  lépésről lépésre leírt, valós tokent tartalmazó teszt-forgatókönyv (dedikált törölhető
+  teszt cég/dolgozó/kártya létrehozása, check-in, duplikált check-in, check-out, majd a
+  belépés `event_id`-jának újraküldése kilépés UTÁN, végül takarítás). A tervet lokálisan
+  végig is futtattam a `php artisan docs:terminal-webhook-test-plan-pdf` paranccsal generált
+  PDF pontosságának ellenőrzésére, és menet közben egy valós hibát talált: a `time_entries.
+  company_id` mező kötelező (NOT NULL), ezért egy teszt dolgozóhoz mindenképp kell egy
+  (akár dedikált, törölhető) cég is — céghez nem rendelt dolgozóval a check-in `500`-zal
+  elhasalt volna. A tesztterv ezt a lépést már helyesen tartalmazza. A forrás
+  (`docs/terminal-webhook-test-plan.md` + blade sablon) verziókövetve van, a valós tokent
+  tartalmazó PDF a `.gitignore`-ban kizárva.
+
+- **`docs/terminal-webhook-api.pdf` – frissítve a legfrissebb API-viselkedésre**: a PDF
+  újragenerálva (`php artisan docs:terminal-webhook-pdf`), a valós tokennel. Tartalmazza a
+  `location` mezőt (bejelentkezési helyszín), az UTC/időzóna-eltolás automatikus magyar
+  helyi időre konvertálását, és a kilépés utáni idempotencia-javítást (`event_id` alapú
+  duplikátum-felismerés bejelentkezés UTÁN történő kilépés esetén is működik). A forrás
+  (`docs/terminal-webhook-api.md` és a blade sablon) már korábban is naprakész volt ezekkel
+  a változtatásokkal, csak a legenerált PDF maradt el mögöttük.
+
 - **Vezérlőpult – teljes tartalommal feltöltve (korábban üres volt)**: a felhasználó kérésére
   a vezérlőpultra bekerült egy KPI-csík (`StatsOverview`) 6 csempével: Jelenlévő most,
   Távollévő ma, Felülvizsgálandó (needs_review-s bejegyzés), Alacsony készlet, Offline
