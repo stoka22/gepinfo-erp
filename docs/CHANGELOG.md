@@ -4,6 +4,38 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-07-29
+
+- **Vezérlőpult – teljes tartalommal feltöltve (korábban üres volt)**: a felhasználó kérésére
+  a vezérlőpultra bekerült egy KPI-csík (`StatsOverview`) 6 csempével: Jelenlévő most,
+  Távollévő ma, Felülvizsgálandó (needs_review-s bejegyzés), Alacsony készlet, Offline
+  eszköz, Csúszásveszélyes rendelés — mindegyik a releváns oldalra mutat kattintásra. A
+  "Felülvizsgálandó"/"Alacsony készlet"/"Offline eszköz" logikát egy új, megosztott
+  `OperationalAlerts` szolgáltatás adja (ugyanezt használja a napi digest e-mail is,
+  kód-duplikáció nélkül). A meglévő "Műszak szerinti jelenlét (ma)" és "Távolléten lévő
+  dolgozók (ma)" táblák a KPI-csík alá kerültek rendezve (eddig rendezetlenül, véletlenszerű
+  sorrendben jelentek meg más widgetek közt). Új "Kapacitás gyorsnézet" widget mutatja a
+  3 legjobban kihasznált gépet és egy linket a teljes kapacitáselemzéshez. A befejezetlen,
+  mindig 0-t mutató "EmployeeMetrics" widget törölve lett. A KPI-csík Jelenlévő/Távollévő
+  számai ugyanazt a cégcsoport-szűrést kapták, mint a lenti részletes táblák, hogy a két
+  szám sose térjen el egymástól (kivéve teljes admin nézetben, ahol nincs szűrés).
+
+- **`/app/time-entries` – hiányzó óra:perc a Kezdet/Vége oszlopban**: a Jelenlét (bejelentkezés/
+  kilépés) típusú bejegyzéseknél a "Kezdet"/"Vége" oszlop eddig mindig csak a dátumot mutatta,
+  az óra:perc sosem jelent meg (a Jelenlét típus alapból rejtve van a lista szűrőjében, ezért
+  ez korábban nem tűnt fel). Mostantól Jelenlét típusnál a dátum mellett a tényleges be-/
+  kilépési idő is látszik (a kilépésnél a nyers, kerekítés előtti időpont); más típusoknál
+  (szabadság, túlóra stb.) változatlanul csak a dátum jelenik meg, mivel ott nincs értelmezhető
+  napszak.
+- **`AdminUserSeeder` javítás – az "admin@gepinfo.hu" fiók sosem kapott admin jogot**: a seeder
+  eddig csak létrehozta ezt a fiókot (email/név/jelszó), de sosem állította be sem a
+  `users.role` oszlopot, sem a Spatie 'admin' szerepkört — így ez a fiók a gyakorlatban semmilyen
+  admin jogosultságot nem kapott (emiatt hiányzott pl. a `/app/time-entries` menüpont, és a
+  Dolgozók lista is üresen jelent meg neki, mivel több helyen is ELTÉRŐ admin-ellenőrzés él
+  párhuzamosan: van ami a `users.role` oszlopot, van ami a Spatie szerepkört nézi). A seeder
+  mostantól mindkettőt beállítja, meglévő és újonnan létrehozott fióknál is (idempotens). A
+  helyi adatbázisban a meglévő fiókot is közvetlenül javítottam.
+
 ## 2026-07-28
 
 - **Munkanapló tábla – oszlopok elrejthetők, "Idő" formátum javítva**: minden oszlop

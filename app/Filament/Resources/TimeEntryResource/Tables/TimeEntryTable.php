@@ -54,8 +54,30 @@ class TimeEntryTable
                     })
                     ->toggleable(),
 
-                Tables\Columns\TextColumn::make('start_date')->date()->label('Kezdet')->sortable()->toggleable(),
-                Tables\Columns\TextColumn::make('end_date')->date()->label('Vége')->sortable()->placeholder('—')->toggleable(),
+                Tables\Columns\TextColumn::make('start_date')
+                    ->label('Kezdet')
+                    ->sortable()
+                    ->toggleable()
+                    ->formatStateUsing(function ($state, TimeEntry $record) {
+                        $date = $state?->format('Y-m-d');
+                        $isPresence = ($record->type instanceof \BackedEnum ? $record->type->value : $record->type) === 'presence';
+                        $time = $isPresence ? ($record->raw_start_time ?? $record->start_time) : null;
+                        return $time ? "{$date} {$time->format('H:i')}" : $date;
+                    }),
+                Tables\Columns\TextColumn::make('end_date')
+                    ->label('Vége')
+                    ->sortable()
+                    ->placeholder('—')
+                    ->toggleable()
+                    ->formatStateUsing(function ($state, TimeEntry $record) {
+                        if ($state === null) {
+                            return null;
+                        }
+                        $date = $state->format('Y-m-d');
+                        $isPresence = ($record->type instanceof \BackedEnum ? $record->type->value : $record->type) === 'presence';
+                        $time = $isPresence ? $record->end_time : null;
+                        return $time ? "{$date} {$time->format('H:i')}" : $date;
+                    }),
                 Tables\Columns\TextColumn::make('hours')->numeric(2)->label('Órák')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('location')->label('Helyszín')->placeholder('—')->searchable()->toggleable(isToggledHiddenByDefault: true),
 

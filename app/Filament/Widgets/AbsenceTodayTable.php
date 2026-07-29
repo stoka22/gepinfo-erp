@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
 class AbsenceTodayTable extends BaseWidget
 {
     protected static ?string $heading = 'Távolléten lévő dolgozók (ma)';
+    protected static ?int $sort = -9;
     protected int|string|array $columnSpan = 'full';
 
     public function table(Table $table): Table

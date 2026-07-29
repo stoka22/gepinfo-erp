@@ -2,13 +2,11 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Device;
 use App\Models\Item;
-use App\Models\TimeEntry;
 use App\Models\User;
+use App\Services\OperationalAlerts;
 use Filament\Notifications\Notification;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 
 class SendDailyDigest extends Command
 {
@@ -16,26 +14,11 @@ class SendDailyDigest extends Command
 
     protected $description = 'Napi összefoglaló admin értesítés: felülvizsgálandó jelenlétek, alacsony készlet, offline eszközök.';
 
-    public function handle(): int
+    public function handle(OperationalAlerts $alerts): int
     {
-        $needsReviewCount = TimeEntry::where('needs_review', true)->count();
-
-        $lowStockItems = Item::query()
-            ->whereNotNull('min_qty')
-            ->where('is_active', true)
-            ->get(['id', 'name', 'sku', 'min_qty'])
-            ->filter(function (Item $item) {
-                $stock = DB::table('stock_levels')->where('item_id', $item->id)->sum('qty');
-                return $stock < (float) $item->min_qty;
-            })
-            ->values();
-
-        $offlineDevicesCount = Device::query()
-            ->where(function ($q) {
-                $timeout = (int) config('devices.online_timeout', 60);
-                $q->whereNull('last_seen_at')->orWhere('last_seen_at', '<', now()->subSeconds($timeout));
-            })
-            ->count();
+        $needsReviewCount = $alerts->needsReviewCount();
+        $lowStockItems = $alerts->lowStockItems();
+        $offlineDevicesCount = $alerts->offlineDevicesCount();
 
         if ($needsReviewCount === 0 && $lowStockItems->isEmpty() && $offlineDevicesCount === 0) {
             $this->info('Nincs jelentendő tétel, nem küldök értesítést.');

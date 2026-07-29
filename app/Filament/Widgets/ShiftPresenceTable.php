@@ -24,6 +24,7 @@ use Filament\Widgets\TableWidget as BaseWidget;
 class ShiftPresenceTable extends BaseWidget
 {
     protected static ?string $heading = 'Műszak szerinti jelenlét (ma)';
+    protected static ?int $sort = -10;
     protected int|string|array $columnSpan = 'full';
 
     public function table(Table $table): Table

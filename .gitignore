@@ -50,3 +50,6 @@ Thumbs.db
 # A forrás (.md/.blade.php sablon) verziókövetve marad, csak a legenerált, valós
 # secretet tartalmazó kimenet van kizárva.
 /docs/terminal-webhook-api.pdf
+
+# --- Feltöltött munkanapló-exportok: valós dolgozói személyes adatot tartalmaznak ---
+/public/upload/
