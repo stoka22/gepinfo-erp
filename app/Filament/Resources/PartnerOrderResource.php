@@ -28,7 +28,7 @@ class PartnerOrderResource extends Resource
 {
     protected static ?string $model = PartnerOrder::class;
 
-    protected static ?string $navigationGroup = 'Értékesítés';
+    protected static ?string $navigationGroup = 'Rendelések';
     protected static ?string $modelLabel = 'Partner megrendelés';
     protected static ?string $navigationLabel = 'Megrendelések';
 

@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Pages;
+use Filament\Navigation\NavigationGroup;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -31,6 +32,28 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             ->databaseNotifications()
             ->databaseNotificationsPolling('30s')
+
+            // A fő funkciók (Rendelések: itt tároljuk a gyártási igényeket; Termelés) legyenek
+            // elöl és alapból nyitva; a ritkábban használt csoportok (Dolgozók, Eszközök,
+            // Törzsadatok) összecsukva, hogy átláthatóbb legyen a kezdő nézet.
+            ->navigationGroups([
+                NavigationGroup::make('Rendelések')
+                    ->icon('heroicon-o-receipt-percent'),
+                NavigationGroup::make('Termelés')
+                    ->icon('heroicon-o-cog-6-tooth'),
+                NavigationGroup::make('Készlet')
+                    ->icon('heroicon-o-cube')
+                    ->collapsed(),
+                NavigationGroup::make('Dolgozók')
+                    ->icon('heroicon-o-user-group')
+                    ->collapsed(),
+                NavigationGroup::make('Eszközök')
+                    ->icon('heroicon-o-clipboard-document-list')
+                    ->collapsed(),
+                NavigationGroup::make('Törzsadatok')
+                    ->icon('heroicon-o-archive-box')
+                    ->collapsed(),
+            ])
 
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')

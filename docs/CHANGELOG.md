@@ -4,6 +4,34 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-07-30 (5)
+
+- **Eszközflotta állapota (`/admin/device-fleet-health`) – vizuális megújítás**: a korábbi
+  verzió csak sötét témára hangolt, opacitás-alapú (`bg-white/5` stílusú) színezést
+  használt, ami világos témában szinte láthatatlan volt. Az oldal most: (1) világos ÉS
+  sötét témára is helyesen színezett, (2) egy Online/Offline arány-csík a tetején
+  gyors áttekintésért, (3) ikonokkal és hover-effekttel ellátott, kattintható KPI-csempék
+  (mindegyik az Eszközök listára visz), (4) az Offline eszközök táblázat kliens-oldali
+  (Alpine.js) kereséssel név/helyszín szerint, színkódolt jelvénnyel az elmaradás
+  mértékéhez (piros ≥7 nap, sárga ≥1 nap, szürke ez alatt), és a dolgozónév közvetlenül
+  az eszköz szerkesztő oldalára mutat, (5) a Firmware-megoszlás táblázat helyett
+  arányos, feltöltési sávos vizualizáció, a legelterjedtebb verzió jelölve. Új
+  `tests/Feature/Services/DeviceFleetHealthTest.php` fedi (valós adatokkal és üres
+  állapotban is renderelődik, hiba nélkül).
+
+## 2026-07-30 (4)
+
+- **Admin oldalsó menü – rendezett sorrend, ikonok, "Értékesítés" → "Rendelések"**: eddig
+  a menücsoportok (Törzsadatok, Dolgozók, Eszközök, Készlet, Értékesítés, Termelés) a
+  Filament automatikus felfedezési sorrendjében jelentek meg, ikon és összecsukás nélkül.
+  Az `AdminPanelProvider` mostantól expliciten definiálja a sorrendet a felhasználó
+  prioritása szerint: **Rendelések → Termelés → Készlet → Dolgozók → Eszközök →
+  Törzsadatok**, mindegyik ikonnal; a Rendelések és Termelés alapból nyitva marad (fő
+  funkciók), a többi összecsukva (átláthatóbb kezdő nézet). Az "Értékesítés" csoport
+  átnevezve "Rendelések"-re (`PartnerOrderResource`), mivel itt tárolják a gyártási
+  igényeket is. Teszttel megerősítve (`AdminNavigationTest`), hogy a sorrend és a
+  feliratok pontosan a vártak.
+
 ## 2026-07-30 (3)
 
 - **Kártyák (`/admin/cards`) – hiányzó "Új kártya" gomb a lista tetején**: bár a
