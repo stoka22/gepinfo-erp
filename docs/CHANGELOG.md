@@ -4,6 +4,52 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-07-30 (3)
+
+- **Kártyák (`/admin/cards`) – hiányzó "Új kártya" gomb a lista tetején**: bár a
+  létrehozó oldal (`/admin/cards/create`) korábban is működött, a lista oldal fejlécében
+  nem jelent meg hozzá gomb (a felhasználó élesben csak a kötegelt kártya-importot látta),
+  úgyhogy könnyű volt azt hinni, egyáltalán nincs is ilyen funkció. A `ListCards` oldal
+  mostantól explicit módon deklarálja a fejléc-műveletet ("Új kártya hozzáadása" gomb),
+  ahelyett hogy a Filament implicit alapértelmezésére hagyatkozna. `assertActionExists`
+  Livewire-teszttel megerősítve, hogy a gomb ténylegesen létezik a lapon.
+
+## 2026-07-30 (2)
+
+- **Kártyák (`/admin/cards`) – hozzárendelés ÉS leválasztás a listából**: eddig ezen a
+  felületen egy kártya dolgozóhoz rendelését csak a Szerkesztés gombbal, kézzel (állapot
+  mezővel) lehetett módosítani, ami könnyen inkonzisztens állapotot okozhatott (pl.
+  "Szabad" állapot beállítva, miközben a dolgozó mező még kitöltve maradt) — és leválasztásra
+  gyakorlatilag nem volt kényelmes mód. Új két gomb a listasorokban: "Hozzárendelés
+  dolgozóhoz" (csak szabad kártyánál) és "Leválasztás a dolgozóról" (csak hozzárendelt
+  kártyánál) — mindkettő a már meglévő, tesztelt `CardService`-t használja, így ugyanazok a
+  validációk érvényesülnek, mint a Dolgozók listán (pl. már hozzárendelt/blokkolt kártya
+  elutasítása). Az "Új kártya" létrehozás funkció valójában már korábban is működött
+  (`/admin/cards/create`), csak nem volt eléggé feltűnő — ezt közvetlen teszttel is
+  megerősítettem. Új `tests/Feature/Services/CardResourceActionsTest.php` fedi mindhármat.
+
+## 2026-07-30
+
+- **Új admin felület: "Webhook hibák"** (`/admin/terminal-webhook-failures`): a terminál
+  webhook (`POST /api/terminal/event`) mostantól minden elutasított/sikertelen kérést
+  eltárol egy új `terminal_webhook_failures` táblában — hibakód (érvénytelen token,
+  ismeretlen kártya, nincs nyitott belépés, validációs hiba, nincs rendszerfelhasználó),
+  HTTP kód, kártya UID, irány, IP cím és a beérkezett kérés nyers törzse (a részletek
+  nézetben JSON-ként megjelenítve). Csak admin szerepkörrel látható, az "Eszközök" menü
+  alatt. A duplikátum/már-bejelentkezve válaszok szándékosan NEM kerülnek naplózásra
+  (nem hibák). Cél: éles terminál-integráció hibakeresésekor ne kelljen a szerver
+  log-fájljait bogarászni, hanem a felületen egy helyen látszódjon minden elutasított
+  esemény, a pontos okkal és a nyers payload-dal együtt. Új
+  `tests/Feature/Api/TerminalWebhookTest.php` tesztek fedik (minden hibaág naplóz,
+  a sikeres/duplikált esetek nem, a lista oldal admin jogosultsággal megjelenik).
+
+- **Riasztás a felső navbáron új webhook-hibánál**: bekapcsoltuk a Filament beépített
+  adatbázis-értesítési rendszerét az admin panelen (harang ikon a felső navbáron, 30
+  másodpercenkénti frissítéssel). Egy új `TerminalWebhookFailureObserver` minden újonnan
+  létrejövő `terminal_webhook_failures` rekordnál adatbázis-értesítést küld minden admin
+  szerepkörű felhasználónak (hibatípus + kártya UID rövid összefoglalóval, "Megnyitás"
+  gombbal a részletekhez). Teszttel lefedve.
+
 ## 2026-07-29
 
 - **`CardService::assignByUid()` – kötőjeles/szóközös kártya-UID hozzárendelése hibázott**:

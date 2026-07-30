@@ -6,11 +6,13 @@ use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Http\Controllers\Controller;
 use App\Models\Card;
+use App\Models\TerminalWebhookFailure;
 use App\Models\TimeEntry;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class TerminalWebhookController extends Controller
@@ -19,16 +21,22 @@ class TerminalWebhookController extends Controller
     {
         $token = $request->header('X-Auth-Token');
         if (!$token || !hash_equals((string) config('services.terminal.secret'), $token)) {
+            $this->logFailure($request, 'unauthorized', 401, 'Hiányzó vagy hibás X-Auth-Token.');
             return response()->json(['ok' => false, 'error' => 'unauthorized'], 401);
         }
 
-        $data = $request->validate([
-            'card_uid'   => ['required', 'string'],
-            'direction'  => ['required', 'in:in,out'],
-            'timestamp'  => ['required', 'date'],
-            'event_id'   => ['nullable', 'string'], // opcionális, de erősen ajánlott dedup-hoz
-            'location'   => ['nullable', 'string', 'max:255'], // bejelentkezési helyszín (több telephely esetén)
-        ]);
+        try {
+            $data = $request->validate([
+                'card_uid'   => ['required', 'string'],
+                'direction'  => ['required', 'in:in,out'],
+                'timestamp'  => ['required', 'date'],
+                'event_id'   => ['nullable', 'string'], // opcionális, de erősen ajánlott dedup-hoz
+                'location'   => ['nullable', 'string', 'max:255'], // bejelentkezési helyszín (több telephely esetén)
+            ]);
+        } catch (ValidationException $e) {
+            $this->logFailure($request, 'validation', 422, json_encode($e->errors(), JSON_UNESCAPED_UNICODE));
+            throw $e;
+        }
 
         $card = Card::with('employee')
             ->where('uid', $data['card_uid'])
@@ -37,6 +45,7 @@ class TerminalWebhookController extends Controller
 
         if (!$card || !$card->employee) {
             Log::warning('Terminal webhook: unknown or unassigned card', ['card_uid' => $data['card_uid']]);
+            $this->logFailure($request, 'unknown_card', 404, 'A kártya nem ismert, vagy nincs dolgozóhoz rendelve.');
             return response()->json(['ok' => false, 'error' => 'unknown_card'], 404);
         }
 
@@ -61,6 +70,7 @@ class TerminalWebhookController extends Controller
 
         if (!$requestedBy) {
             Log::error('Terminal webhook: no fallback user found for requested_by', ['employee_id' => $employee->id]);
+            $this->logFailure($request, 'no_system_user', 500, 'Nincs elérhető rendszerfelhasználó (requested_by) ehhez a dolgozóhoz.');
             return response()->json(['ok' => false, 'error' => 'no_system_user'], 500);
         }
 
@@ -104,6 +114,7 @@ class TerminalWebhookController extends Controller
 
             if (!$open) {
                 Log::warning('Terminal webhook: check-out with no open presence entry', ['employee_id' => $employee->id]);
+                $this->logFailure($request, 'no_open_entry', 409, 'Kilépés érkezett, de nincs nyitott belépés ehhez a dolgozóhoz.');
                 return response()->json(['ok' => false, 'error' => 'no_open_entry'], 409);
             }
 
@@ -123,5 +134,31 @@ class TerminalWebhookController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * A sikertelen/nem tárolt beérkező kéréseket rögzíti diagnosztikai célból (pl. rosszul
+     * konfigurált terminál esetén itt látszik, mit küldött valójában és miért utasítottuk el) —
+     * a duplikátum/már-bejelentkezve válaszok NEM hibák, azokat itt szándékosan nem naplózzuk.
+     */
+    protected function logFailure(Request $request, string $errorCode, int $httpStatus, ?string $message = null): void
+    {
+        try {
+            $payload = $request->all();
+
+            TerminalWebhookFailure::create([
+                'error_code'  => $errorCode,
+                'http_status' => $httpStatus,
+                'card_uid'    => $payload['card_uid'] ?? null,
+                'direction'   => $payload['direction'] ?? null,
+                'message'     => $message,
+                'payload'     => $payload,
+                'ip_address'  => $request->ip(),
+                'created_at'  => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // A diagnosztikai naplózás sosem akaszthatja meg a tényleges válasz visszaküldését.
+            Log::error('Terminal webhook: failed to record failure log entry', ['exception' => $e->getMessage()]);
+        }
     }
 }

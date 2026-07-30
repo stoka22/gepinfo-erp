@@ -5,6 +5,7 @@ use App\Enums\TimeEntryType;
 use App\Models\Card;
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\TerminalWebhookFailure;
 use App\Models\TimeEntry;
 use App\Models\User;
 
@@ -128,4 +129,72 @@ it('converts an explicit UTC timestamp to the application timezone', function ()
     $entry = TimeEntry::where('employee_id', $this->employee->id)->first();
     expect($entry->start_date->toDateString())->toBe('2026-01-05');
     expect($entry->start_time->format('H:i:s'))->toBe('08:00:00'); // Europe/Budapest, téli időszámítás: UTC+1
+});
+
+it('records a failure log entry for an unauthorized request, with the raw payload', function () {
+    postTerminalEvent(terminalEvent(), 'wrong-token')->assertStatus(401);
+
+    $failure = TerminalWebhookFailure::first();
+    expect($failure)->not->toBeNull();
+    expect($failure->error_code)->toBe('unauthorized');
+    expect($failure->http_status)->toBe(401);
+    expect($failure->payload['card_uid'])->toBe('CARD-1');
+});
+
+it('records a failure log entry for an unknown card', function () {
+    postTerminalEvent(terminalEvent(['card_uid' => 'NOPE']))->assertStatus(404);
+
+    $failure = TerminalWebhookFailure::first();
+    expect($failure->error_code)->toBe('unknown_card');
+    expect($failure->http_status)->toBe(404);
+    expect($failure->card_uid)->toBe('NOPE');
+});
+
+it('records a failure log entry for a check-out with no open entry', function () {
+    postTerminalEvent(terminalEvent(['direction' => 'out']))->assertStatus(409);
+
+    $failure = TerminalWebhookFailure::first();
+    expect($failure->error_code)->toBe('no_open_entry');
+    expect($failure->http_status)->toBe(409);
+    expect($failure->direction)->toBe('out');
+});
+
+it('records a failure log entry for a validation error', function () {
+    postTerminalEvent(terminalEvent(['direction' => 'sideways']))->assertStatus(422);
+
+    $failure = TerminalWebhookFailure::first();
+    expect($failure->error_code)->toBe('validation');
+    expect($failure->http_status)->toBe(422);
+});
+
+it('does not log anything for a successful check-in or a duplicate event', function () {
+    postTerminalEvent(terminalEvent(['event_id' => 'evt-1']))->assertOk();
+    postTerminalEvent(terminalEvent(['event_id' => 'evt-1', 'timestamp' => '2026-01-05 08:05:00']))->assertOk();
+
+    expect(TerminalWebhookFailure::count())->toBe(0);
+});
+
+it('sends a database notification to admin users when a failure is recorded', function () {
+    $this->admin->assignRole(\Spatie\Permission\Models\Role::findOrCreate('admin', 'web'));
+
+    postTerminalEvent(terminalEvent(['card_uid' => 'NOPE']))->assertStatus(404);
+
+    expect($this->admin->fresh()->unreadNotifications()->count())->toBe(1);
+    $notification = $this->admin->fresh()->unreadNotifications()->first();
+    expect($notification->data['title'])->toBe('Webhook hiba érkezett');
+});
+
+it('renders the admin webhook-failures list page for an admin user', function () {
+    postTerminalEvent(terminalEvent(['card_uid' => 'NOPE']))->assertStatus(404);
+
+    // Filament\Http\Middleware\Authenticate csak akkor engedi be nem-FilamentUser modellel az
+    // adminon kívüli környezetet, ha app.env === 'local' — a valós admin-jogosultság-ellenőrzést
+    // itt a Spatie 'admin' szerepkör (shouldRegisterNavigation/canAccessPanel) adja.
+    config(['app.env' => 'local']);
+    $this->admin->assignRole(\Spatie\Permission\Models\Role::findOrCreate('admin', 'web'));
+
+    $this->actingAs($this->admin)
+        ->get(route('filament.admin.resources.terminal-webhook-failures.index'))
+        ->assertOk()
+        ->assertSee('Ismeretlen kártya');
 });

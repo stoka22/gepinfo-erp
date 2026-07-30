@@ -24,6 +24,8 @@ use App\Models\Partner;
 use App\Policies\PartnerPolicy;
 
 use App\Observers\TimeEntryObserver;
+use App\Models\TerminalWebhookFailure;
+use App\Observers\TerminalWebhookFailureObserver;
 
 use Illuminate\Support\Facades\URL;
 
@@ -56,6 +58,7 @@ class AppServiceProvider extends ServiceProvider
         Schema::defaultStringLength(191);
 
         TimeEntry::observe(TimeEntryObserver::class);
+        TerminalWebhookFailure::observe(TerminalWebhookFailureObserver::class);
     }
 
     
