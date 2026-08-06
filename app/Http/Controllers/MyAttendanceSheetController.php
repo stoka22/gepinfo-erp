@@ -18,7 +18,9 @@ class MyAttendanceSheetController extends Controller
         $employee = Auth::user()?->employee;
         abort_unless($employee, 403, 'Nincs a fiókodhoz rendelt dolgozói adatlap.');
 
-        $monthsAgo = max(0, min(12, $monthsAgo));
+        // 24 hónap visszamenőleg, hogy a korábbi (pl. tavalyi) importált jelenléti adatok is
+        // elérhetők legyenek a dolgozó számára, ne csak az utolsó éj.
+        $monthsAgo = max(0, min(24, $monthsAgo));
 
         $periodStart = CarbonImmutable::now()->subMonthsNoOverflow($monthsAgo)->startOfMonth();
         $periodEnd = $periodStart->endOfMonth();

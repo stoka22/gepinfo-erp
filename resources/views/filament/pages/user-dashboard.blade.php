@@ -7,15 +7,21 @@
         />
 
         <x-filament::section heading="Jelenléti ív letöltése">
-            <div class="flex flex-wrap gap-2">
+            {{-- Legördülő hónapválasztó (nem csak az utolsó 3 hónap), mert a korábban importált
+                 jelenléti adatok jó része régebbi hónapokra esik – a régi 3 gombos verzió ezeket
+                 elérhetetlenné tette. --}}
+            <div class="flex flex-wrap items-end gap-2">
+                <x-filament::input.wrapper class="max-w-xs">
+                    <x-filament::input.select onchange="if (this.value) window.location.href = this.value">
+                        @for ($m = 0; $m <= 24; $m++)
+                            <option value="{{ route('my-attendance-sheet', ['monthsAgo' => $m]) }}" @selected($m === 0)>
+                                {{ \Illuminate\Support\Carbon::now()->subMonthsNoOverflow($m)->translatedFormat('Y. F') }}
+                            </option>
+                        @endfor
+                    </x-filament::input.select>
+                </x-filament::input.wrapper>
                 <x-filament::button tag="a" href="{{ route('my-attendance-sheet', ['monthsAgo' => 0]) }}" icon="heroicon-o-arrow-down-tray">
-                    Aktuális hónap
-                </x-filament::button>
-                <x-filament::button tag="a" href="{{ route('my-attendance-sheet', ['monthsAgo' => 1]) }}" color="gray" icon="heroicon-o-arrow-down-tray">
-                    Előző hónap
-                </x-filament::button>
-                <x-filament::button tag="a" href="{{ route('my-attendance-sheet', ['monthsAgo' => 2]) }}" color="gray" icon="heroicon-o-arrow-down-tray">
-                    2 hónappal ezelőtt
+                    Aktuális hónap letöltése
                 </x-filament::button>
             </div>
         </x-filament::section>

@@ -543,8 +543,16 @@ class EmployeeTable
                     ->icon('heroicon-o-printer')
                     ->color('gray')
                     ->form([
+                        // Korábban nem volt évválasztó, csak now()->year volt hardkódolva, ezért
+                        // egy korábbi (pl. tavalyi) importált időszak jelenléti íve sosem volt
+                        // lekérhető erről a felületről.
+                        Forms\Components\Select::make('year')
+                            ->label('Év')
+                            ->options(collect(range(now()->year, now()->year - 3))->mapWithKeys(fn ($y) => [$y => $y]))
+                            ->default(now()->year)
+                            ->required(),
                         Forms\Components\CheckboxList::make('months')
-                            ->label('Hónap(ok) — '.now()->year)
+                            ->label('Hónap(ok)')
                             ->options([
                                 '01' => 'Január',   '02' => 'Február', '03' => 'Március',
                                 '04' => 'Április',  '05' => 'Május',   '06' => 'Június',
@@ -556,7 +564,7 @@ class EmployeeTable
                             ->required(),
                     ])
                     ->action(function (\Illuminate\Support\Collection $records, array $data) {
-                        $year = now()->year;
+                        $year = (int) ($data['year'] ?? now()->year);
                         $months = collect($data['months'] ?? [])->sort()->values();
 
                         $employees = $records
