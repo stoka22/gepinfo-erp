@@ -2,9 +2,14 @@
 
 namespace App\Imports;
 
+use App\Enums\TimeEntryStatus;
+use App\Enums\TimeEntryType;
 use App\Models\Employee;
+use App\Models\TimeEntry;
 use App\Models\WorkLog;
 use App\Support\SpreadsheetEncoding;
+use App\Support\TimeRounding;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use DateTime;
@@ -188,9 +193,65 @@ class WorkLogsImport
         foreach ($resolvedRows as $row) {
             WorkLog::create($row);
             $count++;
+
+            // A work_logs tábla önmagában csak egy nyers napló – a jelenléti ívet és a
+            // túlóra-keretet kizárólag a time_entries tábla táplálja, ezért minden
+            // dolgozóhoz sikeresen párosított sorból egy megfelelő "presence" bejegyzést
+            // is létre kell hozni, különben az importált adat sosem jelenne meg az íven.
+            if (! empty($row['employee_id'])) {
+                $this->createPresenceEntry($row);
+            }
         }
 
         return $count;
+    }
+
+    /**
+     * A resolveRows()/import() által előállított sorból létrehozza a megfelelő
+     * time_entries (presence) bejegyzést – ugyanazzal a fél órára felfelé kerekítéssel,
+     * mint amit a napi bontású import (ImportDailyAttendance) is használ, hogy a két
+     * forrásból számolt túlóra/jelenlét összemérhető legyen.
+     *
+     * @param  array{kezdes:?string, vege:?string, helyiseg:?string, employee_id:?int}  $row
+     */
+    protected function createPresenceEntry(array $row): void
+    {
+        $kezdes = $row['kezdes'] ? CarbonImmutable::parse($row['kezdes']) : null;
+        $vege   = $row['vege'] ? CarbonImmutable::parse($row['vege']) : null;
+
+        $startDate = $kezdes?->toDateString() ?? $vege?->toDateString();
+        $startTime = $kezdes ? TimeRounding::roundStartUpToHalfHour($kezdes->format('H:i')).':00' : null;
+        $endTime   = $vege?->format('H:i:s');
+
+        // Duplikáció-védelem: ha ugyanazt a fájlt (vagy átfedő időszakot) véletlenül
+        // kétszer importálják, ne kerüljön be kétszer ugyanaz a szakasz.
+        $exists = TimeEntry::query()
+            ->where('employee_id', $row['employee_id'])
+            ->where('entry_method', 'worklog-import')
+            ->where('start_date', $startDate)
+            ->where('start_time', $startTime)
+            ->where('end_time', $endTime)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        TimeEntry::create([
+            'employee_id'    => $row['employee_id'],
+            'type'           => TimeEntryType::Presence->value,
+            'status'         => $endTime ? TimeEntryStatus::CheckedOut->value : TimeEntryStatus::CheckedIn->value,
+            'start_date'     => $startDate,
+            'start_time'     => $startTime,
+            'raw_start_time' => $kezdes ? $kezdes->format('H:i:s') : null,
+            'end_date'       => $endTime ? ($vege?->toDateString()) : null,
+            'end_time'       => $endTime,
+            'entry_method'   => 'worklog-import',
+            // Pontosan az egyik időpont hiányzik (nem hétvégi/ünnepi/távollét sor, azt a
+            // parseRows() már kiszűrte) – ez hiányos rögzítés, felülvizsgálatra vár.
+            'needs_review'   => is_null($kezdes) !== is_null($vege),
+            'location'       => $row['helyiseg'] ?? null,
+        ]);
     }
 
     /**
