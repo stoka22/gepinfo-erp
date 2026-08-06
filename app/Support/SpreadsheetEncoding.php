@@ -38,6 +38,30 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
  */
 class SpreadsheetEncoding
 {
+    /**
+     * Néhány valódi bináris (OLE2) .xls beléptető-exportnál a PhpSpreadsheet Xls olvasója
+     * a magyar kettős ékezetes magánhangzókat (ő, ű) rossz kódlapon dekódolja: a helyes
+     * UTF-8 bájtsorozatot (pl. "ő" = 0xC5 0x91) Windows-1252-ként értelmezi újra, "Å‘"-höz
+     * hasonló, felismerhetetlen névtörzset eredményezve (pl. "Törő Tibor" -> "TörÅ‘ Tibor").
+     * Ez importáláskor dolgozó-névegyeztetési hibákat okoz. A hibás bájtmintázat pontosan
+     * ismert és egyértelműen visszafordítható, ezért csak a hibás részsorozatot cseréljük,
+     * a string többi, helyesen dekódolt részéhez nem nyúlunk. (Az "Ő" nagybetűs alak nem
+     * javítható vissza: a hozzá tartozó CP1252-bájt Windows-1252-ben nincs hozzárendelve
+     * egyetlen karakterhez sem, az információ már a beolvasásnál elveszett.)
+     */
+    public static function fixMojibake(?string $value): ?string
+    {
+        if ($value === null || $value === '' || ! str_contains($value, 'Å')) {
+            return $value;
+        }
+
+        return strtr($value, [
+            "Å‘" => 'ő',
+            "Å±" => 'ű',
+            "Å°" => 'Ű',
+        ]);
+    }
+
     /** Betölti a fájlt PhpSpreadsheet-tel, szükség esetén normalizálva előtte. */
     public static function loadNormalized(string $filePath): Spreadsheet
     {

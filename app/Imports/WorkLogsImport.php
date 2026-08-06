@@ -68,7 +68,9 @@ class WorkLogsImport
                 $cells[] = $cell;
             }
 
-            $value = fn (int $i): ?string => isset($cells[$i]) ? trim((string) $cells[$i]->getValue()) : null;
+            $value = fn (int $i): ?string => isset($cells[$i])
+                ? SpreadsheetEncoding::fixMojibake(trim((string) $cells[$i]->getValue()))
+                : null;
 
             if (empty($value(0))) {
                 continue;

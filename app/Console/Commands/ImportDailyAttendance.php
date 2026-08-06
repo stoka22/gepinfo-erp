@@ -54,7 +54,7 @@ class ImportDailyAttendance extends Command
             return self::SUCCESS;
         }
 
-        $headerName = trim((string) $sheet->getCell('A1')->getValue());
+        $headerName = SpreadsheetEncoding::fixMojibake(trim((string) $sheet->getCell('A1')->getValue()));
 
         $employee = $this->resolveEmployee($headerName);
         if (! $employee) {
