@@ -37,6 +37,8 @@ class AdminPanelProvider extends PanelProvider
             // elöl és alapból nyitva; a ritkábban használt csoportok (Dolgozók, Eszközök,
             // Törzsadatok) összecsukva, hogy átláthatóbb legyen a kezdő nézet.
             ->navigationGroups([
+                NavigationGroup::make('Hibalisták')
+                    ->icon('heroicon-o-exclamation-triangle'),
                 NavigationGroup::make('Rendelések')
                     ->icon('heroicon-o-receipt-percent'),
                 NavigationGroup::make('Termelés')
@@ -49,6 +51,9 @@ class AdminPanelProvider extends PanelProvider
                     ->collapsed(),
                 NavigationGroup::make('Eszközök')
                     ->icon('heroicon-o-clipboard-document-list')
+                    ->collapsed(),
+                NavigationGroup::make('Importálás')
+                    ->icon('heroicon-o-arrow-up-tray')
                     ->collapsed(),
                 NavigationGroup::make('Törzsadatok')
                     ->icon('heroicon-o-archive-box')

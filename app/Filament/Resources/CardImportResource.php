@@ -12,7 +12,7 @@ class CardImportResource extends Resource
 {
     protected static ?string $model = CardImport::class;
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
-    protected static ?string $navigationGroup = 'Dolgozók';
+    protected static ?string $navigationGroup = 'Importálás';
     protected static ?string $navigationLabel = 'Kártya importok';
 
     public static function table(Table $table): Table

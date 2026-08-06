@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\EmployeeResource\Widgets;
 
 use App\Models\Employee;
+use App\Models\OvertimeBalance;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,6 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
     protected function getStats(): array
     {
         $eid = $this->record?->id ?? 0;
-        $y   = now()->year;
 
         $tightCentered = [
             // kisebb padding + egységes magasság + teljes középre igazítás
@@ -35,33 +35,20 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
                         [&_.fi-stat-value]:leading-none [&_.fi-stat-value]:whitespace-nowrap',
         ];
 
-        $yearly  = 0.0;
+        // A göngyölt túlóra-egyenleg nem évhez kötött (ld. OvertimeBalanceService::applyDelta
+        // "Göngyölt egyenleg" doksorja) – a korábbi whereYear(now()->year) számítás ezért
+        // szilveszterkor hamis, majdnem-0 értékre "ugrott vissza", miközben a valódi keret
+        // (overtime_balances.balance_minutes) tovább görgetve, változatlanul élt. Itt a
+        // forrás-igazságot (a ténylegesen vezetett egyenleget) mutatjuk, nem egy újraszámolt
+        // közelítést.
+        $balance = OvertimeBalance::where('employee_id', $eid)->first();
+        $balanceHours = $balance ? $balance->effective_balance_minutes / 60 : 0.0;
+
         $monthly = 0.0;
-
-        if (Schema::hasTable('overtimes')) {
-            $yearly = (float) DB::table('overtimes')
-                ->where('employee_id', $eid)
-                ->whereYear('date', $y)
-                ->sum('hours');
-
-            $monthly = (float) DB::table('overtimes')
-                ->where('employee_id', $eid)
-                ->whereBetween('date', [
-                    now()->startOfMonth()->toDateString(),
-                    now()->endOfMonth()->toDateString(),
-                ])
-                ->sum('hours');
-        } elseif (Schema::hasTable('time_entries')) {
+        if (Schema::hasTable('time_entries')) {
             // A jelenlét (presence) bejegyzések automatikusan elszámolt, nettó
             // overtime_delta_minutes összege (ld. TimeEntryObserver) – a 8:30 alatti
             // (negatív) napok is beleszámítanak, nem csak a ténylegesen túlórázottak.
-            $yearly = (float) DB::table('time_entries')
-                ->where('employee_id', $eid)
-                ->where('type', 'presence')
-                ->whereYear('start_date', $y)
-                ->whereNotNull('overtime_delta_minutes')
-                ->sum('overtime_delta_minutes') / 60;
-
             $monthly = (float) DB::table('time_entries')
                 ->where('employee_id', $eid)
                 ->where('type', 'presence')
@@ -74,8 +61,8 @@ class EmployeeOvertimeCard extends StatsOverviewWidget
         }
 
         return [
-            Stat::make("Összes éves ({$y})", number_format($yearly, 1))->extraAttributes($tightCentered),
-            Stat::make('Aktuális havi', number_format($monthly, 1))->extraAttributes($tightCentered),
+            Stat::make('Aktuális egyenleg', number_format($balanceHours, 1))->extraAttributes($tightCentered),
+            Stat::make('Aktuális havi változás', number_format($monthly, 1))->extraAttributes($tightCentered),
         ];
     }
 }

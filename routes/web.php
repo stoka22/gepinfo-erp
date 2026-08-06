@@ -72,7 +72,16 @@ Route::get('/', function () {
 });
 
 // Authos nézetek
-Route::view('dashboard', 'livewire.dashboard')->middleware(['auth', 'verified'])->name('dashboard');
+// A régi Breeze-dashboard helyett szerepkör szerint irányítunk a megfelelő Filament panelra
+// (admin -> /admin, mindenki más -> /app), hogy ne legyen bizonytalan, melyik vezérlőpultot látja a felhasználó.
+Route::get('dashboard', function () {
+    $user = auth()->user();
+    $isAdmin = method_exists($user, 'isAdmin')
+        ? (bool) $user->isAdmin()
+        : (($user->role ?? null) === 'admin');
+
+    return redirect()->route($isAdmin ? 'filament.admin.pages.dashboard' : 'filament.user.pages.dashboard');
+})->middleware(['auth', 'verified'])->name('dashboard');
 Route::view('profile', 'profile')->middleware(['auth'])->name('profile');
 
 // Eszközök/machines

@@ -15,7 +15,7 @@ class TerminalWebhookFailureResource extends Resource
     protected static ?string $model = TerminalWebhookFailure::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-exclamation-triangle';
-    protected static ?string $navigationGroup = 'Eszközök';
+    protected static ?string $navigationGroup = 'Hibalisták';
     protected static ?string $navigationLabel = 'Webhook hibák';
     protected static ?string $modelLabel      = 'Webhook hiba';
     protected static ?string $pluralLabel     = 'Webhook hibák';

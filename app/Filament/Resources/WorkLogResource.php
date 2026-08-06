@@ -23,7 +23,7 @@ class WorkLogResource extends Resource
     protected static ?string $model = WorkLog::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document';
-    protected static ?string $navigationGroup = 'Dolgozók';
+    protected static ?string $navigationGroup = 'Importálás';
     protected static ?string $navigationLabel = 'Munkaidő napló';
     protected static ?string $pluralLabel = 'Munkaidő naplók';
 
