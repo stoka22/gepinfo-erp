@@ -214,9 +214,14 @@ class WorkLogsImport
      * mint amit a napi bontású import (ImportDailyAttendance) is használ, hogy a két
      * forrásból számolt túlóra/jelenlét összemérhető legyen.
      *
+     * Publikus, mert a WorkLogResource "Összekapcsolás dolgozóval" tömeges művelete is
+     * ezt hívja meg utólag — enélkül egy import után kézzel párosított (korábban
+     * dolgozó nélkül maradt) sorhoz sosem jönne létre a jelenlét-bejegyzés, csendben
+     * kimaradva a jelenléti ívről, holott a munkanapló listában már látszik a dolgozó.
+     *
      * @param  array{kezdes:?string, vege:?string, helyiseg:?string, employee_id:?int}  $row
      */
-    protected function createPresenceEntry(array $row): void
+    public function createPresenceEntry(array $row): void
     {
         $kezdes = $row['kezdes'] ? CarbonImmutable::parse($row['kezdes']) : null;
         $vege   = $row['vege'] ? CarbonImmutable::parse($row['vege']) : null;

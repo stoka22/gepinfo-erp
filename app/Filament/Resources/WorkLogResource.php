@@ -151,9 +151,27 @@ class WorkLogResource extends Resource
                             ->required(),
                     ])
                     ->action(function ($records, $data) {
+                        // A puszta employee_id beállítása önmagában NEM elég: a jelenléti ív és a
+                        // túlóra-keret kizárólag a time_entries táblát olvassa, úgyhogy minden
+                        // most összekapcsolt sorhoz létre kell hozni a hozzá tartozó jelenlét-
+                        // bejegyzést is — ugyanazzal a logikával, mint amit maga az import használ,
+                        // különben a sor a munkaidő naplóban látszik, de sehol máshol.
+                        $import = new \App\Imports\WorkLogsImport;
                         foreach ($records as $record) {
                             \App\Models\WorkLog::where('nev', $record->nev)
                                 ->update(['employee_id' => $data['employee_id']]);
+
+                            \App\Models\WorkLog::where('nev', $record->nev)
+                                ->where('employee_id', $data['employee_id'])
+                                ->get()
+                                ->each(function (\App\Models\WorkLog $log) use ($import) {
+                                    $import->createPresenceEntry([
+                                        'kezdes'      => $log->kezdes?->format('Y-m-d H:i:s'),
+                                        'vege'        => $log->vege?->format('Y-m-d H:i:s'),
+                                        'helyiseg'    => $log->helyiseg,
+                                        'employee_id' => $log->employee_id,
+                                    ]);
+                                });
                         }
                     }),
 

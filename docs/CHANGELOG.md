@@ -4,6 +4,21 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-07
+
+- **Munkanapló – "Összekapcsolás dolgozóval" nem hozta létre a jelenlét-bejegyzést**: éles
+  hibajelentés nyomán (a jelenléti íven hiányzott egy dolgozó rögzített adata, holott a
+  munkanapló listában már látszott hozzárendelve) kiderült, hogy ez a tömeges művelet
+  eddig KIZÁRÓLAG a `work_logs.employee_id` mezőt állította be — a jelenléti ívet és a
+  túlóra-keretet viszont kizárólag a `time_entries` tábla táplálja, és ide semmi sem
+  került be. Ez minden olyan sort érintett, amit importáláskor nem sikerült automatikusan
+  párosítani egy dolgozóhoz, és utólag kézzel kapcsoltak össze — a sor "látszott", de
+  soha nem jelent meg sehol máshol (jelenléti ív, túlóra-egyenleg, dolgozói vezérlőpult).
+  Az `WorkLogsImport::createPresenceEntry()` (amit maga az import már helyesen használt)
+  mostantól a "Összekapcsolás dolgozóval" művelet is meghívja minden frissített sorra,
+  ugyanazzal a duplikáció-védelemmel. Új `tests/Feature/Services/WorkLogLinkEmployeeTest.php`
+  fedi (a hiányzó bejegyzés létrejön, és kétszeri összekapcsolás nem duplikál).
+
 ## 2026-07-30 (5)
 
 - **Eszközflotta állapota (`/admin/device-fleet-health`) – vizuális megújítás**: a korábbi

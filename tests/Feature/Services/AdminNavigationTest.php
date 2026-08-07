@@ -4,7 +4,7 @@ use App\Models\Company;
 use App\Models\User;
 use Filament\Facades\Filament;
 
-it('orders the admin navigation groups with Rendelések first and Termelés second', function () {
+it('orders the admin navigation groups with the configured explicit order', function () {
     config(['app.env' => 'local']);
 
     $company = Company::create(['name' => 'Teszt Kft.']);
@@ -16,5 +16,5 @@ it('orders the admin navigation groups with Rendelések first and Termelés seco
 
     $groups = collect(Filament::getCurrentPanel()->getNavigationGroups())->map->getLabel()->values()->all();
 
-    expect($groups)->toBe(['Rendelések', 'Termelés', 'Készlet', 'Dolgozók', 'Eszközök', 'Törzsadatok']);
+    expect($groups)->toBe(['Hibalisták', 'Rendelések', 'Termelés', 'Készlet', 'Dolgozók', 'Eszközök', 'Importálás', 'Törzsadatok']);
 });
