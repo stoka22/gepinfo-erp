@@ -11,6 +11,7 @@ use Filament\Forms\Get;
 use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -91,6 +92,12 @@ class WorkLogResource extends Resource
                     ->boolean()
                     ->toggleable(),
 
+                Tables\Columns\IconColumn::make('synced')
+                    ->label('Szinkronizálva')
+                    ->tooltip('Van-e hozzá a jelenléti íven is megjelenő time_entries bejegyzés')
+                    ->boolean()
+                    ->state(fn (WorkLog $record) => static::isSynced($record)),
+
                 Tables\Columns\TextColumn::make('munkakor')->label('Munkakör')->searchable()->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('helyiseg')->label('Helyiség')->searchable()->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -122,6 +129,58 @@ class WorkLogResource extends Resource
                         1 => 'Igen',
                     ])
                     ->default(0),
+
+                // Dátum-tartomány szűrő a Kezdés dátumára — hogy egy adott behozott
+                // időszakra rá lehessen szűkíteni, ne kelljen soronként végignézni.
+                Tables\Filters\Filter::make('kezdes_range')
+                    ->label('Dátum (Kezdés)')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Ettől'),
+                        Forms\Components\DatePicker::make('until')->label('Eddig'),
+                    ])
+                    ->query(function ($query, array $data) {
+                        return $query
+                            ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('kezdes', '>=', $date))
+                            ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('kezdes', '<=', $date));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['from'] ?? null) {
+                            $indicators[] = 'Ettől: ' . $data['from'];
+                        }
+                        if ($data['until'] ?? null) {
+                            $indicators[] = 'Eddig: ' . $data['until'];
+                        }
+                        return $indicators;
+                    }),
+
+                // "Szinkronizálva" szűrő — hogy egyesével végignézés nélkül lehessen
+                // kiválasztani a még jelenlét-bejegyzés nélkül maradt sorokat (pl. az
+                // "Összekapcsolás dolgozóval" utólagos újra-lefuttatásához).
+                Tables\Filters\TernaryFilter::make('synced')
+                    ->label('Szinkronizálva')
+                    ->placeholder('Mind')
+                    ->trueLabel('Csak szinkronizált')
+                    ->falseLabel('Csak nem szinkronizált')
+                    ->queries(
+                        true: fn ($query) => $query->whereNotNull('employee_id')->whereExists(
+                            fn ($sub) => $sub->select(DB::raw(1))
+                                ->from('time_entries as te')
+                                ->whereColumn('te.employee_id', 'work_logs.employee_id')
+                                ->where('te.entry_method', 'worklog-import')
+                                ->whereColumn('te.start_date', DB::raw('DATE(work_logs.kezdes)'))
+                        ),
+                        false: fn ($query) => $query->where(
+                            fn ($q) => $q->whereNull('employee_id')->orWhereNotExists(
+                                fn ($sub) => $sub->select(DB::raw(1))
+                                    ->from('time_entries as te')
+                                    ->whereColumn('te.employee_id', 'work_logs.employee_id')
+                                    ->where('te.entry_method', 'worklog-import')
+                                    ->whereColumn('te.start_date', DB::raw('DATE(work_logs.kezdes)'))
+                            )
+                        ),
+                        blank: fn ($query) => $query,
+                    ),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
@@ -337,6 +396,25 @@ class WorkLogResource extends Resource
     protected static function unmatchedNameFieldKey(string $nev): string
     {
         return 'assign_' . md5($nev);
+    }
+
+    /**
+     * Van-e a sorhoz már ténylegesen létrehozott time_entries (jelenlét) bejegyzés —
+     * ugyanazzal a pontos (perc szintű, kerekített) egyezéssel, mint amit maga a
+     * bridging (createPresenceEntry) is ellenőriz duplikáció-védelemként.
+     */
+    protected static function isSynced(WorkLog $record): bool
+    {
+        if (! $record->employee_id) {
+            return false;
+        }
+
+        $lookup = \App\Imports\WorkLogsImport::presenceEntryLookupKey([
+            'kezdes' => $record->kezdes?->format('Y-m-d H:i:s'),
+            'vege'   => $record->vege?->format('Y-m-d H:i:s'),
+        ]);
+
+        return \App\Imports\WorkLogsImport::hasPresenceEntry($record->employee_id, $lookup);
     }
 
     /**

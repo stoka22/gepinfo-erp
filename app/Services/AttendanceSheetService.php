@@ -117,6 +117,27 @@ class AttendanceSheetService
             $firstEntry = $completeEntries->isNotEmpty() ? $completeEntries->first() : $entriesToday->first();
             $lastEntry = $completeEntries->isNotEmpty() ? $completeEntries->last() : $entriesToday->last();
 
+            // Minden egyes szakasz külön is (a "másodlagos", részletes jelenléti ívhez) — a
+            // fenti napi összevonás (első be-/utolsó kilépés) mellett, hogy egy nap többszöri
+            // be-/kilépése (pl. ebédszünet) is látszódjon soronként, ne csak összesítve.
+            $segments = $entriesToday->map(function (TimeEntry $e) {
+                $start = $e->raw_start_time ?? $e->start_time;
+                $end = $e->end_time;
+                $minutes = null;
+                if ($start && $end && $e->start_date && $e->end_date) {
+                    $startDt = CarbonImmutable::parse($e->start_date->toDateString().' '.$start->format('H:i:s'));
+                    $endDt = CarbonImmutable::parse($e->end_date->toDateString().' '.$end->format('H:i:s'));
+                    $minutes = $startDt->diffInMinutes($endDt);
+                }
+                return [
+                    'start'      => $start?->format('H:i'),
+                    'end'        => $end?->format('H:i'),
+                    'hoursLabel' => $minutes !== null ? $this->formatMinutes($minutes) : null,
+                    'isModified' => (bool) $e->is_modified,
+                    'location'   => $e->location,
+                ];
+            })->values()->all();
+
             $days[] = [
                 'date'          => $d->format('Y-m-d'),
                 'dayNumber'     => $d->day,
@@ -129,6 +150,7 @@ class AttendanceSheetService
                 'hoursLabel'    => $regularLabel,
                 'overtimeLabel' => $overtimeLabel,
                 'isModified'    => $isModified,
+                'segments'      => $segments,
             ];
 
             $d = $d->addDay();

@@ -16,6 +16,10 @@ Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::cl
     ->middleware('auth')
     ->name('my-attendance-sheet');
 
+Route::get('/my-attendance-sheet-detailed/{monthsAgo?}', [MyAttendanceSheetController::class, 'downloadDetailed'])
+    ->middleware('auth')
+    ->name('my-attendance-sheet-detailed');
+
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn() => redirect()->route('filament.user.auth.login'))->name('login');
 //Route::get('jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.index');

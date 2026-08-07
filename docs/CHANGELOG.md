@@ -4,6 +4,47 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-07 (3)
+
+- **Új parancs: `php artisan work-logs:sync-presence [--dry]`** — az összes dolgozóhoz már
+  párosított munkanapló-sorhoz egyszerre, kötegelve létrehozza a hiányzó jelenlét
+  (`time_entries`) bejegyzést, ahelyett hogy a felületen egyesével kellene ezt
+  kikényszeríteni. Biztonságosan, ismételten futtatható — a már szinkronizált sorokat
+  kihagyja, összesítő táblázatot ír ki (összesen / már szinkronizált / most létrehozva).
+  `--dry` kapcsolóval csak az összesítést mutatja, írás nélkül.
+
+- **Másodlagos, részletes jelenléti ív — minden be-/kilépési szakasz külön sorban**: az
+  eddigi jelenléti ív (napi összesítve: első belépés + utolsó kilépés) mellett most egy
+  ÚJ, kiegészítő dokumentum is elérhető, ami napi több be-/kilépés esetén (pl. ebédszünet)
+  minden szakaszt külön sorban mutat, saját ledolgozott idővel és helyiséggel. Mindkét
+  változat elérhető: (1) a Dolgozók lista tömeges "Jelenléti ív nyomtatása" / "Részletes
+  jelenléti ív" műveleteivel (több dolgozóra/hónapra egyszerre), (2) a dolgozói
+  önkiszolgáló felület vezérlőpultján ("Aktuális hónap megnyitása" / "– részletes nézet"
+  gombok). Az `AttendanceSheetService::buildForEmployee()` mostantól minden naphoz egy
+  `segments` listát is visszaad (a meglévő napi összesítés mellett, azt nem cserélve le).
+
+- **A jelenléti ívek mostantól alapértelmezésben MEGNYÍLNAK, nem letöltődnek** — mind a
+  sima, mind a részletes változat, mind a Dolgozók listáról, mind az önkiszolgáló
+  felületről indítva `Content-Disposition: inline`-t küld `attachment` helyett, így a
+  böngésző új fülön megnyitja a PDF-et letöltési kényszer nélkül.
+
+  Öt új tesztfájl fedi a fentieket (napi szakaszok helyes bontása, a parancs kötegelt
+  működése és idempotenciája, az inline fejléc mind a négy belépési ponton).
+
+## 2026-08-07 (2)
+
+- **Munkanapló lista – "Szinkronizálva" oszlop, "Szinkronizálva" és dátum szűrő**: eddig
+  nem lehetett egy pillantással megállapítani, mely munkanapló-sorokhoz jött ténylegesen
+  létre a jelenléti íven is megjelenő `time_entries` bejegyzés — egyesével kellett volna
+  végignézni. Új oszlop mutatja zöld/piros ikonnal soronként (pontosan ugyanazzal a
+  logikával, mint amit maga a bridging duplikáció-védelme használ — ezt egy közös
+  `WorkLogsImport::presenceEntryLookupKey()`/`hasPresenceEntry()` helyer garantálja, hogy
+  a kettő sose térjen el). Új "Szinkronizálva" szűrő (igen/nem/mind), hogy egy kattintással
+  ki lehessen listázni a még nem szinkronizált sorokat és tömegesen kijelölni őket az
+  "Összekapcsolás dolgozóval" újra-lefuttatásához. Új dátum-tartomány szűrő a Kezdés
+  mezőre, hogy egy adott behozott időszakra rá lehessen szűkíteni. Három új teszttel
+  (`tests/Feature/Services/WorkLogSyncColumnTest.php`) lefedve.
+
 ## 2026-08-07
 
 - **Munkanapló – "Összekapcsolás dolgozóval" nem hozta létre a jelenlét-bejegyzést**: éles

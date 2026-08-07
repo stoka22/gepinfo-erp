@@ -15,6 +15,17 @@ class MyAttendanceSheetController extends Controller
      */
     public function download(int $monthsAgo = 0): StreamedResponse
     {
+        return $this->render($monthsAgo, 'exports.attendance-sheet', 'jelenleti_iv');
+    }
+
+    /** Ugyanaz, de a "részletes" nézet — minden be-/kilépési szakasz külön sorban. */
+    public function downloadDetailed(int $monthsAgo = 0): StreamedResponse
+    {
+        return $this->render($monthsAgo, 'exports.attendance-sheet-detailed', 'jelenleti_iv_reszletes');
+    }
+
+    private function render(int $monthsAgo, string $view, string $filenamePrefix): StreamedResponse
+    {
         $employee = Auth::user()?->employee;
         abort_unless($employee, 403, 'Nincs a fiókodhoz rendelt dolgozói adatlap.');
 
@@ -28,7 +39,7 @@ class MyAttendanceSheetController extends Controller
         $service = app(AttendanceSheetService::class);
         $sheet = $service->buildForEmployee($employee->loadMissing('company'), $periodStart, $periodEnd);
 
-        $html = view('exports.attendance-sheet', [
+        $html = view($view, [
             'sheets'    => [$sheet],
             'printedAt' => now()->format('Y-m-d H:i'),
         ])->render();
@@ -39,11 +50,13 @@ class MyAttendanceSheetController extends Controller
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
 
+        // "inline", nem "attachment": alapértelmezésben megnyíljon (új böngésző-fülön),
+        // ne letöltésre kényszerítse a felhasználót.
         return new StreamedResponse(function () use ($dompdf) {
             echo $dompdf->output();
         }, 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="jelenleti_iv_'.$periodStart->format('Y_m').'.pdf"',
+            'Content-Disposition' => 'inline; filename="'.$filenamePrefix.'_'.$periodStart->format('Y_m').'.pdf"',
         ]);
     }
 }

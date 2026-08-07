@@ -538,80 +538,18 @@ class EmployeeTable
                         && (Filament::auth()->user()?->role ?? null) === 'admin'),
             ])
             ->bulkActions([
-                Tables\Actions\BulkAction::make('attendance_sheet')
-                    ->label('Jelenléti ív nyomtatása')
-                    ->icon('heroicon-o-printer')
-                    ->color('gray')
-                    ->form([
-                        // Korábban nem volt évválasztó, csak now()->year volt hardkódolva, ezért
-                        // egy korábbi (pl. tavalyi) importált időszak jelenléti íve sosem volt
-                        // lekérhető erről a felületről.
-                        Forms\Components\Select::make('year')
-                            ->label('Év')
-                            ->options(collect(range(now()->year, now()->year - 3))->mapWithKeys(fn ($y) => [$y => $y]))
-                            ->default(now()->year)
-                            ->required(),
-                        Forms\Components\CheckboxList::make('months')
-                            ->label('Hónap(ok)')
-                            ->options([
-                                '01' => 'Január',   '02' => 'Február', '03' => 'Március',
-                                '04' => 'Április',  '05' => 'Május',   '06' => 'Június',
-                                '07' => 'Július',   '08' => 'Augusztus', '09' => 'Szeptember',
-                                '10' => 'Október',  '11' => 'November', '12' => 'December',
-                            ])
-                            ->default([now()->format('m')])
-                            ->columns(3)
-                            ->required(),
-                    ])
-                    ->action(function (\Illuminate\Support\Collection $records, array $data) {
-                        $year = (int) ($data['year'] ?? now()->year);
-                        $months = collect($data['months'] ?? [])->sort()->values();
-
-                        $employees = $records
-                            ->reject(fn (Employee $e) => $e->trashed())
-                            ->sortBy('name')
-                            ->values();
-
-                        if ($employees->isEmpty()) {
-                            Notification::make()
-                                ->title('Nincs aktív dolgozó a kijelölés között.')
-                                ->warning()
-                                ->send();
-                            return;
-                        }
-
-                        $service = app(\App\Services\AttendanceSheetService::class);
-                        $sheets = [];
-                        foreach ($employees as $employee) {
-                            $employee->loadMissing('company');
-                            foreach ($months as $m) {
-                                $periodStart = \Carbon\CarbonImmutable::createFromDate($year, (int) $m, 1)->startOfMonth();
-                                $periodEnd = $periodStart->endOfMonth();
-                                $sheets[] = $service->buildForEmployee($employee, $periodStart, $periodEnd);
-                            }
-                        }
-
-                        $html = view('exports.attendance-sheet', [
-                            'sheets'    => $sheets,
-                            'printedAt' => now()->format('Y-m-d H:i'),
-                        ])->render();
-
-                        $options = new \Dompdf\Options(['defaultFont' => 'DejaVu Sans']);
-                        $dompdf = new \Dompdf\Dompdf($options);
-                        $dompdf->loadHtml($html);
-                        $dompdf->setPaper('A4', 'portrait');
-                        $dompdf->render();
-
-                        $filenameMonths = $months->implode('_') ?: now()->format('m');
-
-                        return new StreamedResponse(function () use ($dompdf) {
-                            echo $dompdf->output();
-                        }, 200, [
-                            'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => 'attachment; filename="jelenleti_iv_'.$year.'_'.$filenameMonths.'.pdf"',
-                        ]);
-                    })
-                    ->deselectRecordsAfterCompletion(),
+                static::attendanceSheetBulkAction(
+                    name: 'attendance_sheet',
+                    label: 'Jelenléti ív nyomtatása',
+                    view: 'exports.attendance-sheet',
+                    filenamePrefix: 'jelenleti_iv',
+                ),
+                static::attendanceSheetBulkAction(
+                    name: 'attendance_sheet_detailed',
+                    label: 'Részletes jelenléti ív (soronkénti be-/kilépések)',
+                    view: 'exports.attendance-sheet-detailed',
+                    filenamePrefix: 'jelenleti_iv_reszletes',
+                ),
 
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()->label('Archiválás'),
@@ -622,5 +560,90 @@ class EmployeeTable
                 ]),
             ])
             ->defaultSort('name');
+    }
+
+    /**
+     * Közös építő az "egyszerű" és a "részletes" jelenléti ív tömeges nyomtatásához — csak
+     * a nézetsablonban és a fájlnév-előtagban térnek el, minden más (év/hónap-választó,
+     * dolgozó-szűrés, PDF-generálás) azonos.
+     */
+    protected static function attendanceSheetBulkAction(string $name, string $label, string $view, string $filenamePrefix): Tables\Actions\BulkAction
+    {
+        return Tables\Actions\BulkAction::make($name)
+            ->label($label)
+            ->icon('heroicon-o-printer')
+            ->color('gray')
+            ->form([
+                // Korábban nem volt évválasztó, csak now()->year volt hardkódolva, ezért
+                // egy korábbi (pl. tavalyi) importált időszak jelenléti íve sosem volt
+                // lekérhető erről a felületről.
+                Forms\Components\Select::make('year')
+                    ->label('Év')
+                    ->options(collect(range(now()->year, now()->year - 3))->mapWithKeys(fn ($y) => [$y => $y]))
+                    ->default(now()->year)
+                    ->required(),
+                Forms\Components\CheckboxList::make('months')
+                    ->label('Hónap(ok)')
+                    ->options([
+                        '01' => 'Január',   '02' => 'Február', '03' => 'Március',
+                        '04' => 'Április',  '05' => 'Május',   '06' => 'Június',
+                        '07' => 'Július',   '08' => 'Augusztus', '09' => 'Szeptember',
+                        '10' => 'Október',  '11' => 'November', '12' => 'December',
+                    ])
+                    ->default([now()->format('m')])
+                    ->columns(3)
+                    ->required(),
+            ])
+            ->action(function (\Illuminate\Support\Collection $records, array $data) use ($view, $filenamePrefix) {
+                $year = (int) ($data['year'] ?? now()->year);
+                $months = collect($data['months'] ?? [])->sort()->values();
+
+                $employees = $records
+                    ->reject(fn (Employee $e) => $e->trashed())
+                    ->sortBy('name')
+                    ->values();
+
+                if ($employees->isEmpty()) {
+                    Notification::make()
+                        ->title('Nincs aktív dolgozó a kijelölés között.')
+                        ->warning()
+                        ->send();
+                    return;
+                }
+
+                $service = app(\App\Services\AttendanceSheetService::class);
+                $sheets = [];
+                foreach ($employees as $employee) {
+                    $employee->loadMissing('company');
+                    foreach ($months as $m) {
+                        $periodStart = \Carbon\CarbonImmutable::createFromDate($year, (int) $m, 1)->startOfMonth();
+                        $periodEnd = $periodStart->endOfMonth();
+                        $sheets[] = $service->buildForEmployee($employee, $periodStart, $periodEnd);
+                    }
+                }
+
+                $html = view($view, [
+                    'sheets'    => $sheets,
+                    'printedAt' => now()->format('Y-m-d H:i'),
+                ])->render();
+
+                $options = new \Dompdf\Options(['defaultFont' => 'DejaVu Sans']);
+                $dompdf = new \Dompdf\Dompdf($options);
+                $dompdf->loadHtml($html);
+                $dompdf->setPaper('A4', 'portrait');
+                $dompdf->render();
+
+                $filenameMonths = $months->implode('_') ?: now()->format('m');
+
+                // "inline", nem "attachment": alapértelmezésben megnyíljon (új böngésző-fülön),
+                // ne letöltésre kényszerítse a felhasználót.
+                return new StreamedResponse(function () use ($dompdf) {
+                    echo $dompdf->output();
+                }, 200, [
+                    'Content-Type' => 'application/pdf',
+                    'Content-Disposition' => 'inline; filename="'.$filenamePrefix.'_'.$year.'_'.$filenameMonths.'.pdf"',
+                ]);
+            })
+            ->deselectRecordsAfterCompletion();
     }
 }

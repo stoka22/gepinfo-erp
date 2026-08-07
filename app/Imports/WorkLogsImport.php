@@ -223,24 +223,14 @@ class WorkLogsImport
      */
     public function createPresenceEntry(array $row): void
     {
-        $kezdes = $row['kezdes'] ? CarbonImmutable::parse($row['kezdes']) : null;
-        $vege   = $row['vege'] ? CarbonImmutable::parse($row['vege']) : null;
-
-        $startDate = $kezdes?->toDateString() ?? $vege?->toDateString();
-        $startTime = $kezdes ? TimeRounding::roundStartUpToHalfHour($kezdes->format('H:i')).':00' : null;
-        $endTime   = $vege?->format('H:i:s');
+        $lookup = static::presenceEntryLookupKey($row);
+        [$kezdes, $vege, $startDate, $startTime, $endTime] = [
+            $lookup['kezdes'], $lookup['vege'], $lookup['start_date'], $lookup['start_time'], $lookup['end_time'],
+        ];
 
         // Duplikáció-védelem: ha ugyanazt a fájlt (vagy átfedő időszakot) véletlenül
         // kétszer importálják, ne kerüljön be kétszer ugyanaz a szakasz.
-        $exists = TimeEntry::query()
-            ->where('employee_id', $row['employee_id'])
-            ->where('entry_method', 'worklog-import')
-            ->where('start_date', $startDate)
-            ->where('start_time', $startTime)
-            ->where('end_time', $endTime)
-            ->exists();
-
-        if ($exists) {
+        if (static::hasPresenceEntry($row['employee_id'], $lookup)) {
             return;
         }
 
@@ -259,6 +249,49 @@ class WorkLogsImport
             'needs_review'   => is_null($kezdes) !== is_null($vege),
             'location'       => $row['helyiseg'] ?? null,
         ]);
+    }
+
+    /**
+     * A createPresenceEntry() által ténylegesen létrehozott time_entries mezőket adja
+     * vissza (start_date/start_time/end_time, ugyanazzal a fél órára felfelé kerekítéssel) –
+     * ezt használja a duplikáció-védelem ÉS a WorkLogResource "Szinkronizálva" oszlopa is,
+     * hogy a két hely sose térjen el egymástól.
+     *
+     * @param  array{kezdes:?string, vege:?string}  $row
+     * @return array{kezdes:?CarbonImmutable, vege:?CarbonImmutable, start_date:?string, start_time:?string, end_time:?string}
+     */
+    public static function presenceEntryLookupKey(array $row): array
+    {
+        $kezdes = $row['kezdes'] ? CarbonImmutable::parse($row['kezdes']) : null;
+        $vege   = $row['vege'] ? CarbonImmutable::parse($row['vege']) : null;
+
+        return [
+            'kezdes'     => $kezdes,
+            'vege'       => $vege,
+            'start_date' => $kezdes?->toDateString() ?? $vege?->toDateString(),
+            'start_time' => $kezdes ? TimeRounding::roundStartUpToHalfHour($kezdes->format('H:i')).':00' : null,
+            'end_time'   => $vege?->format('H:i:s'),
+        ];
+    }
+
+    /**
+     * Van-e már a lookup kulcsnak megfelelő "worklog-import" eredetű jelenlét-bejegyzés.
+     *
+     * @param  array{start_date:?string, start_time:?string, end_time:?string}  $lookup
+     */
+    public static function hasPresenceEntry(?int $employeeId, array $lookup): bool
+    {
+        if (! $employeeId) {
+            return false;
+        }
+
+        return TimeEntry::query()
+            ->where('employee_id', $employeeId)
+            ->where('entry_method', 'worklog-import')
+            ->where('start_date', $lookup['start_date'])
+            ->where('start_time', $lookup['start_time'])
+            ->where('end_time', $lookup['end_time'])
+            ->exists();
     }
 
     /**
