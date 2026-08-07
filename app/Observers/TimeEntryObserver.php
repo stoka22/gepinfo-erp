@@ -88,18 +88,28 @@ class TimeEntryObserver
             return;
         }
 
-        $worked = $this->service->workedMinutes($entry);
-        $entry->hours = round($worked / 60, 2);
-
-        if ($entry->needs_review) {
-            return;
-        }
-
         $siblings = TimeEntry::where('employee_id', $entry->employee_id)
             ->where('type', TimeEntryType::Presence->value)
             ->whereDate('start_date', $entry->start_date->toDateString())
             ->when($entry->exists, fn ($q) => $q->where('id', '!=', $entry->id))
             ->get();
+
+        // A nap ÖSSZES szakaszát (a mentés alatt álló bejegyzéssel együtt) egyszerre kell
+        // időrendbe rakni, hogy a "nap első szakasza" (egész órás kerekítés) helyesen
+        // dőljön el – ha csak a testvéreket néznénk külön, egy korábbi testvér tévesen
+        // "másodiknak" tűnhetne, ha éppen ez a mentés alatt álló szakasz a nap legkorábbija.
+        // FONTOS: concat() (nem push()!) – a push() a HELYSZÍNEN módosítaná a $siblings
+        // kollekciót is, ami miatt az később tévesen saját magát (az entry-t) is
+        // tartalmazná a lentebbi needs_review-ellenőrzésnél és a siblingsAppliedDelta
+        // összegzésénél, duplán levonva/hozzáadva a saját korábbi deltáját.
+        $allForDay = $siblings->concat([$entry]);
+        $segmentMinutes = $this->service->segmentMinutesForDay($allForDay);
+        $worked = $segmentMinutes[spl_object_id($entry)] ?? 0;
+        $entry->hours = round($worked / 60, 2);
+
+        if ($entry->needs_review) {
+            return;
+        }
 
         // Amíg a nap bármelyik szakasza felülvizsgálatra vár, a teljes napi ledolgozott idő
         // bizonytalan – nem számolunk el, amíg mindegyik szakasz rendezve nincs.
@@ -107,9 +117,9 @@ class TimeEntryObserver
             return;
         }
 
-        $siblingsWorked = $this->service->totalWorkedMinutesForDay($siblings);
-        $totalWorked = $siblingsWorked + $worked;
-        $newDayDelta = $this->service->deltaMinutes($totalWorked);
+        $totalWorked = array_sum($segmentMinutes);
+        $standardMinutes = $this->service->standardMinutesFor($entry->employee);
+        $newDayDelta = $this->service->deltaMinutes($totalWorked, $standardMinutes);
 
         $siblingsAppliedDelta = (int) $siblings->sum(fn (TimeEntry $s) => (int) ($s->overtime_delta_minutes ?? 0));
         $newEntryDelta = $newDayDelta - $siblingsAppliedDelta;

@@ -34,6 +34,7 @@ class Employee extends Model
         'company_id',
         'created_by_user_id',
         'account_user_id',
+        'daily_quota_hours',
     ];
 
     protected function casts(): array
@@ -44,6 +45,7 @@ class Employee extends Model
             'shift'             => Shift::class,
             'children_under_16' => 'integer',
             'is_disabled'       => 'boolean',
+            'daily_quota_hours' => 'decimal:2',
         ];
     }
 

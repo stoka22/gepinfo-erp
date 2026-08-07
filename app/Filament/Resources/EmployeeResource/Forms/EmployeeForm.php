@@ -186,6 +186,17 @@ class EmployeeForm
                         'casual'    => 'Alkalmi',
                     ])->required()->default('full_time'),
 
+                Forms\Components\Select::make('daily_quota_hours')
+                    ->label('Napi kötelező munkaidő')
+                    ->helperText('Ebből számol a túlóra-motor: +30 perc puffer, +10 perc türelmi idő fölött keletkezik túlóra.')
+                    ->options([
+                        '4.00' => '4 óra',
+                        '6.00' => '6 óra',
+                        '8.00' => '8 óra',
+                    ])
+                    ->default('8.00')
+                    ->required(),
+
                 Forms\Components\Select::make('shift_pattern_id')
                     ->label('Műszak')
                     ->native(false)

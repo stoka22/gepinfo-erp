@@ -17,4 +17,20 @@ class TimeRounding
         }
         return sprintf('%02d:00', ($h + 1) % 24);
     }
+
+    /**
+     * Munkakezdés EGÉSZ órára felfelé kerekítve — a nap ELSŐ bejelentkezésére vonatkozik,
+     * pl. 05:37 -> 06:00, 05:56 -> 06:00, 06:00 -> 06:00. A nap további (ebéd utáni stb.)
+     * be-/kilépései és minden kilépés percre pontos marad, ez a kerekítés csak a napi
+     * első kezdésre alkalmazandó (ld. OvertimeBalanceService::effectiveStartLabel()).
+     */
+    public static function roundStartUpToWholeHour(string $hm): string
+    {
+        [$h, $m] = array_map('intval', explode(':', $hm));
+
+        if ($m === 0) {
+            return sprintf('%02d:00', $h);
+        }
+        return sprintf('%02d:00', ($h + 1) % 24);
+    }
 }

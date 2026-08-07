@@ -223,6 +223,87 @@ it('does not settle any segment of a day while another segment still needs revie
     expect($balance->balance_minutes)->toBe(150);
 });
 
+it('rounds only the first check-in of the day to the whole hour when settling the balance', function () {
+    $employee = overtimeEmployee(); // alapértelmezett 8 órás kvóta -> küszöb 8:30
+
+    $entry = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '05:37:00', // nap első szakasza -> 06:00-ra kerekítve
+    ]);
+
+    $entry->update([
+        'end_date' => '2026-01-05',
+        'end_time' => '14:37:00', // 06:00-14:37 = 8:37 -> +7 perc, de türelmi időn belül (<=10) -> 0
+        'status' => 'checked_out',
+    ]);
+
+    $entry->refresh();
+    // A "hours" mező is a kerekített (hivatalos) időt tükrözi: 06:00-14:37 = 8:37 = 517 perc = 8.62 óra.
+    expect((float) $entry->hours)->toBe(8.62);
+    expect($entry->overtime_delta_minutes)->toBe(0); // 517 perc -> 7 perc a küszöb (8:30) felett, türelmi időn belül (<=10)
+});
+
+it('applies a 6-hour employee\'s own overtime threshold instead of the fixed 8:30', function () {
+    $company = Company::create(['name' => 'Rész Kft.']);
+    $employee = Employee::create(['name' => 'Részmunkaidős', 'company_id' => $company->id, 'daily_quota_hours' => 6.00]);
+
+    $entry = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '08:00:00',
+    ]);
+
+    // 08:00-14:41 = 6:41 -> a 6:30-as küszöb felett 11 perccel, ami már a türelmi időn (10 perc) túl van.
+    $entry->update([
+        'end_date' => '2026-01-05',
+        'end_time' => '14:41:00',
+        'status' => 'checked_out',
+    ]);
+
+    $entry->refresh();
+    expect($entry->overtime_delta_minutes)->toBe(11);
+
+    $balance = OvertimeBalance::where('employee_id', $employee->id)->first();
+    expect($balance->balance_minutes)->toBe(11);
+});
+
+it('does not round the second segment of the day even when settled independently of the first', function () {
+    $employee = overtimeEmployee();
+
+    $morning = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '05:50:00', // első szakasz -> 06:00-ra kerekítve
+    ]);
+    $morning->update(['end_date' => '2026-01-05', 'end_time' => '12:00:00', 'status' => 'checked_out']);
+
+    $afternoon = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '12:37:00', // második szakasz -> NEM kerekített
+    ]);
+    $afternoon->update(['end_date' => '2026-01-05', 'end_time' => '16:00:00', 'status' => 'checked_out']);
+
+    $morning->refresh();
+    $afternoon->refresh();
+
+    // 06:00-12:00 (6:00) + 12:37-16:00 (3:23) = 9:23 = 563 perc -> 563-510=53 perc túlóra összesen.
+    expect($morning->overtime_delta_minutes + $afternoon->overtime_delta_minutes)->toBe(53);
+});
+
 it('ignores non-presence entries entirely', function () {
     $employee = overtimeEmployee();
     $user = overtimeUser($employee->company_id);

@@ -4,6 +4,42 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-07 (4)
+
+- **A túlóra-motor mostantól dolgozónként eltérő napi munkaidőt (4/6/8 óra) kezel, és
+  csak a nap ELSŐ bejelentkezését kerekíti egész órára** — eddig MINDEN dolgozóra egy
+  fix 8:30-as napi küszöb vonatkozott a `OvertimeBalanceService`-ben, függetlenül attól,
+  hogy valójában hány órára volt kötelezett; és a részletes jelenléti ív (illetve a
+  ledolgozott idő számítása általában) a nyers, kerekítés nélküli jelenléti időt
+  használta minden szakasznál.
+
+  - **Új mező**: "Napi kötelező munkaidő" a dolgozói adatlapon (4/6/8 óra, alapértelmezett
+    8 óra a meglévő dolgozóknál) — **a részmunkaidős (4/6 órás) dolgozóknál ezt utólag be
+    kell állítani**, különben a rendszer továbbra is 8 órás küszöbbel számol nekik.
+  - **Küszöb**: napi kötelező munkaidő + 30 perc puffer (pl. 6 órásnál 6:30), efölött 10
+    perc türelmi idő, majd a TELJES eltérés túlórának/hiánynak számít — ugyanaz a logika,
+    csak dolgozónként más alapszámmal (`OvertimeBalanceService::standardMinutesFor()`).
+  - **Kerekítés**: a nap ELSŐ be-/kilépési szakaszának kezdete egész órára kerekítve
+    felfelé (pl. 05:37 → 06:00), minden további aznapi szakasz (ebéd utáni visszatérés
+    stb.) és minden kilépés percre pontos, kerekítés nélkül
+    (`TimeRounding::roundStartUpToWholeHour()`, `OvertimeBalanceService::
+    effectiveStartLabel()`/`segmentMinutesForDay()`).
+  - Ez a logika mindenhol érvényesül, ahol ledolgozott idő/túlóra számol: a jelenlét
+    lezárásakor (`TimeEntryObserver`), mindkét jelenléti íven (összesítő és részletes),
+    a napi bontású importnál (`ImportDailyAttendance` — a hiányzás-fedezet napi
+    "egységára" is a dolgozó saját küszöbéből számol, nem fixen 8:30-ból), és a dolgozói
+    havi óra-diagramon (`EmployeeMonthlyHoursChart` norma-vonala).
+  - **Menet közben talált és javított hiba**: a `TimeEntryObserver`-ben a testvér-szakaszok
+    és a mentés alatt álló bejegyzés egyesítése `Collection::push()`-sal történt, ami a
+    HELYSZÍNEN módosítja a testvér-kollekciót — emiatt egy korrekciónál a bejegyzés
+    tévesen saját magát is beleszámolta volna a "már elszámolt testvérek" összegébe.
+    Javítva `concat()`-ra (nem mutáló), teszttel megerősítve.
+
+  Kilenc új teszt fedi (dolgozónkénti küszöb, kerekítés csak az első szakasznál, a
+  korrekciós hiba reprodukálva és javítva). **Ez a változás egy új migrációt tartalmaz**
+  (`daily_quota_hours` oszlop az `employees` táblán) — a következő deploy-nál kötelező a
+  migráció lefuttatása.
+
 ## 2026-08-07 (3)
 
 - **Új parancs: `php artisan work-logs:sync-presence [--dry]`** — az összes dolgozóhoz már

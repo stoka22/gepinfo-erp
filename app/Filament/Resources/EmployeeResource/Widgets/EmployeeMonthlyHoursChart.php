@@ -107,11 +107,11 @@ class EmployeeMonthlyHoursChart extends ChartWidget
         ];
     }
 
-    /** A dolgozó munkanapjai alapján számolt elvárt óraszám havonta (napi 8:30 norma). */
+    /** A dolgozó munkanapjai alapján számolt elvárt óraszám havonta (a saját napi normája szerint). */
     private function monthlyNorms($months): array
     {
         $resolver = app(WorkdayResolver::class);
-        $dailyNormHours = OvertimeBalanceService::STANDARD_WORKDAY_MINUTES / 60;
+        $dailyNormHours = app(OvertimeBalanceService::class)->standardMinutesFor($this->record) / 60;
 
         return $months->map(function ($month) use ($resolver, $dailyNormHours) {
             $cursor = CarbonImmutable::parse($month->toDateString());

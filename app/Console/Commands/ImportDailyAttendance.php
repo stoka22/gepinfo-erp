@@ -31,7 +31,7 @@ class ImportDailyAttendance extends Command
         .'A munkakezdés fél órára felfelé kerekítve; 8:30 felett túlóra. Munkanapi hiányzásnál elsőként a túlóra-keret, '
         .'majd a szabadság terhelődik (jóváhagyásra várva), fedezet híján "Igazolatlan távollét" kerül rögzítésre.';
 
-    public function handle(WorkdayResolver $workdayResolver): int
+    public function handle(WorkdayResolver $workdayResolver, OvertimeBalanceService $overtimeService): int
     {
         $this->workdayResolver = $workdayResolver;
 
@@ -62,6 +62,12 @@ class ImportDailyAttendance extends Command
         }
 
         $this->info("Dolgozó: {$employee->name} (ID {$employee->id})");
+
+        // A dolgozó saját napi túlóra-küszöbe (napi kötelező munkaidő + 30 perc puffer) —
+        // ld. OvertimeBalanceService::standardMinutesFor(). A hiányzás-fedezet napi
+        // "egységára" (hány perc bankolt túlórát von le egy nap) is ebből számol, nem egy
+        // mindenkire fix 8:30-ból.
+        $standardMinutes = $overtimeService->standardMinutesFor($employee);
 
         $ob = OvertimeBalance::where('employee_id', $employee->id)->first();
         $overtimeMinutesAvailable = $ob ? ($ob->balance_minutes + $ob->manual_adjustment_minutes) : 0;
@@ -117,7 +123,7 @@ class ImportDailyAttendance extends Command
                     continue;
                 }
 
-                if ($overtimeMinutesAvailable >= OvertimeBalanceService::STANDARD_WORKDAY_MINUTES) {
+                if ($overtimeMinutesAvailable >= $standardMinutes) {
                     if (! $dry) {
                         TimeEntry::create([
                             'employee_id'  => $employee->id,
@@ -130,7 +136,7 @@ class ImportDailyAttendance extends Command
                             'note'         => 'batch='.$batchId.';name='.$headerName.';absence=overtime-covered',
                         ]);
                     }
-                    $overtimeMinutesAvailable -= OvertimeBalanceService::STANDARD_WORKDAY_MINUTES;
+                    $overtimeMinutesAvailable -= $standardMinutes;
                     $absenceOvertimeCount++;
                 } elseif ($getVacationRemaining((int) $date->year) >= 1.0) {
                     if (! $dry) {
@@ -179,7 +185,9 @@ class ImportDailyAttendance extends Command
             $needsReview = ($startRaw === '') !== ($endRaw === ''); // pontosan az egyik hiányzik
 
             $rawStartTime = $startRaw !== '' ? $startRaw.':00' : null;
-            $startTime = $startRaw !== '' ? TimeRounding::roundStartUpToHalfHour($startRaw).':00' : null;
+            // Ez az import egy sort/napot kezel dolgozónként — minden sor a napi (egyetlen)
+            // szakasz, tehát mindig a nap "első" szakaszaként egész órára kerekítünk.
+            $startTime = $startRaw !== '' ? TimeRounding::roundStartUpToWholeHour($startRaw).':00' : null;
             $endTime   = $endRaw !== ''   ? $endRaw.':00'   : null;
 
             $workedMinutes = null;

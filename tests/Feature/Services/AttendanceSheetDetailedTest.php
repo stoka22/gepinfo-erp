@@ -58,6 +58,34 @@ it('lists each check-in/check-out segment of a day separately, alongside the agg
     expect($day['end'])->toBe('16:30');
 });
 
+it('rounds only the first segment start to the whole hour and uses the employee\'s own quota for the day totals', function () {
+    $company = Company::create(['name' => 'Kvóta Kft.']);
+    $employee = Employee::create(['name' => 'Kvóta Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 6.00]);
+
+    // Nap első szakasza: 05:50 -> 06:00-ra kerekítve. 06:00-12:30 = 6:30 = pontosan a 6 órás
+    // dolgozó küszöbe (6:00 kvóta + 0:30 puffer), tehát nincs túlóra/hiány.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-03-10', 'start_time' => '05:50:00',
+        'end_date' => '2026-03-10', 'end_time' => '12:30:00',
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee(
+        $employee,
+        CarbonImmutable::create(2026, 3, 1),
+        CarbonImmutable::create(2026, 3, 31),
+    );
+
+    $day = collect($sheet['days'])->firstWhere('date', '2026-03-10');
+
+    expect($day['segments'][0]['start'])->toBe('06:00'); // nem 05:50
+    expect($day['start'])->toBe('06:00');
+    expect($day['hoursLabel'])->toBe('6:30'); // 6 órás dolgozó küszöbe (6:00 kvóta + 0:30 puffer)
+    expect($day['overtimeLabel'])->toBe('0:00');
+});
+
 it('gives an empty segments array for a day with no presence entries', function () {
     $company = Company::create(['name' => 'Üres Kft.']);
     $employee = Employee::create(['name' => 'Üres Teszt', 'company_id' => $company->id]);
