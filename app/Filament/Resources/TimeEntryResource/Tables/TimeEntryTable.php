@@ -126,8 +126,25 @@ class TimeEntryTable
                     ->falseIcon('')
                     ->tooltip(fn (TimeEntry $r) => $r->needs_review ? 'Automatikus kiléptetés – ellenőrizd az időpontot, majd hagyd jóvá.' : null)
                     ->toggleable(),
+
+                // Mennyi ideje vár egy felülvizsgálandó bejegyzés — enélkül könnyen elsüllyed
+                // egy régi tétel a listában; rendezhető, hogy a legrégebbiek előre kerüljenek.
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Várakozik')
+                    ->formatStateUsing(fn (TimeEntry $r) => $r->needs_review ? $r->created_at?->diffForHumans(null, true).' óta' : null)
+                    ->badge()
+                    ->color(fn (TimeEntry $r) => $r->needs_review && $r->created_at?->lt(now()->subDays(3)) ? 'danger' : 'gray')
+                    ->sortable()
+                    ->toggleable(),
             ])
             ->filters([
+                // Közvetlen, önálló kapcsoló a felülvizsgálandó sorokra (a vezérlőpult
+                // "Felülvizsgálandó" KPI-csempéje erre linkel) — a types_visible szűrőtől
+                // függetlenül, hogy egy kattintással izolálható legyen a teljes lista.
+                Tables\Filters\Filter::make('only_needs_review')
+                    ->label('Csak felülvizsgálandó')
+                    ->query(fn (Builder $query) => $query->where('needs_review', true)),
+
                 // TÍPUS-kapcsoló – Presence alapból NINCS a listában → rejtve indul
                 Tables\Filters\Filter::make('types_visible')
                     ->label('Megjelenő típusok')

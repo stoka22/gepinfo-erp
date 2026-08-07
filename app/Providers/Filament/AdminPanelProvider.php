@@ -43,6 +43,8 @@ class AdminPanelProvider extends PanelProvider
                     ->icon('heroicon-o-receipt-percent'),
                 NavigationGroup::make('Termelés')
                     ->icon('heroicon-o-cog-6-tooth'),
+                NavigationGroup::make('Kimutatások')
+                    ->icon('heroicon-o-chart-bar'),
                 NavigationGroup::make('Készlet')
                     ->icon('heroicon-o-cube')
                     ->collapsed(),

@@ -16,5 +16,5 @@ it('orders the admin navigation groups with the configured explicit order', func
 
     $groups = collect(Filament::getCurrentPanel()->getNavigationGroups())->map->getLabel()->values()->all();
 
-    expect($groups)->toBe(['Hibalisták', 'Rendelések', 'Termelés', 'Készlet', 'Dolgozók', 'Eszközök', 'Importálás', 'Törzsadatok']);
+    expect($groups)->toBe(['Hibalisták', 'Rendelések', 'Termelés', 'Kimutatások', 'Készlet', 'Dolgozók', 'Eszközök', 'Importálás', 'Törzsadatok']);
 });

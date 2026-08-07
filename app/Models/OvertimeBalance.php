@@ -27,6 +27,11 @@ class OvertimeBalance extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
     public function getEffectiveBalanceMinutesAttribute(): int
     {
         return $this->balance_minutes + $this->manual_adjustment_minutes;

@@ -85,7 +85,9 @@ class StatsOverview extends BaseWidget
                 ->description('Automatikus kiléptetés / hiányos adat')
                 ->descriptionIcon('heroicon-o-exclamation-triangle')
                 ->color($needsReview > 0 ? 'danger' : 'success')
-                ->url(TimeEntryResource::getUrl('index')),
+                // A "Csak felülvizsgálandó" szűrő automatikusan aktiválva nyílik meg —
+                // nem kell utólag rákeresni a listában.
+                ->url(TimeEntryResource::getUrl('index') . '?tableFilters[only_needs_review][isActive]=1'),
 
             Stat::make('Alacsony készlet', (string) $lowStock)
                 ->description('Tétel a rendelési szint alatt')
