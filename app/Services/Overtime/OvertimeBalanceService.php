@@ -5,7 +5,6 @@ namespace App\Services\Overtime;
 use App\Models\Employee;
 use App\Models\OvertimeBalance;
 use App\Models\TimeEntry;
-use App\Support\TimeRounding;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -95,23 +94,20 @@ class OvertimeBalanceService
     }
 
     /**
-     * A ténylegesen elszámolandó kezdési idő "H:i" alakban: a nap ELSŐ szakaszánál egész
-     * órára felfelé kerekítve (pl. 05:37 -> 06:00), minden további aznapi szakasznál
-     * (ebéd utáni visszatérés stb.) percre pontosan, kerekítés nélkül.
+     * A ténylegesen elszámolandó kezdési idő "H:i" alakban: mindig a nyers, tényleges
+     * bejelentkezés, kerekítés nélkül — sem a nap első, sem a további aznapi szakaszai,
+     * sem a kilépések nem kerekítettek.
      */
     public function effectiveStartLabel(TimeEntry $entry, bool $isFirstOfDay): string
     {
         $rawStart = $entry->raw_start_time ?? $entry->start_time;
 
-        return $isFirstOfDay
-            ? TimeRounding::roundStartUpToWholeHour($rawStart->format('H:i'))
-            : $rawStart->format('H:i');
+        return $rawStart->format('H:i');
     }
 
     /**
      * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának ledolgozott
-     * ideje percben, SZAKASZONKÉNT — a nap első szakaszának kezdete egész órára kerekítve,
-     * a többié percre pontosan (ld. effectiveStartLabel). A kilépés sosem kerekített.
+     * ideje percben, SZAKASZONKÉNT — mindig a nyers, kerekítés nélküli időkkel (ld. effectiveStartLabel).
      *
      * @param  Collection<int, TimeEntry>  $entriesForDay  a nap ÖSSZES (nyitott is) Presence szakasza –
      *                                                       a nyitottak is kellenek a helyes sorrendhez,

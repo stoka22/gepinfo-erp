@@ -170,10 +170,13 @@ class ImportDailyAttendance extends Command
                 continue;
             }
 
+            // Forrástól függetlenül nézzük: ha az adott napra MÁR van jelenlét-bejegyzés
+            // (akár egy korábbi daily-import, akár egy worklog-import, akár a kioszkból),
+            // ne szúrjunk be még egyet — az ugyanazt a műszakot duplikálná, megduplázva a
+            // ledolgozott időt/túlórát a jelenléti íven.
             $exists = TimeEntry::query()
                 ->where('employee_id', $employee->id)
                 ->where('type', TimeEntryType::Presence->value)
-                ->where('entry_method', 'daily-import')
                 ->whereDate('start_date', $date->toDateString())
                 ->exists();
 
@@ -185,9 +188,7 @@ class ImportDailyAttendance extends Command
             $needsReview = ($startRaw === '') !== ($endRaw === ''); // pontosan az egyik hiányzik
 
             $rawStartTime = $startRaw !== '' ? $startRaw.':00' : null;
-            // Ez az import egy sort/napot kezel dolgozónként — minden sor a napi (egyetlen)
-            // szakasz, tehát mindig a nap "első" szakaszaként egész órára kerekítünk.
-            $startTime = $startRaw !== '' ? TimeRounding::roundStartUpToWholeHour($startRaw).':00' : null;
+            $startTime = $startRaw !== '' ? TimeRounding::roundStartUpToHalfHour($startRaw).':00' : null;
             $endTime   = $endRaw !== ''   ? $endRaw.':00'   : null;
 
             $workedMinutes = null;

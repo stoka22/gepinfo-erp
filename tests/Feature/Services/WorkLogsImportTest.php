@@ -85,6 +85,43 @@ it('imports a full row with all columns correctly', function () {
     unlink($path);
 });
 
+it('does not create a duplicate presence entry when the shift was already imported by a different source (daily-import)', function () {
+    // Éles hiba: a napi bontású import (ImportDailyAttendance, entry_method=daily-import)
+    // és a munkanapló-szinkron (WorkLogsImport, entry_method=worklog-import) egymástól
+    // függetlenül importálhatja ugyanazt a műszakot — a duplikáció-védelem korábban csak
+    // a SAJÁT forrása ellen nézett, ezért a második import mindig létrehozott egy második,
+    // majdnem azonos sort, megduplázva a ledolgozott időt/túlórát a jelenléti íven.
+    $company = Company::create(['name' => 'Dedup Kft.']);
+    $employee = Employee::create(['name' => 'Dedup Teszt', 'company_id' => $company->id]);
+
+    // Egy korábbi daily-import már felvitte ezt a napot; a daily-import mindig :00
+    // másodperccel ír, a worklog-import forrás viszont a valós másodpercet őrzi meg (16:30:07)
+    // — a duplikáció-védelemnek ezt is fel kell ismernie, nem csak a pontos egyezést.
+    \App\Models\TimeEntry::create([
+        'employee_id'  => $employee->id,
+        'company_id'   => $company->id,
+        'type'         => 'presence',
+        'status'       => 'checked_out',
+        'start_date'   => '2026-01-05',
+        'start_time'   => '08:00:00',
+        'end_date'     => '2026-01-05',
+        'end_time'     => '16:30:00',
+        'entry_method' => 'daily-import',
+    ]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Dedup Teszt</td><td>Op</td><td>Uzem</td><td>K1</td><td>2026. jan. 5. 08:00:00</td><td>K1</td><td>2026. jan. 5. 16:30:07</td><td>08:30</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    expect(\App\Models\TimeEntry::where('employee_id', $employee->id)->where('type', 'presence')->count())->toBe(1);
+
+    unlink($path);
+});
+
 it('converts a raw Excel day-fraction "ido" value to H:MM on import', function () {
     // Az Excel export egyes celláit nap-törtrészként adja vissza (pl. "0.16458333333333"
     // ~ 3 óra 57 perc), nem pedig "3:57" szöveges alakban — ezt kell H:MM formára hozni.

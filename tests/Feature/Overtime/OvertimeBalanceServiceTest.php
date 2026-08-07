@@ -98,7 +98,7 @@ it('applies the overtime tolerance relative to a 6-hour quota: overtime only fro
         ->and($service->deltaMinutes(401, $standard))->toBe(11); // 6:41-től a TELJES eltérés (401-390) számít
 });
 
-it('rounds only the first segment of the day up to the whole hour; later segments and all check-outs stay minute-exact', function () {
+it('never rounds a segment start; every check-in stays minute-exact, first of the day or not', function () {
     $company = Company::create(['name' => 'Kerekítés Kft.']);
     $employee = Employee::create(['name' => 'Kerekítés Teszt', 'company_id' => $company->id]);
     $service = new OvertimeBalanceService();
@@ -120,12 +120,12 @@ it('rounds only the first segment of the day up to the whole hour; later segment
 
     $minutes = $service->segmentMinutesForDay(collect([$morning, $afternoon]));
 
-    // Reggeli (első) szakasz: 05:37 -> 06:00-ra kerekítve, kilépés percre pontos: 06:00-12:04 = 364 perc.
-    expect($minutes[spl_object_id($morning)])->toBe(364);
+    // Reggeli (első) szakasz: kezdés NEM kerekített, 05:37-12:04 = 387 perc.
+    expect($minutes[spl_object_id($morning)])->toBe(387);
     // Délutáni (második) szakasz: kezdés NEM kerekített, 12:47-16:12 = 205 perc.
     expect($minutes[spl_object_id($afternoon)])->toBe(205);
 
-    expect($service->effectiveStartLabel($morning, true))->toBe('06:00');
+    expect($service->effectiveStartLabel($morning, true))->toBe('05:37');
     expect($service->effectiveStartLabel($afternoon, false))->toBe('12:47');
 });
 

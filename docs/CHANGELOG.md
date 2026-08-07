@@ -4,6 +4,57 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-07 (6)
+
+- **Javítva: duplikált jelenlét-bejegyzések miatt hibásan (a valósnál jóval nagyobb)
+  túlóra jelent meg a jelenléti íven** — a napi bontású import (`ImportDailyAttendance`,
+  `entry_method=daily-import`) és a munkanapló-szinkron (`WorkLogsImport`/
+  `work-logs:sync-presence`, `entry_method=worklog-import`) egymástól függetlenül
+  importálhatta ugyanazt a műszakot: mindkét import saját duplikáció-védelme csak a SAJÁT
+  forrása (`entry_method`) ellen nézett, a másikét nem ismerte fel — ezért ha egy nap már
+  szerepelt az egyik forrásból, a másik forrás simán felvitte MÉG EGYSZER, majdnem azonos
+  időpontokkal (csak pár másodperces eltéréssel a kilépésben). A jelenléti ív pedig a nap
+  összes szakaszát összegzi, így egy megduplázott nap kb. duplán számított ledolgozott
+  időt adott — ami a napi túlóra-küszöb fölött ARÁNYTALANUL felnagyította a kimutatott
+  túlórát (volt olyan dolgozó, akinél egy havi 292 óra ledolgozott idő mellett 131 óra
+  "túlóra" jelent meg).
+  - Mindkét import duplikáció-védelme mostantól FORRÁSTÓL FÜGGETLENÜL néz: ha az adott
+    napra/műszakra MÁR van jelenlét-bejegyzés (bármelyik forrásból: daily-import,
+    worklog-import, kiosk stb.), nem szúr be újat
+    (`WorkLogsImport::hasPresenceEntry()`, `ImportDailyAttendance` `$exists` ellenőrzése).
+  - A `WorkLogsImport` oldali egyezés a kilépést percre (nem másodpercre) pontosan nézi,
+    mert a két forrás pár másodperccel eltérő end_time-mal írja ugyanazt a valós műszakot.
+  - **Adatjavítás lefuttatva** (`php artisan attendance:dedup-daily-vs-worklog`): a már
+    korábban létrejött, pontosan `daily-import` <-> `worklog-import` páros duplikátumok
+    (129 sor, mind Nagy Noémi Pálmánál, 2025.10.27–2026.07.27) törölve, a hozzájuk
+    korábban tévesen hozzáadott `overtime_delta_minutes` visszavonva a
+    `overtime_balances.balance_minutes`-ból (-65 326 perc: 175 890 -> 110 564).
+    A parancs a repóban maradt, `--dry` opcióval bármikor újra ellenőrizhető (0 találatot
+    kell adjon, ha nincs több ilyen duplikátum).
+  - **NYITOTT probléma, ide NEM tartozik**: 19 további duplikátum-pár maradt (18x
+    `office` <-> `worklog-import`, 1x `gépi` <-> `worklog-import`) 17 dolgozónál,
+    egyenként 1 nap — ezekhez nem érkezett döntés, szándékosan nem lettek törölve.
+  - **NYITOTT probléma, ide NEM tartozik**: a duplikátumok eltávolítása után Nagy Noémi
+    Pálma túlóra-egyenlege még mindig irreálisan magas (110 564 perc ≈ 1843 óra) a
+    jelenléti íven látható napi ~30-50 perces túlórákhoz képest — ennek oka még
+    ismeretlen, külön vizsgálatot igényel.
+  - Két új regressziós teszt (`WorkLogsImportTest`, `ImportDailyAttendanceDedupTest`)
+    fedi mindkét irányt.
+
+## 2026-08-07 (5)
+
+- **Visszavonva: a nap első bejelentkezésének egész órára kerekítése** — a (4)-es
+  bejegyzésben bevezetett kerekítés hibásan jelenített meg téves érkezési időt a
+  jelenléti íven, és emiatt a ledolgozott idő/túlóra számítása is helytelen lett
+  (a kerekítés mindig lefelé — pontosabban a beérkezéskor felfelé — torzította a
+  ledolgozott percek számát). Visszaállítva a nyers, kerekítés nélküli érkezési idő
+  használatára mind a jelenléti íven, mind a `TimeEntryObserver` túlóra-elszámolásában
+  (`OvertimeBalanceService::effectiveStartLabel()`), ugyanígy a napi bontású importnál
+  (`ImportDailyAttendance` visszaállítva a korábbi, változatlanul dokumentált fél
+  órás kerekítésre). A dolgozónkénti napi kvóta (4/6/8 óra) és a túlóra-küszöb (kvóta
+  + 30 perc puffer, 10 perc türelmi idő — gyakorlatban 8 órás dolgozónál 8:40-től számít
+  túlórának) változatlanul megmaradt, ez nem volt hibás.
+
 ## 2026-08-07 (4)
 
 - **A túlóra-motor mostantól dolgozónként eltérő napi munkaidőt (4/6/8 óra) kezel, és

@@ -223,7 +223,7 @@ it('does not settle any segment of a day while another segment still needs revie
     expect($balance->balance_minutes)->toBe(150);
 });
 
-it('rounds only the first check-in of the day to the whole hour when settling the balance', function () {
+it('never rounds the first check-in of the day; the raw time settles the balance', function () {
     $employee = overtimeEmployee(); // alapértelmezett 8 órás kvóta -> küszöb 8:30
 
     $entry = TimeEntry::create([
@@ -232,19 +232,19 @@ it('rounds only the first check-in of the day to the whole hour when settling th
         'type' => 'presence',
         'status' => 'checked_in',
         'start_date' => '2026-01-05',
-        'start_time' => '05:37:00', // nap első szakasza -> 06:00-ra kerekítve
+        'start_time' => '05:37:00', // nap első szakasza -> NEM kerekített
     ]);
 
     $entry->update([
         'end_date' => '2026-01-05',
-        'end_time' => '14:37:00', // 06:00-14:37 = 8:37 -> +7 perc, de türelmi időn belül (<=10) -> 0
+        'end_time' => '14:37:00', // 05:37-14:37 = 9:00 -> +30 perc a küszöb (8:30) felett, a türelmi időn (10 perc) túl
         'status' => 'checked_out',
     ]);
 
     $entry->refresh();
-    // A "hours" mező is a kerekített (hivatalos) időt tükrözi: 06:00-14:37 = 8:37 = 517 perc = 8.62 óra.
-    expect((float) $entry->hours)->toBe(8.62);
-    expect($entry->overtime_delta_minutes)->toBe(0); // 517 perc -> 7 perc a küszöb (8:30) felett, türelmi időn belül (<=10)
+    // A "hours" mező a nyers időt tükrözi: 05:37-14:37 = 9:00 = 540 perc = 9.00 óra.
+    expect((float) $entry->hours)->toBe(9.0);
+    expect($entry->overtime_delta_minutes)->toBe(30); // 540 perc -> 30 perc a küszöb (8:30) felett, a türelmi időn túl -> teljes eltérés számít
 });
 
 it('applies a 6-hour employee\'s own overtime threshold instead of the fixed 8:30', function () {
@@ -274,7 +274,7 @@ it('applies a 6-hour employee\'s own overtime threshold instead of the fixed 8:3
     expect($balance->balance_minutes)->toBe(11);
 });
 
-it('does not round the second segment of the day even when settled independently of the first', function () {
+it('does not round either segment of the day even when settled independently', function () {
     $employee = overtimeEmployee();
 
     $morning = TimeEntry::create([
@@ -283,7 +283,7 @@ it('does not round the second segment of the day even when settled independently
         'type' => 'presence',
         'status' => 'checked_in',
         'start_date' => '2026-01-05',
-        'start_time' => '05:50:00', // első szakasz -> 06:00-ra kerekítve
+        'start_time' => '05:50:00', // első szakasz -> NEM kerekített
     ]);
     $morning->update(['end_date' => '2026-01-05', 'end_time' => '12:00:00', 'status' => 'checked_out']);
 
@@ -300,8 +300,8 @@ it('does not round the second segment of the day even when settled independently
     $morning->refresh();
     $afternoon->refresh();
 
-    // 06:00-12:00 (6:00) + 12:37-16:00 (3:23) = 9:23 = 563 perc -> 563-510=53 perc túlóra összesen.
-    expect($morning->overtime_delta_minutes + $afternoon->overtime_delta_minutes)->toBe(53);
+    // 05:50-12:00 (6:10) + 12:37-16:00 (3:23) = 9:33 = 573 perc -> 573-510=63 perc túlóra összesen.
+    expect($morning->overtime_delta_minutes + $afternoon->overtime_delta_minutes)->toBe(63);
 });
 
 it('ignores non-presence entries entirely', function () {

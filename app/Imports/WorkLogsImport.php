@@ -275,23 +275,39 @@ class WorkLogsImport
     }
 
     /**
-     * Van-e már a lookup kulcsnak megfelelő "worklog-import" eredetű jelenlét-bejegyzés.
+     * Van-e már a lookup kulcsnak megfelelő jelenlét-bejegyzés — FORRÁSTÓL FÜGGETLENÜL
+     * (nem csak a korábbi worklog-import eredetűek közt nézünk, hanem bármelyik presence
+     * bejegyzés közt, pl. a napi bontású importból (daily-import) vagy a kioszkból
+     * származók közt is). Enélkül ugyanarra a műszakra két külön importforrásból két
+     * külön (duplikált) time_entries sor jönne létre, megduplázva a ledolgozott
+     * időt/túlórát a jelenléti íven.
+     *
+     * A kilépés percre (nem másodpercre) pontos egyezését nézzük: a worklog-import a
+     * forrás pontos másodpercét őrzi meg, a daily-import viszont mindig :00 másodperccel
+     * ír — ugyanaz a valós műszak emiatt pár másodperccel eltérő end_time-mal kerülne be
+     * a két forrásból, egy szigorú másodperc-pontos egyezés ezt tévesen új sornak látná.
      *
      * @param  array{start_date:?string, start_time:?string, end_time:?string}  $lookup
      */
     public static function hasPresenceEntry(?int $employeeId, array $lookup): bool
     {
-        if (! $employeeId) {
+        if (! $employeeId || ! $lookup['start_date']) {
             return false;
         }
 
+        $endMinute = $lookup['end_time'] ? substr($lookup['end_time'], 0, 5) : null;
+
         return TimeEntry::query()
             ->where('employee_id', $employeeId)
-            ->where('entry_method', 'worklog-import')
+            ->where('type', TimeEntryType::Presence->value)
             ->where('start_date', $lookup['start_date'])
-            ->where('start_time', $lookup['start_time'])
-            ->where('end_time', $lookup['end_time'])
-            ->exists();
+            ->when(
+                $lookup['start_time'] === null,
+                fn ($q) => $q->whereNull('start_time'),
+                fn ($q) => $q->where('start_time', $lookup['start_time']),
+            )
+            ->get(['end_time'])
+            ->contains(fn (TimeEntry $entry) => $entry->end_time?->format('H:i') === $endMinute);
     }
 
     /**
