@@ -5,6 +5,7 @@ namespace App\Services\Overtime;
 use App\Models\Employee;
 use App\Models\OvertimeBalance;
 use App\Models\TimeEntry;
+use App\Support\TimeRounding;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -94,9 +95,10 @@ class OvertimeBalanceService
     }
 
     /**
-     * A ténylegesen elszámolandó kezdési idő "H:i" alakban: mindig a nyers, tényleges
-     * bejelentkezés, kerekítés nélkül — sem a nap első, sem a további aznapi szakaszai,
-     * sem a kilépések nem kerekítettek.
+     * A jelenléti íven MEGJELENÍTENDŐ kezdési idő "H:i" alakban — mindig a nyers,
+     * tényleges bejelentkezés, kerekítés nélkül. FONTOS: ez a "kijelzett" idő, NEM a
+     * túlóra-elszámoláshoz használt "műszakkezdés" — azt ld. segmentMinutesForDay(),
+     * ami a nap első szakaszánál külön, csak a számításhoz kerekít.
      */
     public function effectiveStartLabel(TimeEntry $entry, bool $isFirstOfDay): string
     {
@@ -107,7 +109,13 @@ class OvertimeBalanceService
 
     /**
      * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának ledolgozott
-     * ideje percben, SZAKASZONKÉNT — mindig a nyers, kerekítés nélküli időkkel (ld. effectiveStartLabel).
+     * ideje percben, SZAKASZONKÉNT — a NAP ELSŐ szakaszánál a "műszakkezdés" fél órára
+     * felfelé kerekítve (pl. 05:37 -> 06:00; a kijelentkezés innentől számítva kvóta+30
+     * perc szünet+10 perc türelmi idő után minősül túlórának), minden további aznapi
+     * szakasznál (ebéd utáni visszatérés stb.) és minden kilépésnél percre pontosan,
+     * kerekítés nélkül. Forrástól függetlenül érvényes (kioszk, import, kézi rögzítés
+     * egyaránt) — ez KIZÁRÓLAG a számításra vonatkozik, a kijelzett érkezési időt (ld.
+     * effectiveStartLabel()) nem érinti.
      *
      * @param  Collection<int, TimeEntry>  $entriesForDay  a nap ÖSSZES (nyitott is) Presence szakasza –
      *                                                       a nyitottak is kellenek a helyes sorrendhez,
@@ -124,7 +132,8 @@ class OvertimeBalanceService
                 continue; // nyitott szakasz: számít a sorrendbe, de nincs ledolgozott ideje
             }
 
-            $startHm = $this->effectiveStartLabel($entry, $i === 0);
+            $rawStart = ($entry->raw_start_time ?? $entry->start_time)->format('H:i');
+            $startHm = $i === 0 ? TimeRounding::roundStartUpToHalfHour($rawStart) : $rawStart;
             $start = Carbon::parse($entry->start_date->toDateString() . ' ' . $startHm . ':00');
             $end = Carbon::parse($entry->end_date->toDateString() . ' ' . $entry->end_time->format('H:i:s'));
 

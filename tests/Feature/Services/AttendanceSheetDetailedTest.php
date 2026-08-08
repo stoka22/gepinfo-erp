@@ -58,17 +58,18 @@ it('lists each check-in/check-out segment of a day separately, alongside the agg
     expect($day['end'])->toBe('16:30');
 });
 
-it('never rounds the first segment start and uses the employee\'s own quota for the day totals', function () {
+it('displays the raw (unrounded) arrival time, but calculates the worked hours/overtime from the half-hour-rounded "műszakkezdés"', function () {
     $company = Company::create(['name' => 'Kvóta Kft.']);
     $employee = Employee::create(['name' => 'Kvóta Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 6.00]);
 
-    // Nap első szakasza: NEM kerekített. 05:50-12:30 = 6:40, ami a 6 órás dolgozó küszöbén
-    // (6:00 kvóta + 0:30 puffer = 6:30) 10 perccel van túl — pont a türelmi időn belül,
-    // tehát a "rendes" órák a küszöbig teltnek számítanak, túlóra/hiány nincs.
+    // Nap első szakasza: a KIJELZETT érkezés nyers (05:20), de a SZÁMÍTÁS a fél órára
+    // kerekített műszakkezdéstől (05:30) indul. 05:30-12:30 = 7:00, ami a 6 órás dolgozó
+    // küszöbén (6:00 kvóta + 0:30 puffer = 6:30) 30 perccel túl van, a türelmi időn (10 perc)
+    // is túl -> a teljes eltérés (30 perc) túlórának számít.
     TimeEntry::create([
         'employee_id' => $employee->id, 'company_id' => $company->id,
         'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
-        'start_date' => '2026-03-10', 'start_time' => '05:50:00',
+        'start_date' => '2026-03-10', 'start_time' => '05:20:00',
         'end_date' => '2026-03-10', 'end_time' => '12:30:00',
     ]);
 
@@ -81,10 +82,10 @@ it('never rounds the first segment start and uses the employee\'s own quota for 
 
     $day = collect($sheet['days'])->firstWhere('date', '2026-03-10');
 
-    expect($day['segments'][0]['start'])->toBe('05:50'); // nyers, nem kerekített
-    expect($day['start'])->toBe('05:50');
-    expect($day['hoursLabel'])->toBe('6:30'); // 6 órás dolgozó küszöbe (6:00 kvóta + 0:30 puffer)
-    expect($day['overtimeLabel'])->toBe('0:00');
+    expect($day['segments'][0]['start'])->toBe('05:20'); // kijelzés: nyers, nem kerekített
+    expect($day['start'])->toBe('05:20');
+    expect($day['hoursLabel'])->toBe('6:30'); // rendes órák a küszöbig (6 órás dolgozó: 6:00 kvóta + 0:30 puffer)
+    expect($day['overtimeLabel'])->toBe('0:30'); // számítás: 05:30 (kerekített műszakkezdés) -12:30 = 7:00, 30 perc a küszöb felett
 });
 
 it('gives an empty segments array for a day with no presence entries', function () {

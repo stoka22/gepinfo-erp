@@ -119,15 +119,19 @@ class AttendanceSheetService
             }
 
             // Napi több be-/kilépés esetén a legkorábbi érkezés és a legkésőbbi távozás jelenik meg
-            // (megegyezik azzal, ahogy a "ma" nézet is összegzi a kiosk-widgeten) — az érkezés a
-            // nap első szakaszának nyers, kerekítés nélküli kezdete (ld. lent, effectiveStartLabel).
+            // (megegyezik azzal, ahogy a "ma" nézet is összegzi a kiosk-widgeten) — a KIJELZETT
+            // érkezés mindig a nyers, kerekítés nélküli idő (ld. lent, effectiveStartLabel); a
+            // ledolgozott óra/túlóra SZÁMÍTÁSA viszont a nap első szakaszánál fél órára kerekített
+            // "műszakkezdéstől" indul (ld. OvertimeBalanceService::segmentMinutesForDay) — a kettő
+            // szándékosan eltérhet.
             $lastEntry = $completeEntries->isNotEmpty() ? $completeEntries->last() : $entriesToday->last();
 
             // Minden egyes szakasz külön is (a "másodlagos", részletes jelenléti ívhez) — a
             // fenti napi összevonás (első be-/utolsó kilépés) mellett, hogy egy nap többszöri
-            // be-/kilépése (pl. ebédszünet) is látszódjon soronként, ne csak összesítve. Mindig
-            // nyers, kerekítés nélküli idővel (ld. OvertimeBalanceService::effectiveStartLabel/
-            // segmentMinutesForDay — ugyanaz a logika adja a "ledolgozott" órát is).
+            // be-/kilépése (pl. ebédszünet) is látszódjon soronként, ne csak összesítve. A
+            // kijelzett kezdés nyers (ld. effectiveStartLabel), a hoursLabel viszont a fél órára
+            // kerekített műszakkezdésből számolt ledolgozott időt tükrözi (ld.
+            // OvertimeBalanceService::segmentMinutesForDay).
             $sortedToday = $this->overtimeService->sortEntriesForDay($entriesToday);
             $segmentMinuteMap = $this->overtimeService->segmentMinutesForDay($entriesToday);
             $segments = $sortedToday->map(function (TimeEntry $e, int $i) use ($segmentMinuteMap) {

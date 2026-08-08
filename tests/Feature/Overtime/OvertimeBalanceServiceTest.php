@@ -98,7 +98,7 @@ it('applies the overtime tolerance relative to a 6-hour quota: overtime only fro
         ->and($service->deltaMinutes(401, $standard))->toBe(11); // 6:41-től a TELJES eltérés (401-390) számít
 });
 
-it('never rounds a segment start; every check-in stays minute-exact, first of the day or not', function () {
+it('rounds only the first segment start to the half hour for the WORKED-MINUTES calculation, but the displayed (effectiveStartLabel) time always stays raw', function () {
     $company = Company::create(['name' => 'Kerekítés Kft.']);
     $employee = Employee::create(['name' => 'Kerekítés Teszt', 'company_id' => $company->id]);
     $service = new OvertimeBalanceService();
@@ -106,7 +106,7 @@ it('never rounds a segment start; every check-in stays minute-exact, first of th
     $morning = TimeEntry::forceCreate([
         'employee_id' => $employee->id, 'company_id' => $company->id,
         'type' => 'presence', 'status' => 'checked_out',
-        'start_date' => '2026-04-01', 'start_time' => '05:37:00',
+        'start_date' => '2026-04-01', 'start_time' => '05:20:00', // <=30 perc -> fél órára kerekítve 05:30 (NEM 06:00 -- ez nem egész órás kerekítés)
         'end_date' => '2026-04-01', 'end_time' => '12:04:00',
         'needs_review' => true, // ne fusson a valódi observer, csak a nyers számítást teszteljük
     ]);
@@ -120,12 +120,13 @@ it('never rounds a segment start; every check-in stays minute-exact, first of th
 
     $minutes = $service->segmentMinutesForDay(collect([$morning, $afternoon]));
 
-    // Reggeli (első) szakasz: kezdés NEM kerekített, 05:37-12:04 = 387 perc.
-    expect($minutes[spl_object_id($morning)])->toBe(387);
+    // Reggeli (első, "műszakkezdés") szakasz: SZÁMÍTÁSHOZ fél órára kerekítve 05:30-ra, 05:30-12:04 = 394 perc.
+    expect($minutes[spl_object_id($morning)])->toBe(394);
     // Délutáni (második) szakasz: kezdés NEM kerekített, 12:47-16:12 = 205 perc.
     expect($minutes[spl_object_id($afternoon)])->toBe(205);
 
-    expect($service->effectiveStartLabel($morning, true))->toBe('05:37');
+    // A KIJELZETT érkezési idő (effectiveStartLabel) ettől függetlenül mindig a nyers idő marad.
+    expect($service->effectiveStartLabel($morning, true))->toBe('05:20');
     expect($service->effectiveStartLabel($afternoon, false))->toBe('12:47');
 });
 

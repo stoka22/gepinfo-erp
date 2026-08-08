@@ -4,6 +4,30 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (1)
+
+- **Javítva: a túlóra-számítás a bejelentkezés és a "műszakkezdés" közti időt is
+  túlórának számolta be** — a tegnapi (5)-ös bejegyzésben a kerekítés teljesen
+  eltávolításra került (a nyers bejelentkezéstől számolt mindent), ami azt jelentette,
+  hogy egy korán érkező dolgozónál a korai érkezés és a hivatalos műszakkezdés közti
+  idő is a ledolgozott időbe (és emiatt adott esetben a túlórába) számított be.
+  - **Helyes szabály** (üzleti specifikáció alapján): a "műszakkezdés" a nap ELSŐ
+    bejelentkezése, FÉL ÓRÁRA felfelé kerekítve (pl. 05:37 -> 06:00, 05:20 -> 05:30) —
+    ettől a ponttól számít a napi kötelező munkaidő + 30 perc szünet + 10 perc türelmi
+    idő, ami után a kijelentkezés túlórának minősül. Ez a meglévő, importoknál már
+    használt `TimeRounding::roundStartUpToHalfHour()` konvenció, most már a
+    SZÁMÍTÁSBAN is, forrástól függetlenül (élő kioszkos bejelentkezésnél is — eddig a
+    kioszk EGYÁLTALÁN nem kerekített).
+  - **A jelenléti íven KIJELZETT érkezési idő változatlanul a nyers, tényleges
+    bejelentkezés marad** (`OvertimeBalanceService::effectiveStartLabel()`) — a kijelzés
+    és a számítás explicit szét van választva: a kijelzés mindig nyers, a
+    ledolgozott óra/túlóra számítás (`segmentMinutesForDay()`) a nap első szakaszánál a
+    kerekített műszakkezdéstől indul. A második (és további) aznapi szakaszok kezdete
+    továbbra sem kerekített, egyik célra sem.
+  - Három regressziós teszt frissítve, mindegyik explicit módon a fél órás (nem az
+    egész órás!) kerekítést ellenőrzi, és külön mind a kijelzett, mind a számított
+    értéket.
+
 ## 2026-08-07 (6)
 
 - **Javítva: duplikált jelenlét-bejegyzések miatt hibásan (a valósnál jóval nagyobb)
