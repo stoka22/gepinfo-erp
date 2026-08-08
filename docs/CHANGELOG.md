@@ -4,6 +4,22 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (3)
+
+- **Javítva: nem lehetett több dolgozónak egyszerre jelenléti ívet nyomtatni** — a
+  `Dolgozók` lista tömeges "Jelenléti ív nyomtatása" művelete helyesen minden kijelölt
+  dolgozóra lefutott és egyetlen összevont PDF-be renderelte őket, de a Dompdf
+  renderelés a nagyobb kijelölésnél (mérve: az összes ~52 dolgozónál egyszerre, akár
+  már 1 hónapra is) túllépte a PHP alapértelmezett 128M memória-limitjét, és
+  "Allowed memory size exhausted" végzetes hibával elszállt — kisebb (pl. 5 fős)
+  kijelölésnél ez nem jelentkezett (0,4s/1,2s), ezért nehéz volt észrevenni.
+  - `EmployeeTable::attendanceSheetBulkAction()`: a memória-limit 512M-re emelve (és a
+    végrehajtási idő 120s-ra) a művelet futása idejére — csak erre a viszonylag ritka,
+    egyszeri riport-jellegű exportra, nem globálisan a php.ini-ben.
+  - Ellenőrizve: 52 dolgozó, 1 hónap, 512M limittel ~11 másodperc alatt sikeresen
+    lefut (korábban 128M-tal fatal error volt).
+  - Új regressziós teszt (`AttendanceSheetInlineTest`).
+
 ## 2026-08-08 (2)
 
 - **Javítva: `/admin/time-entries/{id}/edit` — a be-/kilépés javítása nem futtatta újra a

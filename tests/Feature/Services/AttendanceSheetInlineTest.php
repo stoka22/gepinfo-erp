@@ -73,3 +73,33 @@ it('builds the summary and detailed bulk actions with an inline (not attachment)
         expect($disposition)->not->toContain('attachment');
     }
 });
+
+it('processes multiple employees in one merged export and raises the memory limit for the render', function () {
+    // Éles hiba: sok dolgozó egyszerre kiválasztva (pl. a teljes cég) az alapértelmezett
+    // 128M PHP memória-limitet a Dompdf renderelés túllépte ("Allowed memory size
+    // exhausted" fatal error, mérve: ~52 dolgozónál) -- a bulk action mostantól 512M-re
+    // emeli a limitet a renderelés idejére. Itt csak azt ellenőrizzük, hogy az action
+    // ténylegesen lefuttatja ezt az emelést (nem szimulálunk valódi memóriatúllépést,
+    // mert az elfuttatott teszt-folyamat maga is a limithez közeli memóriát használ).
+    config(['app.env' => 'local']);
+
+    $company = Company::create(['name' => 'Inline Multi Kft.']);
+    $admin = User::factory()->create(['company_id' => $company->id, 'role' => 'admin']);
+    $employees = collect([
+        Employee::create(['name' => 'Több Dolgozó Egy', 'company_id' => $company->id]),
+        Employee::create(['name' => 'Több Dolgozó Kettő', 'company_id' => $company->id]),
+        Employee::create(['name' => 'Több Dolgozó Három', 'company_id' => $company->id]),
+    ]);
+
+    $this->actingAs($admin);
+
+    $ref = new ReflectionMethod(\App\Filament\Resources\EmployeeResource\Tables\EmployeeTable::class, 'attendanceSheetBulkAction');
+    $ref->setAccessible(true);
+    $bulkAction = $ref->invoke(null, 'attendance_sheet', 'Teszt', 'exports.attendance-sheet', 'jelenleti_iv_teszt');
+    $actionClosure = $bulkAction->getActionFunction();
+
+    $response = $actionClosure($employees, ['year' => now()->year, 'months' => [now()->format('m')]]);
+
+    expect($response)->toBeInstanceOf(\Symfony\Component\HttpFoundation\StreamedResponse::class);
+    expect(ini_get('memory_limit'))->toBe('512M');
+});

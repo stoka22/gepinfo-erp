@@ -595,6 +595,14 @@ class EmployeeTable
                     ->required(),
             ])
             ->action(function (\Illuminate\Support\Collection $records, array $data) use ($view, $filenamePrefix) {
+                // Több dolgozó egyszerre válaszva (pl. a teljes cég) az alapértelmezett 128M
+                // PHP memória-limitet simán túllépi a Dompdf renderelés (mérve: ~52 dolgozónál
+                // fatal "Allowed memory size exhausted" hiba a Dompdf CSS-feldolgozásában) —
+                // ezért csak erre a (viszonylag ritka, egyszeri riport-jellegű) műveletre
+                // megemeljük, nem globálisan a php.ini-ben.
+                ini_set('memory_limit', '512M');
+                set_time_limit(120);
+
                 $year = (int) ($data['year'] ?? now()->year);
                 $months = collect($data['months'] ?? [])->sort()->values();
 
