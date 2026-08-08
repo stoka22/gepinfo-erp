@@ -36,6 +36,13 @@ class CreateTimeEntry extends CreateRecord
             ], true)) {
                 $data['status'] = \App\Enums\TimeEntryStatus::CheckedIn->value;
             }
+
+            // Az "end_date" mező jelenlétnél rejtett az űrlapon (csak a többnapos
+            // távollét-típusoknál látszik) — enélkül egy kilépési idővel rendelkező, de
+            // korábban hiányos (pl. auto-kiléptetett) bejegyzésen sosem lehetne beállítani,
+            // és a TimeEntryObserver::settlePresence() teljesség-ellenőrzése örökre
+            // elbukna rajta. A jelenlét mindig egynapos, a kilépés dátuma = a belépésé.
+            $data['end_date'] = filled($data['end_time'] ?? null) ? ($data['start_date'] ?? null) : null;
         } else {
             if (in_array($data['status'] ?? null, [
                 \App\Enums\TimeEntryStatus::CheckedIn->value,

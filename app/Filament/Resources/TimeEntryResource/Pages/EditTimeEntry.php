@@ -35,6 +35,14 @@ class EditTimeEntry extends EditRecord
             $data['status'] = filled($data['end_time'] ?? null)
                 ? TimeEntryStatus::CheckedOut->value
                 : TimeEntryStatus::CheckedIn->value;
+
+            // Az "end_date" mező jelenlétnél rejtett az űrlapon (csak a többnapos
+            // távollét-típusoknál látszik), ezért sosem érkezik be a mentett adatok közt —
+            // enélkül egy kilépési idővel most kiegészített, de korábban hiányos (pl.
+            // auto-kiléptetett) bejegyzésen sosem lehetne beállítani, és a
+            // TimeEntryObserver::settlePresence() teljesség-ellenőrzése örökre elbukna
+            // rajta. A jelenlét mindig egynapos, a kilépés dátuma = a belépésé.
+            $data['end_date'] = filled($data['end_time'] ?? null) ? ($data['start_date'] ?? null) : null;
         } else {
             if (in_array($data['status'] ?? null, [
                 TimeEntryStatus::CheckedIn->value,

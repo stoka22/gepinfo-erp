@@ -4,6 +4,29 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (4)
+
+- **Javítva: a kilépési adat javítása egy felülvizsgálandó jelenlét-bejegyzésen (pl.
+  #19815) mentés után nem jelent meg és a "felülvizsgálandó" jelzés sem tűnt el.**
+  A jelenlét-típusú bejegyzéseknél az "end_date" (kilépés dátuma) mező REJTETT az
+  űrlapon (csak a többnapos távollét-típusoknál látszik) és nincs `dehydrated(true)`-zva,
+  ezért egy hiányos (pl. auto-kiléptetett vagy hiányos importból származó) bejegyzésen,
+  aminek `end_date`-je null volt, SOHA nem lehetett beállítani — az admin csak a kilépés
+  IDEJÉT tudta megadni, a DÁTUMA örökre null maradt. A `TimeEntryObserver::
+  settlePresence()` viszont mind a négy mező (be-/kilépés dátuma és ideje) meglétét
+  megköveteli, mielőtt bármit számolna — emiatt a munkaidő/túlóra sosem frissült, és a
+  `needs_review` jelzés sem tűnt el (semmi nem törölte automatikusan).
+  - `CreateTimeEntry`/`EditTimeEntry`: jelenlét típusnál, ha van kilépési idő, az
+    `end_date` mostantól mentés előtt automatikusan a kezdés napjára (`start_date`)
+    állítódik — a jelenlét mindig egynapos, az éjszakába nyúlást a kilépési IDŐ (nem a
+    dátum) kezeli.
+  - `TimeEntryObserver::trackManualCorrection()`: egy felülvizsgálatra váró jelenlét-
+    bejegyzés mostantól automatikusan jóváhagyottá válik, amint egy admin ténylegesen
+    javítja/kiegészíti a be-/kilépés valamelyik adatát, és a bejegyzés emiatt most már
+    teljes — maga a javítás számít jóváhagyásnak, nem kell hozzá külön gomb.
+  - Négy új regressziós teszt, köztük a #19815-ös rekord pontos állapotának
+    reprodukciója (`TimeEntryEditRecalculatesTest`).
+
 ## 2026-08-08 (3)
 
 - **Javítva: nem lehetett több dolgozónak egyszerre jelenléti ívet nyomtatni** — a

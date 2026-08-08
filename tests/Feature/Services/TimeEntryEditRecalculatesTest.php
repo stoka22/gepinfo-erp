@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Resources\TimeEntryResource\Pages\CreateTimeEntry;
 use App\Filament\Resources\TimeEntryResource\Pages\EditTimeEntry;
 use App\Models\Company;
 use App\Models\Employee;
@@ -81,4 +82,62 @@ it('recalculates hours and overtime when correcting an existing presence entry t
     expect((float) $entry->hours)->toBe(9.08);
     expect($entry->overtime_delta_minutes)->not->toBeNull();
     expect($entry->overtime_delta_minutes)->toBe(35); // 545-510=35 perc, a türelmi időn (10 perc) túl
+});
+
+it('sets end_date automatically and clears needs_review when correcting a checkout on a presence entry with a missing end_date -- reproduces record #19815', function () {
+    $admin = editTimeEntryAdmin();
+    $employee = Employee::create(['name' => 'Hiányos Kilépés', 'company_id' => $admin->company_id]);
+
+    // Ugyanaz az állapot, mint a valós #19815-ös rekordé: van kezdés, de a kilépés
+    // (dátum ÉS idő) hiányzik, és a bejegyzés felülvizsgálatra vár (pl. auto-kiléptetés
+    // vagy hiányos import miatt). Az "end_date" mező jelenlétnél rejtett az űrlapon, ezért
+    // korábban SOSEM lehetett beállítani -- a javítás (end_time megadása) örökre
+    // hatástalan maradt, a felülvizsgálandó jelzés sosem tűnt el.
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id,
+        'company_id' => $admin->company_id,
+        'type' => 'presence',
+        'status' => 'checked_out',
+        'start_date' => '2026-08-03',
+        'start_time' => '06:00:00',
+        'end_date' => null,
+        'end_time' => null,
+        'needs_review' => true,
+    ]);
+
+    Livewire\Livewire::actingAs($admin)
+        ->test(EditTimeEntry::class, ['record' => $entry->getRouteKey()])
+        ->fillForm([
+            'end_time' => '14:30', // az end_date mező jelenlétnél nincs is az űrlapon, nem lehet kitölteni
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $entry->refresh();
+    expect($entry->end_date->toDateString())->toBe('2026-08-03'); // automatikusan a kezdés napjára állítva
+    expect($entry->end_time->format('H:i'))->toBe('14:30');
+    expect($entry->needs_review)->toBeFalse(); // a javítás magával hozza a jóváhagyást
+    expect($entry->is_modified)->toBeTrue();
+    expect($entry->hours)->not->toBeNull(); // a munkaidő újraszámolódott
+    expect($entry->overtime_delta_minutes)->not->toBeNull(); // a túlóra is elszámolódott
+});
+
+it('sets end_date automatically when creating a new presence entry with a checkout time', function () {
+    $admin = editTimeEntryAdmin();
+    $employee = Employee::create(['name' => 'Új Bejegyzés', 'company_id' => $admin->company_id]);
+
+    Livewire\Livewire::actingAs($admin)
+        ->test(CreateTimeEntry::class)
+        ->fillForm([
+            'employee_id' => $employee->id,
+            'type' => 'presence',
+            'start_date' => '2026-08-03',
+            'start_time' => '06:00',
+            'end_time' => '14:30', // az end_date mező jelenlétnél nincs is az űrlapon
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $entry = TimeEntry::where('employee_id', $employee->id)->first();
+    expect($entry->end_date->toDateString())->toBe('2026-08-03');
 });

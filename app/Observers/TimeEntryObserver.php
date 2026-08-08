@@ -50,6 +50,24 @@ class TimeEntryObserver
             return;
         }
 
+        // Egy felülvizsgálatra váró jelenlét-bejegyzés automatikusan jóváhagyottá válik,
+        // amint egy admin ténylegesen javítja/kiegészíti a be-/kilépés valamelyik adatát,
+        // és a bejegyzés emiatt most már teljes (van be- és kilépési dátum/idő is) — maga
+        // a javítás számít jóváhagyásnak, nem kell hozzá külön "jóváhagyás" gomb. Szándékosan
+        // NEM a lenti $correctedField-et használjuk (az csak egy korábban KITÖLTÖTT érték
+        // módosítását számolja javításnak) — itt pont az a tipikus eset, hogy egy korábban
+        // ÜRES (pl. auto-kiléptetésnél hiányzó) mező kerül most először kitöltésre.
+        $timingFieldsTouched = collect(['start_date', 'start_time', 'end_date', 'end_time', 'status'])
+            ->contains(fn (string $field) => $entry->isDirty($field));
+
+        if ($timingFieldsTouched
+            && $entry->needs_review
+            && $entry->type === TimeEntryType::Presence
+            && $entry->start_date && $entry->start_time && $entry->end_date && $entry->end_time
+        ) {
+            $entry->needs_review = false;
+        }
+
         $correctedField = false;
         foreach (['start_date', 'start_time', 'raw_start_time', 'end_date', 'end_time', 'hours', 'type'] as $field) {
             if ($entry->isDirty($field) && $entry->getOriginal($field) !== null) {
