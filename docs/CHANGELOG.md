@@ -4,6 +4,29 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (5)
+
+- **Új szabály: szabadság + jelenlét ugyanazon a napon — a szabadság az "erősebb".**
+  Eddig, ha egy napra szabadság ÉS jelenlét is volt rögzítve (pl. a dolgozó rövid időre
+  mégis bejött), a rendszer a jelenlétet a napi 8:30-as küszöbhöz mérte — ha ez a
+  jelenlét jóval a küszöb alatt volt, HAMIS NEGATÍV túlórát (hiányt) számolt, holott a
+  dolgozó aznap eleve nem volt köteles dolgozni (szabadságon volt).
+  - `AttendanceSheetService`: szabadság napon a "rendes" oszlop mindig fix 8 óra (a
+    szabadság credit-je), a túlóra oszlop pedig a TELJES esetleges jelenlétet mutatja,
+    küszöb/tolerancia-levonás nélkül (sosem negatív).
+  - **Tiszta szabadság nap (jelenlét nélkül) is 8 órával számít bele** a havi/éves
+    "Ledolgozott" összesítőbe, ami korábban egyáltalán nem történt meg (a napi sor és az
+    összesítő is üres/érintetlen maradt).
+  - Az éves fejléc-összesítő (korábban egy külön, nyers SQL-lekérdezéssel, a hónapitól
+    eltérő — kerekítés nélküli — logikával számolt) mostantól ugyanazt a napi, kerekítés-
+    és szabadság-tudatos logikát használja, mint a havi nézet, hogy a kettő ne szakadjon
+    el egymástól.
+  - Élő adaton ellenőrizve (Nagy Noémi Pálma, 2026 július): a 07-28-i vegyes nap
+    (szabadság + jelenlét) korábban 0:33 túlórát mutatott tévesen a valós ~9:03 helyett;
+    a két tiszta szabadság nap (07-13, 07-14) most már 8-8 órával számít a havi
+    összesítőbe, korábban egyáltalán nem számított bele.
+  - Új regressziós teszt (`AttendanceSheetDetailedTest`).
+
 ## 2026-08-08 (4)
 
 - **Javítva: a kilépési adat javítása egy felülvizsgálandó jelenlét-bejegyzésen (pl.

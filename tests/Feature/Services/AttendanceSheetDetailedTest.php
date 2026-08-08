@@ -103,6 +103,56 @@ it('gives an empty segments array for a day with no presence entries', function 
     expect($day['segments'])->toBe([]);
 });
 
+it('treats vacation as stronger than presence on the same day: no negative overtime, the presence counts fully as overtime, and vacation credits 8 hours to the monthly total even with no presence at all', function () {
+    $company = Company::create(['name' => 'Szabadság Kft.']);
+    $employee = Employee::create(['name' => 'Szabadság Teszt', 'company_id' => $company->id]);
+
+    // 2026-03-10: szabadság ÉS jelenlét is van rögzítve ugyanarra a napra (pl. bejött egy
+    // rövid időre). A szabadság az "erősebb" -- nem keletkezhet negatív túlóra amiatt, hogy
+    // 2 óra jóval a napi küszöb (8:30) alatt van; a 2 óra a TELJES egészében túlórának számít.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Vacation->value, 'status' => TimeEntryStatus::Approved->value,
+        'start_date' => '2026-03-10', 'end_date' => '2026-03-10',
+    ]);
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-03-10', 'start_time' => '08:00:00',
+        'end_date' => '2026-03-10', 'end_time' => '10:00:00',
+    ]);
+
+    // 2026-03-11: TISZTA szabadság nap, jelenlét nélkül -- ennek is 8 órával kell
+    // hozzájárulnia a havi ledolgozott-óra összesítőhöz.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Vacation->value, 'status' => TimeEntryStatus::Approved->value,
+        'start_date' => '2026-03-11', 'end_date' => '2026-03-11',
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee(
+        $employee,
+        CarbonImmutable::create(2026, 3, 1),
+        CarbonImmutable::create(2026, 3, 31),
+    );
+
+    $dayWithPresence = collect($sheet['days'])->firstWhere('date', '2026-03-10');
+    expect($dayWithPresence['note'])->toBe('Szabadság');
+    expect($dayWithPresence['hoursLabel'])->toBe('8:00'); // a szabadság fix 8 órája
+    expect($dayWithPresence['overtimeLabel'])->toBe('2:00'); // NEM negatív -- a jelenlét teljes egészében túlóra
+
+    $pureVacationDay = collect($sheet['days'])->firstWhere('date', '2026-03-11');
+    expect($pureVacationDay['note'])->toBe('Szabadság');
+    expect($pureVacationDay['hoursLabel'])->toBe('8:00');
+    expect($pureVacationDay['overtimeLabel'])->toBe('0:00');
+
+    // Havi összesítő: (8:00 szabadság + 2:00 jelenlét) + (8:00 szabadság) = 18:00 ledolgozott;
+    // túlóra: 2:00 (a jelenlétből) + 0:00 (tiszta szabadság nap) = 2:00.
+    expect($sheet['workedHours']['monthly'])->toBe('18:00');
+    expect($sheet['overtime']['monthly'])->toBe('2:00');
+});
+
 it('renders the detailed attendance sheet PDF export view with segment rows', function () {
     $company = Company::create(['name' => 'Render Kft.']);
     $employee = Employee::create(['name' => 'Render Teszt', 'company_id' => $company->id]);

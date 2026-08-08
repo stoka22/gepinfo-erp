@@ -19,22 +19,32 @@ class AttendanceSheetService
     ) {
     }
 
+    /** Szabadság napon a "rendes" oszlopba mindig ennyi (8 óra) kerül a havi/éves összesítőbe. */
+    private const VACATION_CREDIT_MINUTES = 480;
+
     /** Egy dolgozó jelenléti ívéhez szükséges adatok egy adott időszakra. */
     public function buildForEmployee(Employee $employee, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): array
     {
+        $year = (int) $periodStart->year;
+        $yearStart = CarbonImmutable::create($year, 1, 1)->startOfYear();
+        $yearEnd = CarbonImmutable::create($year, 12, 31)->endOfYear();
+
+        // A TELJES évre lekérve (nem csak a kért időszakra) — az éves fejléc-összesítőnek
+        // (workedHours.yearly / overtime.yearly) ugyanazt a napi (szabadság-tudatos) logikát
+        // kell alkalmaznia, mint a havi nézetnek, különben a kettő elszakadna egymástól.
         // groupBy (nem keyBy!): egy napon belül több be-/kilépés is előfordulhat (pl. ebédszünet) –
         // ha csak egyet tartanánk meg naponta, a többi szakasz csendben eltűnne az ívről és a
         // ledolgozott idő/túlóra számításából.
         $presenceByDate = TimeEntry::query()
             ->where('employee_id', $employee->id)
             ->where('type', TimeEntryType::Presence->value)
-            ->whereBetween('start_date', [$periodStart->toDateString(), $periodEnd->toDateString()])
+            ->whereBetween('start_date', [$yearStart->toDateString(), $yearEnd->toDateString()])
             ->orderBy('start_time')
             ->get()
             ->groupBy(fn (TimeEntry $e) => $e->start_date->toDateString());
 
         // Távollét jellegű bejegyzések (szabadság, túlóra terhére, táppénz, igazolatlan),
-        // amik a vizsgált időszakot érintik – dátumonként feloldva, hogy minden nap megkapja a jellegét.
+        // amik az évet érintik – dátumonként feloldva, hogy minden nap megkapja a jellegét.
         $absenceEntries = TimeEntry::query()
             ->where('employee_id', $employee->id)
             ->where(function ($q) {
@@ -49,10 +59,10 @@ class AttendanceSheetService
                     $q2->where('type', TimeEntryType::Overtime->value)->where('hours', '<', 0);
                 });
             })
-            ->where(function ($q) use ($periodStart, $periodEnd) {
-                $q->where('start_date', '<=', $periodEnd->toDateString())
-                    ->where(function ($q2) use ($periodStart) {
-                        $q2->where('end_date', '>=', $periodStart->toDateString())
+            ->where(function ($q) use ($yearStart, $yearEnd) {
+                $q->where('start_date', '<=', $yearEnd->toDateString())
+                    ->where(function ($q2) use ($yearStart) {
+                        $q2->where('end_date', '>=', $yearStart->toDateString())
                             ->orWhereNull('end_date');
                     });
             })
@@ -62,11 +72,13 @@ class AttendanceSheetService
         foreach ($absenceEntries as $absence) {
             $fromStr = $absence->start_date->toDateString();
             $toStr = ($absence->end_date ?? $absence->start_date)->toDateString();
-            $cursor = CarbonImmutable::parse(max($fromStr, $periodStart->toDateString()));
-            $last = CarbonImmutable::parse(min($toStr, $periodEnd->toDateString()));
+            $cursor = CarbonImmutable::parse(max($fromStr, $yearStart->toDateString()));
+            $last = CarbonImmutable::parse(min($toStr, $yearEnd->toDateString()));
+            $type = $absence->type instanceof TimeEntryType ? $absence->type->value : (string) $absence->type;
             while ($cursor->lte($last)) {
                 $absenceByDate[$cursor->toDateString()] = [
                     'label'      => $this->absenceLabel($absence),
+                    'type'       => $type,
                     'isModified' => (bool) $absence->is_modified,
                 ];
                 $cursor = $cursor->addDay();
@@ -80,119 +92,124 @@ class AttendanceSheetService
         $days = [];
         $monthlyWorkedMinutes = 0;
         $monthlyOvertimeMinutes = 0;
-        $d = $periodStart;
-        while ($d->lte($periodEnd)) {
+        $yearlyWorkedMinutes = 0;
+        $yearlyOvertimeMinutes = 0;
+
+        $d = $yearStart;
+        while ($d->lte($yearEnd)) {
             $dateStr = $d->toDateString();
-            $holidayName = $this->workdayResolver->holidayName($d);
+            $inRequestedPeriod = $d->gte($periodStart) && $d->lte($periodEnd);
+
             /** @var \Illuminate\Support\Collection<int, TimeEntry> $entriesToday */
             $entriesToday = $presenceByDate->get($dateStr, collect());
             $absence = $absenceByDate[$dateStr] ?? null;
-
-            $note = $holidayName ?? $absence['label'] ?? null;
-            if (! $note && $d->isWeekend() && $entriesToday->isEmpty()) {
-                $note = 'Pihenőnap';
-            }
-
-            $isModified = $entriesToday->contains(fn (TimeEntry $e) => (bool) $e->is_modified)
-                || (bool) ($absence['isModified'] ?? false);
+            $isVacationDay = ($absence['type'] ?? null) === TimeEntryType::Vacation->value;
 
             // Napi szintű összesítés: a küszöböt a NAP ÖSSZES szakaszának együttes ledolgozott
             // idejére alkalmazzuk (ld. OvertimeBalanceService::totalWorkedMinutesForDay), nem
-            // szakaszonként külön-külön – ugyanaz a logika, mint a TimeEntryObserver-ben. A
-            // teljes napot (nyitott szakaszokkal együtt) kell átadni, hogy a nap ELSŐ szakasza
-            // (egész órás kerekítés) helyesen dőljön el.
-            $regularLabel = null;
-            $overtimeLabel = null;
+            // szakaszonként külön-külön – ugyanaz a logika, mint a TimeEntryObserver-ben.
             $completeEntries = $entriesToday->filter(
                 fn (TimeEntry $e) => $e->start_date && $e->start_time && $e->end_date && $e->end_time
             );
-            if ($completeEntries->isNotEmpty()) {
+
+            $regularMinutes = null;
+            $overtimeMinutes = null;
+            // A "ledolgozott" havi/éves összesítőbe kerülő percek — normál napon a nyers
+            // ledolgozott idő (NEM a regularMinutes+overtimeMinutes, mert a deltaMinutes()
+            // tolerancia-sávja miatt ez néhány percet tévesen elnyelne), szabadság napon a
+            // fix 8 óra + az esetleges tényleges jelenlét.
+            $dayWorkedMinutes = null;
+
+            if ($isVacationDay) {
+                // Szabadság napon a szabadság az "erősebb": nem keletkezhet negatív túlóra
+                // (hiányos munkaidő) amiatt, hogy a dolgozó a napi kötelező munkaidőnél
+                // kevesebbet volt jelen — hiszen aznap eleve nem volt köteles dolgozni. Az
+                // esetlegesen mégis rögzített jelenlét a TELJES egészében túlórának számít
+                // (nincs küszöb/tolerancia-levonás), a "rendes" oszlopba pedig a szabadság
+                // fix 8 órája kerül.
+                $presenceMinutes = $completeEntries->isNotEmpty()
+                    ? $this->overtimeService->totalWorkedMinutesForDay($entriesToday)
+                    : 0;
+                $regularMinutes = self::VACATION_CREDIT_MINUTES;
+                $overtimeMinutes = $presenceMinutes;
+                $dayWorkedMinutes = self::VACATION_CREDIT_MINUTES + $presenceMinutes;
+            } elseif ($completeEntries->isNotEmpty()) {
                 $workedMinutes = $this->overtimeService->totalWorkedMinutesForDay($entriesToday);
                 [$regularMinutes] = $this->overtimeService->splitMinutes($workedMinutes, $standardMinutes);
-                $regularLabel = $this->formatMinutes($regularMinutes);
                 // Előjeles eltérés a küszöbtől: alatta negatív – ez a túlóra-keret
                 // terhére megy (ld. TimeEntryObserver / OvertimeBalanceService::applyDelta).
-                $dayDelta = $this->overtimeService->deltaMinutes($workedMinutes, $standardMinutes);
-                $overtimeLabel = $this->formatMinutes($dayDelta);
-                $monthlyWorkedMinutes += $workedMinutes;
-                $monthlyOvertimeMinutes += $dayDelta;
+                $overtimeMinutes = $this->overtimeService->deltaMinutes($workedMinutes, $standardMinutes);
+                $dayWorkedMinutes = $workedMinutes;
             }
 
-            // Napi több be-/kilépés esetén a legkorábbi érkezés és a legkésőbbi távozás jelenik meg
-            // (megegyezik azzal, ahogy a "ma" nézet is összegzi a kiosk-widgeten) — a KIJELZETT
-            // érkezés mindig a nyers, kerekítés nélküli idő (ld. lent, effectiveStartLabel); a
-            // ledolgozott óra/túlóra SZÁMÍTÁSA viszont a nap első szakaszánál fél órára kerekített
-            // "műszakkezdéstől" indul (ld. OvertimeBalanceService::segmentMinutesForDay) — a kettő
-            // szándékosan eltérhet.
-            $lastEntry = $completeEntries->isNotEmpty() ? $completeEntries->last() : $entriesToday->last();
+            if ($dayWorkedMinutes !== null) {
+                $yearlyWorkedMinutes += $dayWorkedMinutes;
+                $yearlyOvertimeMinutes += $overtimeMinutes;
 
-            // Minden egyes szakasz külön is (a "másodlagos", részletes jelenléti ívhez) — a
-            // fenti napi összevonás (első be-/utolsó kilépés) mellett, hogy egy nap többszöri
-            // be-/kilépése (pl. ebédszünet) is látszódjon soronként, ne csak összesítve. A
-            // kijelzett kezdés nyers (ld. effectiveStartLabel), a hoursLabel viszont a fél órára
-            // kerekített műszakkezdésből számolt ledolgozott időt tükrözi (ld.
-            // OvertimeBalanceService::segmentMinutesForDay).
-            $sortedToday = $this->overtimeService->sortEntriesForDay($entriesToday);
-            $segmentMinuteMap = $this->overtimeService->segmentMinutesForDay($entriesToday);
-            $segments = $sortedToday->map(function (TimeEntry $e, int $i) use ($segmentMinuteMap) {
-                $minutes = $segmentMinuteMap[spl_object_id($e)] ?? null;
-                return [
-                    'start'      => $this->overtimeService->effectiveStartLabel($e, $i === 0),
-                    'end'        => $e->end_time?->format('H:i'),
-                    'hoursLabel' => $minutes !== null ? $this->formatMinutes($minutes) : null,
-                    'isModified' => (bool) $e->is_modified,
-                    'location'   => $e->location,
+                if ($inRequestedPeriod) {
+                    $monthlyWorkedMinutes += $dayWorkedMinutes;
+                    $monthlyOvertimeMinutes += $overtimeMinutes;
+                }
+            }
+
+            if ($inRequestedPeriod) {
+                $holidayName = $this->workdayResolver->holidayName($d);
+
+                $note = $holidayName ?? $absence['label'] ?? null;
+                if (! $note && $d->isWeekend() && $entriesToday->isEmpty()) {
+                    $note = 'Pihenőnap';
+                }
+
+                $isModified = $entriesToday->contains(fn (TimeEntry $e) => (bool) $e->is_modified)
+                    || (bool) ($absence['isModified'] ?? false);
+
+                // Napi több be-/kilépés esetén a legkorábbi érkezés és a legkésőbbi távozás jelenik meg
+                // (megegyezik azzal, ahogy a "ma" nézet is összegzi a kiosk-widgeten) — a KIJELZETT
+                // érkezés mindig a nyers, kerekítés nélküli idő (ld. lent, effectiveStartLabel); a
+                // ledolgozott óra/túlóra SZÁMÍTÁSA viszont a nap első szakaszánál fél órára kerekített
+                // "műszakkezdéstől" indul (ld. OvertimeBalanceService::segmentMinutesForDay) — a kettő
+                // szándékosan eltérhet.
+                $lastEntry = $completeEntries->isNotEmpty() ? $completeEntries->last() : $entriesToday->last();
+
+                // Minden egyes szakasz külön is (a "másodlagos", részletes jelenléti ívhez) — a
+                // fenti napi összevonás (első be-/utolsó kilépés) mellett, hogy egy nap többszöri
+                // be-/kilépése (pl. ebédszünet) is látszódjon soronként, ne csak összesítve. A
+                // kijelzett kezdés nyers (ld. effectiveStartLabel), a hoursLabel viszont a fél órára
+                // kerekített műszakkezdésből számolt ledolgozott időt tükrözi (ld.
+                // OvertimeBalanceService::segmentMinutesForDay).
+                $sortedToday = $this->overtimeService->sortEntriesForDay($entriesToday);
+                $segmentMinuteMap = $this->overtimeService->segmentMinutesForDay($entriesToday);
+                $segments = $sortedToday->map(function (TimeEntry $e, int $i) use ($segmentMinuteMap) {
+                    $minutes = $segmentMinuteMap[spl_object_id($e)] ?? null;
+                    return [
+                        'start'      => $this->overtimeService->effectiveStartLabel($e, $i === 0),
+                        'end'        => $e->end_time?->format('H:i'),
+                        'hoursLabel' => $minutes !== null ? $this->formatMinutes($minutes) : null,
+                        'isModified' => (bool) $e->is_modified,
+                        'location'   => $e->location,
+                    ];
+                })->values()->all();
+
+                $days[] = [
+                    'date'          => $d->format('Y-m-d'),
+                    'dayNumber'     => $d->day,
+                    'dayName'       => $d->locale('hu')->isoFormat('ddd'),
+                    'isHoliday'     => $holidayName !== null,
+                    'isWeekend'     => $d->isWeekend(),
+                    'note'          => $note,
+                    'start'         => $sortedToday->isNotEmpty() ? $this->overtimeService->effectiveStartLabel($sortedToday->first(), true) : null,
+                    'end'           => $lastEntry?->end_time?->format('H:i'),
+                    'hoursLabel'    => $regularMinutes !== null ? $this->formatMinutes($regularMinutes) : null,
+                    'overtimeLabel' => $overtimeMinutes !== null ? $this->formatMinutes($overtimeMinutes) : null,
+                    'isModified'    => $isModified,
+                    'segments'      => $segments,
                 ];
-            })->values()->all();
-
-            $days[] = [
-                'date'          => $d->format('Y-m-d'),
-                'dayNumber'     => $d->day,
-                'dayName'       => $d->locale('hu')->isoFormat('ddd'),
-                'isHoliday'     => $holidayName !== null,
-                'isWeekend'     => $d->isWeekend(),
-                'note'          => $note,
-                'start'         => $sortedToday->isNotEmpty() ? $this->overtimeService->effectiveStartLabel($sortedToday->first(), true) : null,
-                'end'           => $lastEntry?->end_time?->format('H:i'),
-                'hoursLabel'    => $regularLabel,
-                'overtimeLabel' => $overtimeLabel,
-                'isModified'    => $isModified,
-                'segments'      => $segments,
-            ];
+            }
 
             $d = $d->addDay();
         }
 
-        $year = (int) $periodStart->year;
-
         $vb = VacationBalance::where('employee_id', $employee->id)->where('year', $year)->first();
-
-        // Élőben újraszámolva (nem a tárolt overtime_delta_minutes összege!), mert az csak akkor
-        // kerül kitöltésre, ha a bejegyzés ténylegesen átment a TimeEntryObserver elszámolásán
-        // (needs_review=false, checked_out) – a régebbi, importált adatoknál ez sokszor sosem
-        // történt meg, így a tárolt oszlop összege hamisan mindig 0/változatlan lenne.
-        // Így a fejléc mindig pontosan megegyezik a napi sorok "Túlóra" oszlopának összegével.
-        // Napi szintű csoportosítás itt is szükséges (ld. fenti napi ciklus): a 8:30-as
-        // szabályt naponta egyszer, a nap összes szakaszának együttes idejére alkalmazzuk.
-        $yearlyOvertimeMinutes = (int) TimeEntry::where('employee_id', $employee->id)
-            ->where('type', TimeEntryType::Presence->value)
-            ->whereYear('start_date', $year)
-            ->whereNotNull('start_time')
-            ->whereNotNull('end_date')
-            ->whereNotNull('end_time')
-            ->get()
-            ->groupBy(fn (TimeEntry $e) => $e->start_date->toDateString())
-            ->sum(fn ($entriesForDay) => $this->overtimeService->deltaMinutes(
-                $this->overtimeService->totalWorkedMinutesForDay($entriesForDay),
-                $standardMinutes
-            ));
-
-        $yearlyWorkedMinutes = (int) TimeEntry::where('employee_id', $employee->id)
-            ->where('type', TimeEntryType::Presence->value)
-            ->whereYear('start_date', $year)
-            ->whereNotNull('end_time')
-            ->selectRaw("COALESCE(SUM(TIMESTAMPDIFF(MINUTE, CONCAT(start_date,' ',start_time), CONCAT(COALESCE(end_date,start_date),' ',end_time))),0) as m")
-            ->value('m');
 
         return [
             'employeeName' => $employee->name,
