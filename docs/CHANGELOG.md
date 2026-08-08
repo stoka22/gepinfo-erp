@@ -4,6 +4,24 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (6)
+
+- **Javítva: a havi "Ledolgozott" összesítő tévesen tartalmazta a napi 30 perces
+  ebédszünetet, mint munkaidőt.** A napi túlóra-küszöb (kvóta + 30 perc puffer) helyesen
+  változatlan marad (ez azt szabályozza, mikortól számít túlórának a kilépés), de a
+  "ledolgozott" órák számításába eddig a teljes nyers (szünettel együtt mért) idő került.
+  - `AttendanceSheetService`: a havi/éves "Ledolgozott" összesítőből mostantól levonódik
+    a 30 perc minden olyan napon, amikor a dolgozó elérte a napi kötelező munkaidejét
+    (a puffer NÉLKÜLI kvótát) — rövidebb, félnapos jelenlétnél nincs feltételezett
+    ebédszünet, nem vonunk le semmit.
+  - **A "Rendes"/"Túlóra" napi oszlopok és a túlóra-küszöb VÁLTOZATLANOK maradtak** —
+    ez kizárólag a "Ledolgozott" havi/éves összesítőt érinti, a `TimeEntry.hours` mezőt
+    és a túlóra-egyenleget (`OvertimeBalance`) nem.
+  - Élő adaton ellenőrizve (Nagy Noémi Pálma, 2026 július): a havi ledolgozott idő
+    179:59-ről 172:29-re csökkent (15 teljes munkanap × 30 perc = 7:30), a túlóra
+    (2:42) változatlan maradt.
+  - Új regressziós teszt (`AttendanceSheetDetailedTest`).
+
 ## 2026-08-08 (5)
 
 - **Új szabály: szabadság + jelenlét ugyanazon a napon — a szabadság az "erősebb".**

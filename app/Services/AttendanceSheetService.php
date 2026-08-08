@@ -139,7 +139,18 @@ class AttendanceSheetService
                 // Előjeles eltérés a küszöbtől: alatta negatív – ez a túlóra-keret
                 // terhére megy (ld. TimeEntryObserver / OvertimeBalanceService::applyDelta).
                 $overtimeMinutes = $this->overtimeService->deltaMinutes($workedMinutes, $standardMinutes);
-                $dayWorkedMinutes = $workedMinutes;
+
+                // A "ledolgozott" havi/éves összesítőbe a napi 30 perces szünet NEM számít bele
+                // (az a küszöbnek csak a TÚLÓRA-HATÁR eltolására szolgáló, nem ledolgozott
+                // munkaidő) — de csak akkor vonjuk le, ha a dolgozó legalább a napi kötelező
+                // munkaidőt (kvóta, a puffer NÉLKÜL) ledolgozta aznap; egy rövidebb, félnapos
+                // jelenlétnél nincs feltételezett ebédszünet. Csak a "Rendes"/"Túlóra" oszlopok
+                // (regularMinutes/overtimeMinutes) számítását és a túlóra-küszöböt NEM érinti —
+                // azok változatlanul a kvóta+puffer (standardMinutes) ellen mérnek.
+                $quotaMinutes = $standardMinutes - \App\Services\Overtime\OvertimeBalanceService::STANDARD_BUFFER_MINUTES;
+                $dayWorkedMinutes = $workedMinutes >= $quotaMinutes
+                    ? $workedMinutes - \App\Services\Overtime\OvertimeBalanceService::STANDARD_BUFFER_MINUTES
+                    : $workedMinutes;
             }
 
             if ($dayWorkedMinutes !== null) {

@@ -153,6 +153,48 @@ it('treats vacation as stronger than presence on the same day: no negative overt
     expect($sheet['overtime']['monthly'])->toBe('2:00');
 });
 
+it('excludes the daily 30-minute break from the monthly "ledolgozott" (worked) total, but only on days a full shift was worked -- the Rendes/Túlóra columns and overtime threshold stay untouched', function () {
+    $company = Company::create(['name' => 'Szünet Kft.']);
+    $employee = Employee::create(['name' => 'Szünet Teszt', 'company_id' => $company->id]);
+
+    // 2026-03-10: teljes műszak, pontosan a küszöbön (8:30 = kvóta 8:00 + 0:30 puffer) --
+    // eléri a napi kvótát, tehát a "ledolgozott"-ból levonódik a 30 perces szünet: 8:00.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-03-10', 'start_time' => '08:00:00',
+        'end_date' => '2026-03-10', 'end_time' => '16:30:00',
+    ]);
+
+    // 2026-03-11: rövid, félnapos jelenlét (3:00) -- ez nem éri el a napi kvótát (8:00), tehát
+    // nincs feltételezett ebédszünet, a "ledolgozott" a teljes nyers 3:00 marad.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-03-11', 'start_time' => '08:00:00',
+        'end_date' => '2026-03-11', 'end_time' => '11:00:00',
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee(
+        $employee,
+        CarbonImmutable::create(2026, 3, 1),
+        CarbonImmutable::create(2026, 3, 31),
+    );
+
+    $fullDay = collect($sheet['days'])->firstWhere('date', '2026-03-10');
+    // A "Rendes"/"Túlóra" oszlopok és a túlóra-küszöb VÁLTOZATLANOK (kvóta+puffer ellen mérnek).
+    expect($fullDay['hoursLabel'])->toBe('8:30');
+    expect($fullDay['overtimeLabel'])->toBe('0:00');
+
+    $shortDay = collect($sheet['days'])->firstWhere('date', '2026-03-11');
+    expect($shortDay['hoursLabel'])->toBe('3:00');
+    expect($shortDay['overtimeLabel'])->toBe('-5:30'); // 3:00-8:30 küszöb -- változatlan logika
+
+    // Havi "ledolgozott": teljes napon 8:30-0:30 szünet=8:00; rövid napon nincs levonás=3:00 -> 11:00.
+    expect($sheet['workedHours']['monthly'])->toBe('11:00');
+});
+
 it('renders the detailed attendance sheet PDF export view with segment rows', function () {
     $company = Company::create(['name' => 'Render Kft.']);
     $employee = Employee::create(['name' => 'Render Teszt', 'company_id' => $company->id]);
