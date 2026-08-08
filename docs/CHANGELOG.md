@@ -4,6 +4,30 @@ Ez a fájl a rendszerben élesített (production-ra kerülő) jelentősebb funkc
 üzleti szabály-változásokat rögzíti, dátum szerint, a legújabb felül. Cél: egy helyen
 lásd, mi és miért változott, anélkül hogy a git commit-history-t kellene bogarászni.
 
+## 2026-08-08 (2)
+
+- **Javítva: `/admin/time-entries/{id}/edit` — a be-/kilépés javítása nem futtatta újra a
+  munkaidő/túlóra számítást, és a percbeviteli mező 5 perces lépésekre volt korlátozva.**
+  - `TimeEntryForm.php`: a `start_time`/`end_time` `TimePicker` mezőkről levéve a
+    `minutesStep(5)` korlátot — a fél órás "műszakkezdés" szabály (ld. 2026-08-08 (1))
+    KIZÁRÓLAG a túlóra-számításra vonatkozik, a rögzítést/javítást nem korlátozhatja
+    percre pontos bevitelre.
+  - `EditTimeEntry.php`: eddig — a `CreateTimeEntry`-vel ellentétben — nem volt
+    `mutateFormDataBeforeSave()`, ami a `status` mezőt a be-/kilépés adataiból vezetné le.
+    Emiatt egy örökölt, érvénytelen `status`-ú (pl. `pending`) jelenlét-bejegyzésen a
+    `TimeEntryObserver::settlePresence()` (ami KIZÁRÓLAG `checked_out` státuszon fut)
+    sosem futott le, még javítás után sem — a munkaidő/túlóra végig változatlan maradt.
+    Mostantól a mentés előtt a `status` mindig a kilépés meglétéből (checked_out/checked_in)
+    vezetődik le, forrástól/előzménytől függetlenül.
+  - **Kiterjedés**: a #128-as rekord (amit a jelentés hivatkozott) ~7000 hasonló, `gépi`
+    eredetű, `pending` státuszú jelenlét-bejegyzés egyike — ezek valószínűleg egy nagy,
+    egyenkénti admin-felülvizsgálatra váró történeti köteg. Ez a javítás NEM végez tömeges
+    visszamenőleges újraszámolást — csak azt a rekordot javítja/számolja el, amit egy
+    admin ténylegesen megnyit és elment a szerkesztő oldalon. A többi ~7000 rekord tömeges
+    elszámolása (ha szükséges) külön, elszámolás-szintű döntést igényel, mert egyszerre sok
+    dolgozó túlóra-egyenlegét módosítaná.
+  - Két új regressziós teszt (`TimeEntryEditRecalculatesTest`).
+
 ## 2026-08-08 (1)
 
 - **Javítva: a túlóra-számítás a bejelentkezés és a "műszakkezdés" közti időt is

@@ -158,7 +158,9 @@ class TimeEntryForm
                 Forms\Components\TimePicker::make('start_time')
                     ->label('Belépés ideje')
                     ->seconds(false)
-                    ->minutesStep(5)
+                    // NINCS minutesStep-kerekítés: a fél órás "műszakkezdés" szabály kizárólag a
+                    // túlóra-számításra vonatkozik (ld. OvertimeBalanceService::segmentMinutesForDay),
+                    // a rögzítést/javítást nem korlátozhatja percre pontos bevitelre.
                     ->visible(fn (Get $get) =>
                         ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'presence'
                     )
@@ -171,7 +173,7 @@ class TimeEntryForm
                 Forms\Components\TimePicker::make('end_time')
                     ->label('Kilépés ideje')
                     ->seconds(false)
-                    ->minutesStep(5)
+                    // NINCS minutesStep-kerekítés (ld. start_time fenti megjegyzését).
                     ->visible(fn (Get $get) =>
                         ($get('type') instanceof \BackedEnum ? $get('type')->value : $get('type')) === 'presence'
                     )
