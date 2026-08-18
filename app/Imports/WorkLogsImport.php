@@ -287,6 +287,14 @@ class WorkLogsImport
      * ír — ugyanaz a valós műszak emiatt pár másodperccel eltérő end_time-mal kerülne be
      * a két forrásból, egy szigorú másodperc-pontos egyezés ezt tévesen új sornak látná.
      *
+     * A kezdést NEM a nyers `start_time` oszlopra nézzük, hanem mindkét oldalon a fél
+     * órára felkerekített alakra – a `gépi` (terminál) eredetű bejegyzéseknél a
+     * `start_time` a NYERS, kerekítetlen idő (nincs külön `raw_start_time`-juk), míg a
+     * worklog-/daily-importos sorok már KEREKÍTVE tárolják. Egy szigorú `start_time`
+     * egyezés emiatt sosem talált gépi-eredetű napokat, és a védelem néma maradt: 2026
+     * augusztus közepéig ~5400 gépi<->worklog-import duplikátum-pár halmozódott fel
+     * (ld. docs/CHANGELOG.md 2026-08-07 (6) "ismeretlen okú" nyitott tétele).
+     *
      * @param  array{start_date:?string, start_time:?string, end_time:?string}  $lookup
      */
     public static function hasPresenceEntry(?int $employeeId, array $lookup): bool
@@ -301,13 +309,19 @@ class WorkLogsImport
             ->where('employee_id', $employeeId)
             ->where('type', TimeEntryType::Presence->value)
             ->where('start_date', $lookup['start_date'])
-            ->when(
-                $lookup['start_time'] === null,
-                fn ($q) => $q->whereNull('start_time'),
-                fn ($q) => $q->where('start_time', $lookup['start_time']),
-            )
-            ->get(['end_time'])
-            ->contains(fn (TimeEntry $entry) => $entry->end_time?->format('H:i') === $endMinute);
+            ->get(['start_time', 'raw_start_time', 'end_time'])
+            ->contains(function (TimeEntry $entry) use ($lookup, $endMinute) {
+                if ($entry->end_time?->format('H:i') !== $endMinute) {
+                    return false;
+                }
+
+                $existingRawHm = ($entry->raw_start_time ?? $entry->start_time)?->format('H:i');
+                if ($existingRawHm === null || $lookup['start_time'] === null) {
+                    return $existingRawHm === null && $lookup['start_time'] === null;
+                }
+
+                return TimeRounding::roundStartUpToHalfHour($existingRawHm).':00' === $lookup['start_time'];
+            });
     }
 
     /**

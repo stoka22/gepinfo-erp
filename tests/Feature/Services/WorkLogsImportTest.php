@@ -122,6 +122,40 @@ it('does not create a duplicate presence entry when the shift was already import
     unlink($path);
 });
 
+it('does not create a duplicate presence entry for a shift already recorded by the terminal (gépi), even though the terminal stores the RAW unrounded start time', function () {
+    // Éles hiba: a `gépi` (terminál) eredetű bejegyzések a NYERS, kerekítetlen kezdést
+    // tárolják start_time-ban (nincs külön raw_start_time-juk), a worklog-import viszont
+    // a kezdést fél órára felkerekítve nézi a duplikáció-védelemben — egy szigorú
+    // start_time-egyezés emiatt sosem ismerte fel ezeket azonosnak, és ~5400 duplikátum
+    // halmozódott fel élesben (ld. docs/CHANGELOG.md 2026-08-07 (6) nyitott tétele).
+    $company = Company::create(['name' => 'Gépi Dedup Kft.']);
+    $employee = Employee::create(['name' => 'Gépi Dedup Teszt', 'company_id' => $company->id]);
+
+    \App\Models\TimeEntry::create([
+        'employee_id'  => $employee->id,
+        'company_id'   => $company->id,
+        'type'         => 'presence',
+        'status'       => 'checked_out',
+        'start_date'   => '2026-01-05',
+        'start_time'   => '07:52:00', // nyers, kerekítetlen – a terminál ezt írja közvetlenül
+        'end_date'     => '2026-01-05',
+        'end_time'     => '16:30:00',
+        'entry_method' => 'gépi',
+    ]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Gépi Dedup Teszt</td><td>Op</td><td>Uzem</td><td>K1</td><td>2026. jan. 5. 07:52:00</td><td>K1</td><td>2026. jan. 5. 16:30:07</td><td>08:30</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    expect(\App\Models\TimeEntry::where('employee_id', $employee->id)->where('type', 'presence')->count())->toBe(1);
+
+    unlink($path);
+});
+
 it('converts a raw Excel day-fraction "ido" value to H:MM on import', function () {
     // Az Excel export egyes celláit nap-törtrészként adja vissza (pl. "0.16458333333333"
     // ~ 3 óra 57 perc), nem pedig "3:57" szöveges alakban — ezt kell H:MM formára hozni.

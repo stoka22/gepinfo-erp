@@ -132,16 +132,31 @@ class OvertimeBalanceService
                 continue; // nyitott szakasz: számít a sorrendbe, de nincs ledolgozott ideje
             }
 
-            $rawStart = ($entry->raw_start_time ?? $entry->start_time)->format('H:i');
-            $startHm = $i === 0 ? TimeRounding::roundStartUpToHalfHour($rawStart) : $rawStart;
-            $start = Carbon::parse($entry->start_date->toDateString() . ' ' . $startHm . ':00');
+            $rawStartHm = ($entry->raw_start_time ?? $entry->start_time)->format('H:i');
+            $rawStart = Carbon::parse($entry->start_date->toDateString() . ' ' . $rawStartHm . ':00');
             $end = Carbon::parse($entry->end_date->toDateString() . ' ' . $entry->end_time->format('H:i:s'));
 
-            if ($end->lessThan($start)) {
+            // Az éjszakába nyúlást a NYERS (kerekítetlen) kezdéssel dőntjük el, MIELŐTT bármit
+            // kerekítenénk – különben egy rövid, aznapi szakasznál a lentebb felkerekített
+            // "műszakkezdés" tévesen a kilépés UTÁNRA eshet, és ez az ág hamisan majdnem egy
+            // teljes napot (~24 órát) adna hozzá a ledolgozott időhöz.
+            if ($end->lessThan($rawStart)) {
                 $end = $end->copy()->addDay();
             }
 
-            $result[spl_object_id($entry)] = (int) max(0, $start->diffInMinutes($end));
+            $startHm = $i === 0 ? TimeRounding::roundStartUpToHalfHour($rawStartHm) : $rawStartHm;
+            $start = Carbon::parse($entry->start_date->toDateString() . ' ' . $startHm . ':00');
+            if ($start->lessThan($rawStart)) {
+                // A fél órás kerekítés éjfélen túlra csúszott (pl. 23:45 -> 00:00) – a kerekített
+                // kezdés emiatt valójában a KÖVETKEZŐ napra esik, nem a nyers kezdéssel azonos napra.
+                $start = $start->addDay();
+            }
+
+            // A kerekítés a fenti, már helyesen eldöntött napon belül a kilépés fölé csúsztathatja
+            // a kezdést (pl. nagyon rövid szakasznál) – ilyenkor 0 a ledolgozott idő, nem negatív.
+            // A Carbon diffInMinutes() alapból abszolút értéket ad vissza, ezért itt explicit
+            // előjeles különbség kell, hogy a max(0, ...) ténylegesen hatni tudjon.
+            $result[spl_object_id($entry)] = (int) max(0, $start->diffInMinutes($end, absolute: false));
         }
 
         return $result;

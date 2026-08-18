@@ -130,6 +130,71 @@ it('rounds only the first segment start to the half hour for the WORKED-MINUTES 
     expect($service->effectiveStartLabel($afternoon, false))->toBe('12:47');
 });
 
+it('does not treat a short first segment as an overnight shift just because rounding pushed the start past the end', function () {
+    // Regresszió: a nyers kezdés (16:13) fél órára kerekítve 16:30 lesz, ami MÁR a tényleges
+    // kilépés (16:26) UTÁN van. A javítás előtt ez tévesen "éjszakába nyúló műszaknak" tűnt,
+    // és ~24 órát (1436 percet) írt jóvá egy valójában ~13 perces szakaszért.
+    $company = Company::create(['name' => 'Rövid Szakasz Kft.']);
+    $employee = Employee::create(['name' => 'Rövid Szakasz Teszt', 'company_id' => $company->id]);
+    $service = new OvertimeBalanceService();
+
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-06-19', 'start_time' => '16:13:00',
+        'end_date' => '2026-06-19', 'end_time' => '16:26:00',
+        'needs_review' => true,
+    ]);
+
+    $minutes = $service->segmentMinutesForDay(collect([$entry]));
+
+    expect($minutes[spl_object_id($entry)])->toBe(0);
+});
+
+it('still correctly credits a genuine overnight shift recorded with the same start_date and end_date, even with first-segment rounding applied', function () {
+    // A presence-űrlapon az end_date mező rejtett, tehát egy valódi éjszakai műszaknál is
+    // start_date === end_date marad az adatbázisban – a rendszernek pusztán az időkből kell
+    // felismernie az éjfél utáni átnyúlást. Ennek a javítás után is működnie kell.
+    $company = Company::create(['name' => 'Éjszakai Kft.']);
+    $employee = Employee::create(['name' => 'Éjszakás Teszt', 'company_id' => $company->id]);
+    $service = new OvertimeBalanceService();
+
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-06-19', 'start_time' => '22:07:00',
+        'end_date' => '2026-06-19', 'end_time' => '06:10:00',
+        'needs_review' => true,
+    ]);
+
+    $minutes = $service->segmentMinutesForDay(collect([$entry]));
+
+    // Kerekítve 22:30-ra indul (első szakasz), és másnap 06:10-ig tart -> 7:40 = 460 perc.
+    expect($minutes[spl_object_id($entry)])->toBe(460);
+});
+
+it('carries the date forward when the first-segment rounding itself crosses midnight', function () {
+    // Ha a nyers kezdés 23:31-23:59 közé esik, a fél órás felkerekítés 00:00-t ad vissza –
+    // ennek a KÖVETKEZŐ napra kell esnie, nem ugyanarra a napra, különben a kerekített
+    // kezdés időben a nyers kezdés ELÉ (visszafelé) csúszna.
+    $company = Company::create(['name' => 'Éjfél Kft.']);
+    $employee = Employee::create(['name' => 'Éjfél Teszt', 'company_id' => $company->id]);
+    $service = new OvertimeBalanceService();
+
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-06-19', 'start_time' => '23:45:00',
+        'end_date' => '2026-06-19', 'end_time' => '07:50:00',
+        'needs_review' => true,
+    ]);
+
+    $minutes = $service->segmentMinutesForDay(collect([$entry]));
+
+    // Kerekítve másnap 00:00-tól 07:50-ig = 470 perc (NEM 31:50-nyi hamis érték).
+    expect($minutes[spl_object_id($entry)])->toBe(470);
+});
+
 it('combines the automatic balance with a manual adjustment in the effective balance', function () {
     $company = Company::create(['name' => 'Test Kft.']);
     $employee = Employee::create(['name' => 'Dolgozó', 'company_id' => $company->id]);
