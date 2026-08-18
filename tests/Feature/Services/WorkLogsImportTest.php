@@ -156,6 +156,60 @@ it('does not create a duplicate presence entry for a shift already recorded by t
     unlink($path);
 });
 
+it('does not create a duplicate presence entry when an earlier worklog-import row recorded a noticeably different (but real) start time for the same shift', function () {
+    // Éles hiba: két külön munkanapló-export ugyanarra a valós műszakra pár tíz percnyi
+    // eltérő (kézzel bevitt) kezdést rögzíthet, miközben a kilépés gyakorlatilag azonos –
+    // a korábbi, kezdés-egyezést is megkövetelő védelem ezt tévesen új sornak látta, mert
+    // a két eltérő kezdés más fél órás sávra kerekítődött (13:52 -> 14:00, 14:11 -> 14:30).
+    $company = Company::create(['name' => 'Drift Dedup Kft.']);
+    $employee = Employee::create(['name' => 'Drift Dedup Teszt', 'company_id' => $company->id]);
+
+    \App\Models\TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-01-05', 'start_time' => '14:00:00', 'raw_start_time' => '13:52:42',
+        'end_date' => '2026-01-05', 'end_time' => '22:59:52',
+        'entry_method' => 'worklog-import',
+    ]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Drift Dedup Teszt</td><td>Op</td><td>Uzem</td><td>K1</td><td>2026. jan. 5. 14:11:34</td><td>K1</td><td>2026. jan. 5. 22:59:55</td><td>08:48</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    expect(\App\Models\TimeEntry::where('employee_id', $employee->id)->where('type', 'presence')->count())->toBe(1);
+
+    unlink($path);
+});
+
+it('still creates a new presence entry for a genuinely different second shift on the same day (different end time)', function () {
+    $company = Company::create(['name' => 'Split Shift Kft.']);
+    $employee = Employee::create(['name' => 'Split Shift Teszt', 'company_id' => $company->id]);
+
+    \App\Models\TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-01-05', 'start_time' => '06:00:00',
+        'end_date' => '2026-01-05', 'end_time' => '12:00:00',
+        'entry_method' => 'worklog-import',
+    ]);
+
+    $html = '<html><body><table>'
+        . '<tr><td>Nev</td><td>Munkakor</td><td>Helyiseg</td><td>Belepesi</td><td>Kezdes</td><td>Kilepesi</td><td>Vege</td><td>Ido</td></tr>'
+        . '<tr><td>Split Shift Teszt</td><td>Op</td><td>Uzem</td><td>K1</td><td>2026. jan. 5. 13:00:00</td><td>K1</td><td>2026. jan. 5. 18:00:00</td><td>05:00</td></tr>'
+        . '</table></body></html>';
+    $path = worklogFakeXls($html);
+
+    (new WorkLogsImport)->import($path);
+
+    expect(\App\Models\TimeEntry::where('employee_id', $employee->id)->where('type', 'presence')->count())->toBe(2);
+
+    unlink($path);
+});
+
 it('converts a raw Excel day-fraction "ido" value to H:MM on import', function () {
     // Az Excel export egyes celláit nap-törtrészként adja vissza (pl. "0.16458333333333"
     // ~ 3 óra 57 perc), nem pedig "3:57" szöveges alakban — ezt kell H:MM formára hozni.

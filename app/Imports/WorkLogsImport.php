@@ -282,18 +282,22 @@ class WorkLogsImport
      * külön (duplikált) time_entries sor jönne létre, megduplázva a ledolgozott
      * időt/túlórát a jelenléti íven.
      *
-     * A kilépés percre (nem másodpercre) pontos egyezését nézzük: a worklog-import a
-     * forrás pontos másodpercét őrzi meg, a daily-import viszont mindig :00 másodperccel
-     * ír — ugyanaz a valós műszak emiatt pár másodperccel eltérő end_time-mal kerülne be
-     * a két forrásból, egy szigorú másodperc-pontos egyezés ezt tévesen új sornak látná.
+     * A kilépés közel-egyezését nézzük (90 másodpercen belül), NEM a kezdését — két
+     * egymástól függetlenül exportált/importált munkanapló-fájl ugyanarra a valós
+     * műszakra pár tíz percnyi eltérő kezdést is rögzíthet (a kezdés kézzel bevitt,
+     * kerekítés-érzékeny adat), miközben a kilépés gyakorlatilag azonos marad – egy
+     * kezdés-egyezést is megkövetelő ellenőrzés ezeket tévesen új sornak látná. A
+     * kilépés viszont forrásfüggetlenül is stabil azonosító: két VALÓBAN különböző
+     * aznapi szakasz (pl. ebéd előtti/utáni) kilépése jellemzően órákkal eltér, ezért a
+     * szűk időablak nem keveri össze őket.
      *
-     * A kezdést NEM a nyers `start_time` oszlopra nézzük, hanem mindkét oldalon a fél
-     * órára felkerekített alakra – a `gépi` (terminál) eredetű bejegyzéseknél a
-     * `start_time` a NYERS, kerekítetlen idő (nincs külön `raw_start_time`-juk), míg a
-     * worklog-/daily-importos sorok már KEREKÍTVE tárolják. Egy szigorú `start_time`
-     * egyezés emiatt sosem talált gépi-eredetű napokat, és a védelem néma maradt: 2026
-     * augusztus közepéig ~5400 gépi<->worklog-import duplikátum-pár halmozódott fel
-     * (ld. docs/CHANGELOG.md 2026-08-07 (6) "ismeretlen okú" nyitott tétele).
+     * Korábban a kezdés fél órára kerekített egyezését is megkövetelte a védelem – ez
+     * viszont a `gépi` (terminál) eredetű bejegyzéseknél sosem talált egyezést (azok a
+     * NYERS, kerekítetlen kezdést tárolják), 2026 augusztus közepéig ~5400 gépi<->
+     * worklog-import duplikátum-pár halmozódott fel emiatt (ld. docs/CHANGELOG.md
+     * 2026-08-07 (6) "ismeretlen okú" nyitott tétele), a maradék, worklog-import<->
+     * worklog-import saját duplikátumokat pedig a szigorú kerekített-kezdés egyezés is
+     * kihagyta, ha a két importban a kezdés más fél órás sávba esett.
      *
      * @param  array{start_date:?string, start_time:?string, end_time:?string}  $lookup
      */
@@ -303,25 +307,33 @@ class WorkLogsImport
             return false;
         }
 
-        $endMinute = $lookup['end_time'] ? substr($lookup['end_time'], 0, 5) : null;
+        $lookupEndSeconds = self::secondsSinceMidnight($lookup['end_time']);
 
         return TimeEntry::query()
             ->where('employee_id', $employeeId)
             ->where('type', TimeEntryType::Presence->value)
             ->where('start_date', $lookup['start_date'])
-            ->get(['start_time', 'raw_start_time', 'end_time'])
-            ->contains(function (TimeEntry $entry) use ($lookup, $endMinute) {
-                if ($entry->end_time?->format('H:i') !== $endMinute) {
-                    return false;
+            ->get(['end_time'])
+            ->contains(function (TimeEntry $entry) use ($lookupEndSeconds) {
+                $existingEndSeconds = self::secondsSinceMidnight($entry->end_time?->format('H:i:s'));
+
+                if ($existingEndSeconds === null || $lookupEndSeconds === null) {
+                    return $existingEndSeconds === null && $lookupEndSeconds === null;
                 }
 
-                $existingRawHm = ($entry->raw_start_time ?? $entry->start_time)?->format('H:i');
-                if ($existingRawHm === null || $lookup['start_time'] === null) {
-                    return $existingRawHm === null && $lookup['start_time'] === null;
-                }
-
-                return TimeRounding::roundStartUpToHalfHour($existingRawHm).':00' === $lookup['start_time'];
+                return abs($existingEndSeconds - $lookupEndSeconds) <= 90;
             });
+    }
+
+    private static function secondsSinceMidnight(?string $hms): ?int
+    {
+        if ($hms === null) {
+            return null;
+        }
+
+        [$h, $m, $s] = array_map('intval', explode(':', $hms));
+
+        return $h * 3600 + $m * 60 + $s;
     }
 
     /**
