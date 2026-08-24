@@ -219,43 +219,6 @@ jobs:
           "$PHP" "$ART" up || true
           EOSSH
 
-      - name: DIAGNOSTIC - inspect live server state
-        shell: bash
-        run: |
-          set -euo pipefail
-          PORT="${SSH_PORT:-22}"
-          REM="$REMOTE_PATH"
-          REL="$RELEASE"
-          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
-            REM="$REM" REL="$REL" \
-            'bash -s' <<'EOSSH'
-          set -euo pipefail
-          echo "=== REM value ==="
-          echo "$REM"
-          echo "=== HOME value ==="
-          echo "$HOME"
-          echo "=== current symlink ==="
-          readlink -f "$REM/current" || true
-          echo "=== FULL manifest.json in current release ==="
-          cat "$REM/current/public/build/manifest.json" || echo "FILE MISSING"
-          echo "=== manifest.json mtime/size ==="
-          ls -la "$REM/current/public/build/manifest.json" || true
-          echo "=== public_html: type and target ==="
-          ls -ld "$HOME/public_html" 2>/dev/null || true
-          readlink -f "$HOME/public_html" 2>/dev/null || true
-          echo "=== public_html top-level contents ==="
-          ls -la "$HOME/public_html" 2>/dev/null | head -30 || true
-          echo "=== public_html/build/manifest.json (if it has its own) ==="
-          cat "$HOME/public_html/build/manifest.json" 2>/dev/null || echo "no separate manifest here"
-          echo "=== is public_html the same inode tree as REM/current/public? ==="
-          if [ -e "$HOME/public_html" ] && [ -e "$REM/current/public" ]; then
-            [ "$HOME/public_html" -ef "$REM/current/public" ] && echo "SAME (symlinked correctly)" || echo "DIFFERENT (public_html is NOT the same as current/public)"
-          fi
-          echo "=== cameras table exists? ==="
-          cd "$REM/current"
-          php artisan tinker --execute="echo Schema::hasTable('cameras') ? 'yes' : 'no';" 2>&1 || true
-          EOSSH
-
       - name: Done
         shell: bash
         run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"
