@@ -230,20 +230,27 @@ jobs:
             REM="$REM" REL="$REL" \
             'bash -s' <<'EOSSH'
           set -euo pipefail
+          echo "=== REM value ==="
+          echo "$REM"
+          echo "=== HOME value ==="
+          echo "$HOME"
           echo "=== current symlink ==="
           readlink -f "$REM/current" || true
-          echo "=== releases ==="
-          ls -1dt "$REM/releases"/* || true
-          echo "=== manifest.json in current release (camera key) ==="
-          grep -o '"resources/js/camera-dashboard.js"[^}]*}' "$REM/current/public/build/manifest.json" || echo "NOT FOUND in current/public/build/manifest.json"
-          echo "=== does camera-dashboard asset file exist ==="
-          ls -la "$REM/current/public/build/assets/" | grep -i camera || echo "no camera asset file found"
-          echo "=== any OTHER manifest.json on the server outside releases/current ==="
-          find "$REM" -maxdepth 3 -iname "manifest.json" 2>/dev/null || true
-          echo "=== is there a separate webroot outside REM (e.g. public_html)? ==="
-          find "$HOME" -maxdepth 2 -iname "public_html" -o -maxdepth 2 -iname "htdocs" 2>/dev/null || true
-          echo "=== php opcache status (if cli-enabled) ==="
-          php -i 2>/dev/null | grep -i "opcache.enable\b\|opcache.validate_timestamps" || echo "opcache info unavailable via cli"
+          echo "=== FULL manifest.json in current release ==="
+          cat "$REM/current/public/build/manifest.json" || echo "FILE MISSING"
+          echo "=== manifest.json mtime/size ==="
+          ls -la "$REM/current/public/build/manifest.json" || true
+          echo "=== public_html: type and target ==="
+          ls -ld "$HOME/public_html" 2>/dev/null || true
+          readlink -f "$HOME/public_html" 2>/dev/null || true
+          echo "=== public_html top-level contents ==="
+          ls -la "$HOME/public_html" 2>/dev/null | head -30 || true
+          echo "=== public_html/build/manifest.json (if it has its own) ==="
+          cat "$HOME/public_html/build/manifest.json" 2>/dev/null || echo "no separate manifest here"
+          echo "=== is public_html the same inode tree as REM/current/public? ==="
+          if [ -e "$HOME/public_html" ] && [ -e "$REM/current/public" ]; then
+            [ "$HOME/public_html" -ef "$REM/current/public" ] && echo "SAME (symlinked correctly)" || echo "DIFFERENT (public_html is NOT the same as current/public)"
+          fi
           echo "=== cameras table exists? ==="
           cd "$REM/current"
           php artisan tinker --execute="echo Schema::hasTable('cameras') ? 'yes' : 'no';" 2>&1 || true
