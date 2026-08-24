@@ -219,7 +219,7 @@ jobs:
           "$PHP" "$ART" up || true
           EOSSH
 
-      - name: DIAGNOSTIC - inspect public_html symlink chain before touching anything
+      - name: DIAGNOSTIC - map domains/subdomains to candidate app directories
         shell: bash
         run: |
           set -euo pipefail
@@ -229,23 +229,37 @@ jobs:
             REM="$REM" \
             'bash -s' <<'EOSSH'
           set -euo pipefail
-          echo "=== hop 1: ~/public_html ==="
-          ls -la "$HOME/public_html"
-          echo "=== hop 2: ~/domains/budafererp.hu/public_html ==="
-          ls -la "$HOME/domains/budafererp.hu/public_html" 2>/dev/null || echo "not a symlink / does not exist as such"
-          echo "=== final resolved target ==="
-          readlink -f "$HOME/public_html"
-          echo "=== top-level contents of the final resolved target (web-server/web) ==="
-          ls -la "$(readlink -f "$HOME/public_html")" | head -40
-          echo "=== does web-server/web look like a Laravel public/ dir (index.php, .htaccess)? ==="
-          ls -la "$(readlink -f "$HOME/public_html")" | grep -E "index.php|\.htaccess" || echo "neither found"
-          echo "=== is web-server/web itself inside REM (i.e. an old release), or a separate tree? ==="
-          case "$(readlink -f "$HOME/public_html")" in
-            "$REM"*) echo "INSIDE REM tree: $(readlink -f "$HOME/public_html")" ;;
-            *) echo "OUTSIDE REM tree entirely" ;;
-          esac
-          echo "=== sibling dirs next to web-server/web (is there a web-server/web2 = REM?) ==="
-          ls -la "$(dirname "$(readlink -f "$HOME/public_html")")"
+          echo "=== ~/domains listing (all domains) ==="
+          ls -la "$HOME/domains" 2>/dev/null || echo "no ~/domains"
+          echo "=== ~/domains/budafererp.hu listing (root + subdomains) ==="
+          ls -la "$HOME/domains/budafererp.hu" 2>/dev/null || true
+          echo "=== ~/domains/budafererp.hu/subdomains (if that convention is used) ==="
+          find "$HOME/domains/budafererp.hu" -maxdepth 1 -type d 2>/dev/null || true
+          echo "=== resolve every public_html-like entry found under domains/budafererp.hu ==="
+          for f in $(find "$HOME/domains/budafererp.hu" -maxdepth 2 -iname "public_html" 2>/dev/null); do
+            echo "-- $f --"
+            ls -la "$f"
+            readlink -f "$f"
+          done
+          echo "=== web-server/gepinfo: does it look like THIS Laravel app (composer.json name, artisan)? ==="
+          if [ -f "$HOME/web-server/gepinfo/artisan" ]; then
+            grep -m1 '"name"' "$HOME/web-server/gepinfo/composer.json" 2>/dev/null || true
+            ls -la "$HOME/web-server/gepinfo" | head -20
+            echo "-- last modified --"
+            stat -c '%y %n' "$HOME/web-server/gepinfo/artisan" 2>/dev/null || true
+          else
+            echo "no artisan here -- not a Laravel app root directly"
+            ls -la "$HOME/web-server/gepinfo" 2>/dev/null | head -20
+          fi
+          echo "=== web-server/web2 (\$REM, this pipeline's target): current release + does it have public/build/manifest.json ==="
+          readlink -f "$REM/current" 2>/dev/null || true
+          ls -la "$REM/current/public/build/manifest.json" 2>/dev/null || true
+          echo "=== web-server/web3, atelier, atelier2, www: quick peek (Laravel or something else?) ==="
+          for d in web3 atelier atelier2 www; do
+            echo "-- $HOME/web-server/$d --"
+            [ -f "$HOME/web-server/$d/artisan" ] && echo "HAS artisan (Laravel!)" || echo "no artisan"
+            ls -la "$HOME/web-server/$d" 2>/dev/null | head -10
+          done
           EOSSH
 
       - name: Done
