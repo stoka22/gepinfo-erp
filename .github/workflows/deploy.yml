@@ -260,6 +260,17 @@ jobs:
             [ -f "$HOME/web-server/$d/artisan" ] && echo "HAS artisan (Laravel!)" || echo "no artisan"
             ls -la "$HOME/web-server/$d" 2>/dev/null | head -10
           done
+          echo "=== gepinfo.hu domain: public_html target ==="
+          ls -la "$HOME/domains/gepinfo.hu" 2>/dev/null || true
+          find "$HOME/domains/gepinfo.hu" -maxdepth 1 -iname "public_html" -exec ls -la {} \; -exec readlink -f {} \; 2>/dev/null || true
+          echo "=== does that resolved target have a manifest.json with the camera key? ==="
+          GEPINFO_ROOT="$(readlink -f "$HOME/domains/gepinfo.hu/public_html" 2>/dev/null || true)"
+          echo "resolved: $GEPINFO_ROOT"
+          if [ -n "$GEPINFO_ROOT" ]; then
+            find "$GEPINFO_ROOT" -maxdepth 2 -iname "manifest.json" -exec echo {} \; -exec grep -o "camera-dashboard" {} \; 2>/dev/null || echo "no manifest.json found there"
+          fi
+          echo "=== atelierrobert.it and femalk-kft.hu (other domains, just names for context) ==="
+          ls -la "$HOME/domains/atelierrobert.it" 2>/dev/null | head -5 || true
           EOSSH
 
       - name: Done
