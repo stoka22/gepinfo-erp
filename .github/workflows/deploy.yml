@@ -231,5 +231,5 @@ jobs:
           set -euo pipefail
           cd "$REM/current"
           PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
-          "$PHP" artisan tinker --execute="echo 'companies:'.PHP_EOL; App\Models\Company::all(['id','name'])->each(fn(\$c)=>print(\$c->id.' | '.\$c->name.PHP_EOL)); echo '---admins---'.PHP_EOL; App\Models\User::where('role','admin')->get(['id','name','email','company_id'])->each(fn(\$u)=>print(\$u->id.' | '.\$u->email.' | company_id='.\$u->company_id.PHP_EOL));"
+          "$PHP" artisan tinker --execute="\$c = App\Models\Camera::withoutGlobalScopes()->where('name','Budafer kozponti')->first(); \$c->company_id = 3; \$c->save(); echo 'updated camera '.\$c->id.' to company_id='.\$c->company_id.PHP_EOL;"
           EOSSH
