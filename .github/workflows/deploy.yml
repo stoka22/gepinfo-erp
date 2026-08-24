@@ -219,17 +219,6 @@ jobs:
           "$PHP" "$ART" up || true
           EOSSH
 
-      - name: TEMP - fix Budafer kozponti camera's company_id on production
+      - name: Done
         shell: bash
-        run: |
-          set -euo pipefail
-          PORT="${SSH_PORT:-22}"
-          REM="$REMOTE_PATH"
-          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
-            REM="$REM" \
-            'bash -s' <<'EOSSH'
-          set -euo pipefail
-          cd "$REM/current"
-          PHP="$(command -v php83 || command -v php8.3 || command -v php || echo php)"
-          "$PHP" artisan tinker --execute="\$c = App\Models\Camera::withoutGlobalScopes()->where('name','Budafer kozponti')->first(); \$c->company_id = 3; \$c->save(); echo 'updated camera '.\$c->id.' to company_id='.\$c->company_id.PHP_EOL;"
-          EOSSH
+        run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"
