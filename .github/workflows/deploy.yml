@@ -219,6 +219,35 @@ jobs:
           "$PHP" "$ART" up || true
           EOSSH
 
+      - name: DIAGNOSTIC - inspect public_html symlink chain before touching anything
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          REM="$REMOTE_PATH"
+          ssh -p "$PORT" "$SSH_USER@$SSH_HOST" \
+            REM="$REM" \
+            'bash -s' <<'EOSSH'
+          set -euo pipefail
+          echo "=== hop 1: ~/public_html ==="
+          ls -la "$HOME/public_html"
+          echo "=== hop 2: ~/domains/budafererp.hu/public_html ==="
+          ls -la "$HOME/domains/budafererp.hu/public_html" 2>/dev/null || echo "not a symlink / does not exist as such"
+          echo "=== final resolved target ==="
+          readlink -f "$HOME/public_html"
+          echo "=== top-level contents of the final resolved target (web-server/web) ==="
+          ls -la "$(readlink -f "$HOME/public_html")" | head -40
+          echo "=== does web-server/web look like a Laravel public/ dir (index.php, .htaccess)? ==="
+          ls -la "$(readlink -f "$HOME/public_html")" | grep -E "index.php|\.htaccess" || echo "neither found"
+          echo "=== is web-server/web itself inside REM (i.e. an old release), or a separate tree? ==="
+          case "$(readlink -f "$HOME/public_html")" in
+            "$REM"*) echo "INSIDE REM tree: $(readlink -f "$HOME/public_html")" ;;
+            *) echo "OUTSIDE REM tree entirely" ;;
+          esac
+          echo "=== sibling dirs next to web-server/web (is there a web-server/web2 = REM?) ==="
+          ls -la "$(dirname "$(readlink -f "$HOME/public_html")")"
+          EOSSH
+
       - name: Done
         shell: bash
         run: echo "Deployed release $RELEASE to $SSH_HOST:$REMOTE_PATH"
