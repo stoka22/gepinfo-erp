@@ -277,6 +277,8 @@ class WorkLogResource extends Resource
                             return;
                         }
 
+                        static::raiseMemoryLimitForXlsParsing();
+
                         $import = new \App\Imports\WorkLogsImport;
 
                         $assignments = [];
@@ -323,6 +325,20 @@ class WorkLogResource extends Resource
      * dehidratálva), egy Livewire ideiglenes feltöltési objektum (TemporaryUploadedFile).
      * Ez mindkét alakot kezeli, és a fájl tényleges, éppen olvasható elérési útját adja.
      */
+    /**
+     * A webes varázsló minden lépése (dolgozó-párosítás, ellenőrzés, végső importálás)
+     * külön Livewire-kérésben olvassa be újra a fájlt PhpSpreadsheet-tel — ez a HTML-
+     * alapú "fake xls" exportoknál a PHP-FPM alapértelmezett (gyakran 128M-es)
+     * memóriakeretét is meghaladja, amit Laravel csendben, naplózás nélkül elveszíthet
+     * (a folyamat memóriafogyás közben omlik össze), a felhasználó számára a varázsló
+     * egyszerűen "beragadásaként" jelentkezve. A CLI import (`work-logs:import`) ugyanezt
+     * már kezeli saját `ini_set` hívással — ezt hasznosítjuk itt is.
+     */
+    protected static function raiseMemoryLimitForXlsParsing(): void
+    {
+        ini_set('memory_limit', '1024M');
+    }
+
     protected static function resolveUploadedFilePath(mixed $uploadedFile): ?string
     {
         if (is_array($uploadedFile)) {
@@ -362,6 +378,8 @@ class WorkLogResource extends Resource
                     ->content('A fájl nem található, próbáld újra feltölteni.'),
             ];
         }
+
+        static::raiseMemoryLimitForXlsParsing();
 
         $unmatched = (new \App\Imports\WorkLogsImport)->unmatchedNames($fullPath);
 
@@ -433,6 +451,8 @@ class WorkLogResource extends Resource
                     ->content('A fájl nem található, lépj vissza és töltsd fel újra.'),
             ];
         }
+
+        static::raiseMemoryLimitForXlsParsing();
 
         $import = new \App\Imports\WorkLogsImport;
 
