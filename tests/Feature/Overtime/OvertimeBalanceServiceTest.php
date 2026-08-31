@@ -195,6 +195,87 @@ it('carries the date forward when the first-segment rounding itself crosses midn
     expect($minutes[spl_object_id($entry)])->toBe(470);
 });
 
+it('does not double-count a day where a full-shift entry and several short entries nested WITHIN it coexist -- regression for Égi Ferenc 2026-08-27', function () {
+    // Élesben reprodukálva: egy több-olvasós telephely (csarnok/raktár közti kapu-áthaladás)
+    // granulátumban exportálja a jelenlétet -- EGY teljes műszakot lefedő bejegyzés MELLETT,
+    // ugyanazon az idősávon BELÜL, több tucat rövid, néhány perces szakasz jön be külön
+    // TimeEntry-ként. A régi (egyszerű összegzés) logika ezeket a fő műszak idejére RÁADÁSKÉNT
+    // számolta, +4:11 hamis túlórát eredményezve egy valójában 0:00-ás (8:30-ás) napon.
+    $company = Company::create(['name' => 'Beágyazott Szakaszok Kft.']);
+    $employee = Employee::create(['name' => 'Több Olvasós Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 8.00]);
+    $service = new OvertimeBalanceService();
+
+    $fullShift = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-08-27', 'start_time' => '05:55:00',
+        'end_date' => '2026-08-27', 'end_time' => '14:30:00',
+        'needs_review' => true,
+    ]);
+
+    $fragments = collect([
+        ['08:34:00', '08:40:00'],
+        ['08:56:00', '09:16:00'],
+        ['09:21:00', '09:34:00'],
+        ['09:37:00', '09:39:00'],
+        ['09:54:00', '09:55:00'],
+        ['09:59:00', '12:42:00'],
+        ['12:45:00', '12:48:00'],
+        ['13:12:00', '13:15:00'],
+        ['13:20:00', '13:34:00'],
+        ['13:39:00', '14:05:00'],
+    ])->map(fn ($t) => TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-08-27', 'raw_start_time' => $t[0], 'start_time' => $t[0],
+        'end_date' => '2026-08-27', 'end_time' => $t[1],
+        'needs_review' => true,
+    ]));
+
+    $allForDay = $fragments->push($fullShift);
+
+    // Szakaszonként (pl. a részletes ívhez) a régi, nem-unió hossz marad -- ez nem hibás, csak
+    // nem szabad a napi küszöbhöz összegezni.
+    $segments = $service->segmentMinutesForDay($allForDay);
+    expect($segments[spl_object_id($fullShift)])->toBe(510); // 06:00 (kerekítve) - 14:30
+
+    // A NAPI ledolgozott idő viszont az unió hossza: a fő műszak (06:00-14:30) mindent lefed,
+    // ami a töredékekben van, tehát a nap teljes ledolgozott ideje MARAD 510 perc (8:30) --
+    // nem 761 (a fő műszak + minden töredék naiv összege).
+    $total = $service->totalWorkedMinutesForDay($allForDay);
+    expect($total)->toBe(510);
+
+    $standard = $service->standardMinutesFor($employee);
+    expect($service->deltaMinutes($total, $standard))->toBe(0);
+});
+
+it('still sums genuinely sequential, non-overlapping same-day segments normally (e.g. a real lunch break)', function () {
+    $company = Company::create(['name' => 'Ebédszünet Kft.']);
+    $employee = Employee::create(['name' => 'Ebédszünet Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 8.00]);
+    $service = new OvertimeBalanceService();
+
+    $morning = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-08-27', 'start_time' => '06:00:00',
+        'end_date' => '2026-08-27', 'end_time' => '12:00:00',
+        'needs_review' => true,
+    ]);
+    $afternoon = TimeEntry::forceCreate([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => 'presence', 'status' => 'checked_out',
+        'start_date' => '2026-08-27', 'start_time' => '12:30:00',
+        'end_date' => '2026-08-27', 'end_time' => '14:30:00',
+        'needs_review' => true,
+    ]);
+
+    $total = $service->totalWorkedMinutesForDay(collect([$morning, $afternoon]));
+
+    // 06:00-12:00 (360) + 12:30-14:30 (120) = 480, ugyanaz mint a szakaszonkénti összeg,
+    // mert a két szakasz nem fed át.
+    expect($total)->toBe(480);
+});
+
 it('combines the automatic balance with a manual adjustment in the effective balance', function () {
     $company = Company::create(['name' => 'Test Kft.']);
     $employee = Employee::create(['name' => 'Dolgozó', 'company_id' => $company->id]);

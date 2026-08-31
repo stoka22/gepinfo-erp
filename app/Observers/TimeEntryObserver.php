@@ -135,7 +135,9 @@ class TimeEntryObserver
             return;
         }
 
-        $totalWorked = array_sum($segmentMinutes);
+        // NEM array_sum($segmentMinutes) -- az egymásba ágyazott/átfedő aznapi szakaszoknál
+        // (ld. totalWorkedMinutesForDay() dokblokkja) ez többszörösen számolná ugyanazt az időt.
+        $totalWorked = $this->service->totalWorkedMinutesForDay($allForDay);
         $standardMinutes = $this->service->standardMinutesFor($entry->employee);
         $newDayDelta = $this->service->deltaMinutes($totalWorked, $standardMinutes);
 

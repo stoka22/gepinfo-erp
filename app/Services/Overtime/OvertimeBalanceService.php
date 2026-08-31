@@ -108,21 +108,16 @@ class OvertimeBalanceService
     }
 
     /**
-     * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának ledolgozott
-     * ideje percben, SZAKASZONKÉNT — a NAP ELSŐ szakaszánál a "műszakkezdés" fél órára
-     * felfelé kerekítve (pl. 05:37 -> 06:00; a kijelentkezés innentől számítva kvóta+30
-     * perc szünet+10 perc türelmi idő után minősül túlórának), minden további aznapi
-     * szakasznál (ebéd utáni visszatérés stb.) és minden kilépésnél percre pontosan,
-     * kerekítés nélkül. Forrástól függetlenül érvényes (kioszk, import, kézi rögzítés
-     * egyaránt) — ez KIZÁRÓLAG a számításra vonatkozik, a kijelzett érkezési időt (ld.
-     * effectiveStartLabel()) nem érinti.
+     * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának [kezdés, vég]
+     * Carbon-intervalluma, ugyanazzal a "műszakkezdés" (nap első szakaszánál fél órára felfelé
+     * kerekített kezdés) és éjszakába-nyúlás logikával, amit a segmentMinutesForDay() is használ –
+     * ezt a két metódus (per-szakasz hossz, ill. a napi UNIÓ hossza) közösen építi a régi
+     * kettős számítás (és az abból eredő eltérés-lehetőség) elkerülésére.
      *
-     * @param  Collection<int, TimeEntry>  $entriesForDay  a nap ÖSSZES (nyitott is) Presence szakasza –
-     *                                                       a nyitottak is kellenek a helyes sorrendhez,
-     *                                                       még ha nincs is ledolgozott percük.
-     * @return array<int, int>  spl_object_id($entry) => ledolgozott percek
+     * @param  Collection<int, TimeEntry>  $entriesForDay
+     * @return array<int, array{start: Carbon, end: Carbon}>  spl_object_id($entry) => intervallum
      */
-    public function segmentMinutesForDay(Collection $entriesForDay): array
+    private function closedIntervalsForDay(Collection $entriesForDay): array
     {
         $sorted = $this->sortEntriesForDay($entriesForDay);
 
@@ -152,11 +147,42 @@ class OvertimeBalanceService
                 $start = $start->addDay();
             }
 
-            // A kerekítés a fenti, már helyesen eldöntött napon belül a kilépés fölé csúsztathatja
-            // a kezdést (pl. nagyon rövid szakasznál) – ilyenkor 0 a ledolgozott idő, nem negatív.
-            // A Carbon diffInMinutes() alapból abszolút értéket ad vissza, ezért itt explicit
-            // előjeles különbség kell, hogy a max(0, ...) ténylegesen hatni tudjon.
-            $result[spl_object_id($entry)] = (int) max(0, $start->diffInMinutes($end, absolute: false));
+            $result[spl_object_id($entry)] = ['start' => $start, 'end' => $end];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának ledolgozott
+     * ideje percben, SZAKASZONKÉNT — a NAP ELSŐ szakaszánál a "műszakkezdés" fél órára
+     * felfelé kerekítve (pl. 05:37 -> 06:00; a kijelentkezés innentől számítva kvóta+30
+     * perc szünet+10 perc türelmi idő után minősül túlórának), minden további aznapi
+     * szakasznál (ebéd utáni visszatérés stb.) és minden kilépésnél percre pontosan,
+     * kerekítés nélkül. Forrástól függetlenül érvényes (kioszk, import, kézi rögzítés
+     * egyaránt) — ez KIZÁRÓLAG a számításra vonatkozik, a kijelzett érkezési időt (ld.
+     * effectiveStartLabel()) nem érinti.
+     *
+     * FONTOS: ez a SZAKASZONKÉNTI hossz (pl. az egyes bejegyzések "hours" mezőjéhez, vagy a
+     * részletes jelenléti ív soraihoz) – ha a nap szakaszai ÁTFEDIK vagy EGYMÁSBA ÁGYAZOTTAK
+     * (ld. totalWorkedMinutesForDay()), ennek az összege TÖBBSZÖRÖSEN számolná ugyanazt az
+     * időt, ezért a napi küszöbhöz/túlórához SOSEM ezt kell összegezni, hanem a
+     * totalWorkedMinutesForDay() unió-hosszát.
+     *
+     * @param  Collection<int, TimeEntry>  $entriesForDay  a nap ÖSSZES (nyitott is) Presence szakasza –
+     *                                                       a nyitottak is kellenek a helyes sorrendhez,
+     *                                                       még ha nincs is ledolgozott percük.
+     * @return array<int, int>  spl_object_id($entry) => ledolgozott percek
+     */
+    public function segmentMinutesForDay(Collection $entriesForDay): array
+    {
+        $result = [];
+        foreach ($this->closedIntervalsForDay($entriesForDay) as $id => $interval) {
+            // A kerekítés a napon belül a kilépés fölé csúsztathatja a kezdést (pl. nagyon rövid
+            // szakasznál) – ilyenkor 0 a ledolgozott idő, nem negatív. A Carbon diffInMinutes()
+            // alapból abszolút értéket ad vissza, ezért itt explicit előjeles különbség kell,
+            // hogy a max(0, ...) ténylegesen hatni tudjon.
+            $result[$id] = (int) max(0, $interval['start']->diffInMinutes($interval['end'], absolute: false));
         }
 
         return $result;
@@ -164,16 +190,53 @@ class OvertimeBalanceService
 
     /**
      * Egy nap összes lezárt (be- és kilépéssel is rendelkező) jelenlét-szakaszának együttes
-     * ledolgozott ideje percben. A napi küszöböt és a hibahatárokat mindig erre az összegre
-     * kell alkalmazni, NEM az egyes szakaszokra külön-külön – különben napi több be-/kilépés
-     * (pl. ebédszünet) esetén minden szakasz önmagában "hiányos munkanapnak" tűnne, és
-     * többszörösen (tévesen) terhelné/jóváírná a túlóra-keretet.
+     * ledolgozott ideje percben — a szakaszok [kezdés, vég] intervallumainak UNIÓJA, NEM az
+     * egyéni hosszak összege. A napi küszöböt és a hibahatárokat mindig erre kell alkalmazni,
+     * NEM a segmentMinutesForDay() egyszerű összegére.
+     *
+     * A különbség akkor számít, ha egy napra TÖBB, EGYMÁST ÁTFEDŐ/EGYMÁSBA ÁGYAZOTT szakasz
+     * jut — pl. egy teljes műszakot lefedő összegző bejegyzés MELLETT, ugyanazon az idősávon
+     * BELÜL, egy több-olvasós telephely (csarnok/raktár közti kapu-áthaladások) granulátumban
+     * exportált rövid ki-/belépései. A régi (egyszerű összegzés) logika ilyenkor a már lefedett
+     * időt TÖBBSZÖRÖSEN számolta bele a napi ledolgozott időbe — élesben azonosítva: Égi Ferenc
+     * 2026-08-27-i napja, ahol egy 8:30-ás (0 percnyi túlórát adó) műszak mellé 10 db, a
+     * műszakon belüli rövid szakasz +4:11 hamis túlórát adott hozzá. A "hagyományos" több
+     * be-/kilépéses nap (pl. valódi ebédszünet előtt/után, EGYMÁS UTÁN, nem egymásba ágyazva)
+     * viselkedése változatlan marad, mert ott az unió hossza megegyezik az egyszerű összeggel.
      *
      * @param  Collection<int, TimeEntry>  $entriesForDay  a nap ÖSSZES (nyitott is) Presence szakasza
      */
     public function totalWorkedMinutesForDay(Collection $entriesForDay): int
     {
-        return array_sum($this->segmentMinutesForDay($entriesForDay));
+        $intervals = $this->closedIntervalsForDay($entriesForDay);
+        if (empty($intervals)) {
+            return 0;
+        }
+
+        $ranges = array_values(array_filter(
+            array_map(fn (array $iv) => [$iv['start']->getTimestamp(), $iv['end']->getTimestamp()], $intervals),
+            fn (array $r) => $r[1] > $r[0] // kerekítés miatt 0/negatív hosszú szakasz nem ad hozzá semmit
+        ));
+
+        if (empty($ranges)) {
+            return 0;
+        }
+
+        usort($ranges, fn (array $a, array $b) => $a[0] <=> $b[0]);
+
+        $merged = [$ranges[0]];
+        foreach (array_slice($ranges, 1) as [$start, $end]) {
+            $lastIndex = count($merged) - 1;
+            if ($start <= $merged[$lastIndex][1]) {
+                $merged[$lastIndex][1] = max($merged[$lastIndex][1], $end);
+            } else {
+                $merged[] = [$start, $end];
+            }
+        }
+
+        $totalSeconds = array_sum(array_map(fn (array $r) => $r[1] - $r[0], $merged));
+
+        return (int) round($totalSeconds / 60);
     }
 
     /**

@@ -117,8 +117,10 @@ class RecomputeOvertimeBalances extends Command
                 continue;
             }
 
-            $segmentMinutes = $service->segmentMinutesForDay($dayEntries);
-            $totalWorked = array_sum($segmentMinutes);
+            // NEM array_sum(segmentMinutesForDay(...)) -- az egymásba ágyazott/átfedő aznapi
+            // szakaszoknál (ld. OvertimeBalanceService::totalWorkedMinutesForDay() dokblokkja)
+            // ez többszörösen számolná ugyanazt az időt.
+            $totalWorked = $service->totalWorkedMinutesForDay($dayEntries);
             $standard = $service->standardMinutesFor($employee);
             $dayDelta = $service->deltaMinutes($totalWorked, $standard);
 
