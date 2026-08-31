@@ -6,6 +6,7 @@ use App\Enums\TimeEntryStatus;
 use App\Enums\TimeEntryType;
 use App\Models\TimeEntry;
 use Filament\Forms;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
@@ -269,10 +270,32 @@ class TimeEntryTable
             ->bulkActions([
                 Tables\Actions\BulkAction::make('approveSelected')
                     ->label('Kijelöltek jóváhagyása')
-                    ->action(function ($records) {
+                    ->action(function (\Illuminate\Support\Collection $records) {
+                        $approvedCount = 0;
+                        $reviewedCount = 0;
+                        $skippedCount = 0;
+
                         foreach ($records as $r) {
+                            $type = $r->type->value ?? $r->type;
+
+                            // A jelenlét-bejegyzéseknél nincs "jóváhagyás" (pending/approved)
+                            // állapot, a soronkénti megfelelője a "felülvizsgálandó" (needs_review)
+                            // jelzés feloldása -- enélkül ez a tömeges művelet a kijelölt jelenlét-
+                            // sorokat eddig csendben, VISSZAJELZÉS NÉLKÜL kihagyta, "nem történik
+                            // semmi" érzetét keltve, ha valaki több felülvizsgálandó jelenlét-sort
+                            // jelölt ki egyszerre (a soronkénti "Jóváhagyás" gomb ugyanezt teszi).
+                            if ($type === TimeEntryType::Presence->value) {
+                                if ($r->needs_review && Auth::user()->can('update', $r)) {
+                                    $r->needs_review = false;
+                                    $r->save();
+                                    $reviewedCount++;
+                                } else {
+                                    $skippedCount++;
+                                }
+                                continue;
+                            }
+
                             if (
-                                ($r->type->value ?? $r->type) !== 'presence' &&
                                 Auth::user()->can('approve', $r) &&
                                 ($r->status->value ?? $r->status) === 'pending'
                             ) {
@@ -280,8 +303,21 @@ class TimeEntryTable
                                     'status' => TimeEntryStatus::Approved,
                                     'approved_by' => Auth::id(),
                                 ]);
+                                $approvedCount++;
+                            } else {
+                                $skippedCount++;
                             }
                         }
+
+                        $parts = [];
+                        if ($approvedCount) $parts[] = "{$approvedCount} jóváhagyva";
+                        if ($reviewedCount) $parts[] = "{$reviewedCount} felülvizsgálat feloldva";
+                        if ($skippedCount) $parts[] = "{$skippedCount} kihagyva (nem jóváhagyható/felülvizsgálandó állapotú)";
+
+                        Notification::make()
+                            ->title($parts ? implode(', ', $parts) : 'Nem volt jóváhagyható/felülvizsgálandó tétel a kijelöltek között.')
+                            ->color(($approvedCount || $reviewedCount) ? 'success' : 'warning')
+                            ->send();
                     })
                     ->requiresConfirmation()
                     ->icon('heroicon-o-check'),
