@@ -43,6 +43,19 @@ class EditTimeEntry extends EditRecord
             // TimeEntryObserver::settlePresence() teljesség-ellenőrzése örökre elbukna
             // rajta. A jelenlét mindig egynapos, a kilépés dátuma = a belépésé.
             $data['end_date'] = filled($data['end_time'] ?? null) ? ($data['start_date'] ?? null) : null;
+
+            // Ha az admin ténylegesen megváltoztatta a belépés idejét, a raw_start_time (az
+            // importból örökölt, nyers idő) elavulttá válik — a lista "Kezdet" oszlopa, a
+            // jelenléti ív és a túlóra-számítás is MINDIG a raw_start_time-ot részesíti
+            // előnyben a start_time-mal szemben (ld. TimeEntryTable, AttendanceSheetService,
+            // OvertimeBalanceService — mind `raw_start_time ?? start_time` mintát használnak),
+            // enélkül egy admin által javított start_time sosem látszana/számítana be sehol —
+            // a mentett javítás láthatatlan maradna, végtelen "újbóli javítás" érzetét keltve.
+            $newStart = filled($data['start_time'] ?? null) ? substr($data['start_time'], 0, 5) : null;
+            $oldStart = $this->record->start_time?->format('H:i');
+            if ($newStart !== $oldStart) {
+                $data['raw_start_time'] = null;
+            }
         } else {
             if (in_array($data['status'] ?? null, [
                 TimeEntryStatus::CheckedIn->value,

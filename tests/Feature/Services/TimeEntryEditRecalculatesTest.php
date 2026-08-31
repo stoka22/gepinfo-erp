@@ -122,6 +122,71 @@ it('sets end_date automatically and clears needs_review when correcting a checko
     expect($entry->overtime_delta_minutes)->not->toBeNull(); // a túlóra is elszámolódott
 });
 
+it('clears the imported raw_start_time when an admin corrects the check-in time, so the correction actually becomes visible', function () {
+    $admin = editTimeEntryAdmin();
+    $employee = Employee::create(['name' => 'Nyers Idő Javítás', 'company_id' => $admin->company_id]);
+
+    // Import-eredetű bejegyzés: a raw_start_time a nyers (kerekítés nélküli) importált
+    // időt tárolja, és a lista "Kezdet" oszlopa, a jelenléti ív és a túlóra-számítás is
+    // MINDIG ezt részesíti előnyben a start_time-mal szemben (`raw_start_time ?? start_time`).
+    // Ha az admin egy hibásan importált időt javít a start_time mezőn keresztül, de a
+    // raw_start_time változatlan marad, a javítás sehol sem látszik/számít be -- a
+    // felhasználó a lista alapján úgy látja, mintha a mentés sosem történt volna meg.
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id,
+        'company_id' => $admin->company_id,
+        'type' => 'presence',
+        'status' => 'checked_out',
+        'start_date' => '2026-08-03',
+        'start_time' => '05:37:16',
+        'raw_start_time' => '05:37:16',
+        'end_date' => '2026-08-03',
+        'end_time' => '14:24:45',
+        'hours' => 8.00,
+    ]);
+
+    Livewire\Livewire::actingAs($admin)
+        ->test(EditTimeEntry::class, ['record' => $entry->getRouteKey()])
+        ->fillForm([
+            'start_time' => '07:00', // téves import-időpont javítása
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $entry->refresh();
+    expect($entry->start_time->format('H:i'))->toBe('07:00');
+    expect($entry->raw_start_time)->toBeNull();
+});
+
+it('keeps the imported raw_start_time untouched when the check-in time itself is not changed', function () {
+    $admin = editTimeEntryAdmin();
+    $employee = Employee::create(['name' => 'Érintetlen Nyers Idő', 'company_id' => $admin->company_id]);
+
+    $entry = TimeEntry::forceCreate([
+        'employee_id' => $employee->id,
+        'company_id' => $admin->company_id,
+        'type' => 'presence',
+        'status' => 'checked_out',
+        'start_date' => '2026-08-03',
+        'start_time' => '05:37:16',
+        'raw_start_time' => '05:37:16',
+        'end_date' => '2026-08-03',
+        'end_time' => '14:24:45',
+        'hours' => 8.00,
+    ]);
+
+    Livewire\Livewire::actingAs($admin)
+        ->test(EditTimeEntry::class, ['record' => $entry->getRouteKey()])
+        ->fillForm([
+            'note' => 'csak egy megjegyzés, a kezdés időt nem érintjük',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $entry->refresh();
+    expect($entry->raw_start_time->format('H:i'))->toBe('05:37');
+});
+
 it('sets end_date automatically when creating a new presence entry with a checkout time', function () {
     $admin = editTimeEntryAdmin();
     $employee = Employee::create(['name' => 'Új Bejegyzés', 'company_id' => $admin->company_id]);
