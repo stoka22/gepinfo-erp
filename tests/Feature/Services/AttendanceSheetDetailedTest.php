@@ -58,6 +58,50 @@ it('lists each check-in/check-out segment of a day separately, alongside the agg
     expect($day['end'])->toBe('16:30');
 });
 
+it('shows the actual latest checkout as the aggregated "end", not whichever entry happens to sort last by start_time -- regression for Égi Ferenc 2026-08-27', function () {
+    // Élesben reprodukálva: a nap egy teljes műszakot lefedő fő bejegyzésből (05:55-14:30) és
+    // több, a műszakon BELÜLI rövid töredékből áll (egy több-olvasós telephely kapu-
+    // áthaladásai). A régi kód a $entriesToday lekérdezés `orderBy('start_time')` sorrendjének
+    // UTOLSÓ elemét vette "legkésőbbi kilépésnek" -- mivel az utolsó töredék (13:39 rögzített,
+    // fél órára kerekítve 14:00-ra) start_time-ja a legmagasabb, ez lett kiválasztva, a
+    // kijelzett "Vége" (14:05) így ELLENTMONDOTT a mellette számolt "Ledolgozott" (8:30)
+    // oszlopnak, ami valójában a 05:55-14:30 fő műszakon alapul.
+    $company = Company::create(['name' => 'Beágyazott Kilépés Kft.']);
+    $employee = Employee::create(['name' => 'Beágyazott Kilépés Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 8.00]);
+
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-08-27', 'start_time' => '05:55:00',
+        'end_date' => '2026-08-27', 'end_time' => '14:30:00',
+    ]);
+
+    // Néhány töredék -- a legutolsó (13:39-14:05) start_time-ja (kerekítve 14:00) magasabb,
+    // mint a fő bejegyzésé (05:55), tehát start_time szerint ez "utolsó", de a kilépése
+    // (14:05) korábbi, mint a fő bejegyzésé (14:30).
+    foreach ([['09:00:00', '09:20:00'], ['13:39:00', '14:00:00']] as [$s, $e]) {
+        TimeEntry::create([
+            'employee_id' => $employee->id, 'company_id' => $company->id,
+            'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+            'start_date' => '2026-08-27', 'raw_start_time' => $s, 'start_time' => $s,
+            'end_date' => '2026-08-27', 'end_time' => $e,
+        ]);
+    }
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee(
+        $employee,
+        CarbonImmutable::create(2026, 8, 1),
+        CarbonImmutable::create(2026, 8, 31),
+    );
+
+    $day = collect($sheet['days'])->firstWhere('date', '2026-08-27');
+
+    expect($day['end'])->toBe('14:30');
+    expect($day['hoursLabel'])->toBe('8:30');
+    expect($day['overtimeLabel'])->toBe('0:00');
+});
+
 it('displays the raw (unrounded) arrival time, but calculates the worked hours/overtime from the half-hour-rounded "műszakkezdés"', function () {
     $company = Company::create(['name' => 'Kvóta Kft.']);
     $employee = Employee::create(['name' => 'Kvóta Teszt', 'company_id' => $company->id, 'daily_quota_hours' => 6.00]);

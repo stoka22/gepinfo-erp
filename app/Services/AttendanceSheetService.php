@@ -180,7 +180,19 @@ class AttendanceSheetService
                 // ledolgozott óra/túlóra SZÁMÍTÁSA viszont a nap első szakaszánál fél órára kerekített
                 // "műszakkezdéstől" indul (ld. OvertimeBalanceService::segmentMinutesForDay) — a kettő
                 // szándékosan eltérhet.
-                $lastEntry = $completeEntries->isNotEmpty() ? $completeEntries->last() : $entriesToday->last();
+                //
+                // FONTOS: a "legkésőbbi távozás" kiválasztása a TÉNYLEGES kilépési időpont szerint kell,
+                // NEM a $entriesToday SQL-lekérdezés `orderBy('start_time')` sorrendje szerinti utolsó
+                // elem — az csak akkor esik egybe a legkésőbbi kilépéssel, ha a nap szakaszai a
+                // kezdésük szerint is növekvő sorrendben végződnek. Egy több-olvasós telephely (pl.
+                // csarnok/raktár közti kapu-áthaladások) granulátumban exportált napján ez NEM igaz:
+                // élesben azonosítva (Égi Ferenc, 2026-08-27), a régi kód egy 14:00-ra kerekített
+                // kezdésű, de 14:05-kor záruló RÖVID töredék-szakaszt választott "utolsónak", miközben
+                // a valódi (8:30-ás, 14:30-kor záruló) teljes műszak korábban kezdődött — a kijelzett
+                // "Vége" (14:05) emiatt ellentmondott a mellette számolt "Ledolgozott" (8:30) oszlopnak.
+                $lastEntry = $completeEntries->isNotEmpty()
+                    ? $completeEntries->sortBy(fn (TimeEntry $e) => $e->end_date->toDateString().' '.$e->end_time->format('H:i:s'))->last()
+                    : $entriesToday->last();
 
                 // Minden egyes szakasz külön is (a "másodlagos", részletes jelenléti ívhez) — a
                 // fenti napi összevonás (első be-/utolsó kilépés) mellett, hogy egy nap többszöri
