@@ -56,6 +56,12 @@ class GenerateAttendanceSheetBatchJob implements ShouldQueue
 
     public function handle(AttendanceSheetService $service): void
     {
+        // Sok (~50+) dolgozó egyszerre válaszva a Dompdf renderelés simán túllépi a
+        // CLI alapértelmezett (élesben mérve szintén 128M-es) memóriakeretét is — ez itt
+        // (a webes FPM pool php_admin_value-jával ellentétben) ténylegesen hat, mert CLI
+        // alatt fut a queue worker (ugyanezt a mintát használja a work-logs:import parancs).
+        ini_set('memory_limit', '1024M');
+
         $this->cleanupOldFiles();
 
         // Friss lekérdezés a SoftDeletes globális scope-jával — a törölt dolgozók
