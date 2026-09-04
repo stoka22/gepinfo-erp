@@ -7,6 +7,7 @@ use App\Enums\TimeEntryType;
 use App\Models\Employee;
 use App\Models\TimeEntry;
 use App\Models\WorkLog;
+use App\Models\WorkLogNameAlias;
 use App\Support\SpreadsheetEncoding;
 use App\Support\TimeRounding;
 use Carbon\CarbonImmutable;
@@ -202,6 +203,7 @@ class WorkLogsImport
             // is létre kell hozni, különben az importált adat sosem jelenne meg az íven.
             if (! empty($row['employee_id'])) {
                 $this->createPresenceEntry($row);
+                $this->rememberAlias($row['nev'], (int) $row['employee_id']);
             }
         }
 
@@ -361,11 +363,45 @@ class WorkLogsImport
         return sprintf('%d:%02d', $hours, $minutes);
     }
 
-    /** Dolgozó-azonosítók név szerint (kisbetűsítve, trimmelve), a pontos-egyezés kereséséhez. */
+    /**
+     * Dolgozó-azonosítók név szerint (kisbetűsítve, trimmelve), a pontos-egyezés kereséséhez.
+     *
+     * Az employees.name mezőre való pontos illesztés önmagában törékeny: ha valaki utólag
+     * becenevet fűz a dolgozó nevéhez (pl. "Kiss-B. Vendelné" -> "Kiss-B. Vendelné / Niki /"
+     * a könnyebb megkülönböztethetőségért), az exportban szereplő EREDETI név onnantól minden
+     * további importnál elbukna — élesben azonosítva (Kiss-Balázs Vendelné, 2026-08-28/31).
+     * A work_log_name_aliases tábla ezt hidalja át: a korábban sikeresen párosított (vagy
+     * kézzel hozzárendelt) nyers neveket megjegyzi, FÜGGETLENÜL az employees.name aktuális
+     * tartalmától. Az employees.name pontos egyezése elsőbbséget élvez, ha esetleg
+     * ütközne egy elavult alias-szal.
+     */
     protected function employeeIdsByName(): \Illuminate\Support\Collection
     {
-        return Employee::pluck('id', 'name')
+        $byName = Employee::pluck('id', 'name')
             ->mapWithKeys(fn ($id, $name) => [mb_strtolower(trim((string) $name)) => $id]);
+
+        $aliases = WorkLogNameAlias::pluck('employee_id', 'nev_key');
+
+        return $aliases->merge($byName);
+    }
+
+    /**
+     * Megjegyzi, hogy ez a nyers export-név ehhez a dolgozóhoz tartozik — akár most párosult
+     * automatikusan (employees.name egyezés), akár kézzel lett hozzárendelve. Így ha a
+     * dolgozó nevét később valaki megváltoztatja, a jövőbeli importok ugyanarra a névre
+     * továbbra is automatikusan felismerik, nem kell mindig újra kézzel hozzárendelni.
+     */
+    public function rememberAlias(string $nev, int $employeeId): void
+    {
+        $key = mb_strtolower(trim($nev));
+        if ($key === '') {
+            return;
+        }
+
+        WorkLogNameAlias::updateOrCreate(
+            ['nev_key' => $key],
+            ['nev' => $nev, 'employee_id' => $employeeId]
+        );
     }
 
     protected function parseDate($cell, string $field, int $rowIndex): ?string

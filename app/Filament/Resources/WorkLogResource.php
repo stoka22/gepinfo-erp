@@ -215,6 +215,11 @@ class WorkLogResource extends Resource
                         // most összekapcsolt sorhoz létre kell hozni a hozzá tartozó jelenlét-
                         // bejegyzést is — ugyanazzal a logikával, mint amit maga az import használ,
                         // különben a sor a munkaidő naplóban látszik, de sehol máshol.
+                        //
+                        // rememberAlias(): ha ez a kézi összekapcsolás azért kellett, mert a dolgozó
+                        // nevét időközben valaki megváltoztatta (pl. becenevet fűzött hozzá) és emiatt
+                        // az automatikus párosítás elbukott, ez a hívás megjegyzi a nyers nevet — a
+                        // KÖVETKEZŐ importnál már nem kell megint kézzel elvégezni ugyanezt.
                         $import = new \App\Imports\WorkLogsImport;
                         foreach ($records as $record) {
                             \App\Models\WorkLog::where('nev', $record->nev)
@@ -231,6 +236,8 @@ class WorkLogResource extends Resource
                                         'employee_id' => $log->employee_id,
                                     ]);
                                 });
+
+                            $import->rememberAlias($record->nev, (int) $data['employee_id']);
                         }
                     }),
 
