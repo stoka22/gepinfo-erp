@@ -20,6 +20,17 @@ Schedule::command('pulses:generate')
     
 Schedule::command('vacation:rebuild')->yearlyOn(1, 1, '03:00');
 
+// A háttérbe tett jobokat (pl. GenerateAttendanceSheetBatchJob, Filament adatbázis-
+// értesítések) ez dolgozza fel — megosztott/DotRoll-os környezetben nincs tartósan futó
+// 'queue:work' daemon, ezért percenként egy rövid, önmagát leállító burst-öt indítunk a
+// már meglévő schedule:run cronra ráülve (ugyanaz a minta, mint a többi Schedule::command
+// itt fent). A --stop-when-empty azonnal kilép, ha nincs teendő; a --max-time=50 garantálja,
+// hogy a következő perces indítás előtt biztosan befejeződik.
+Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=1')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/queue-work.log'));
+
 Schedule::command('attendance:auto-checkout')
     ->everyFiveMinutes()
     ->withoutOverlapping()

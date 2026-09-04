@@ -594,15 +594,7 @@ class EmployeeTable
                     ->columns(3)
                     ->required(),
             ])
-            ->action(function (\Illuminate\Support\Collection $records, array $data) use ($view, $filenamePrefix) {
-                // Több dolgozó egyszerre válaszva (pl. a teljes cég) az alapértelmezett 128M
-                // PHP memória-limitet simán túllépi a Dompdf renderelés (mérve: ~52 dolgozónál
-                // fatal "Allowed memory size exhausted" hiba a Dompdf CSS-feldolgozásában) —
-                // ezért csak erre a (viszonylag ritka, egyszeri riport-jellegű) műveletre
-                // megemeljük, nem globálisan a php.ini-ben.
-                ini_set('memory_limit', '512M');
-                set_time_limit(120);
-
+            ->action(function (\Illuminate\Support\Collection $records, array $data) use ($view, $filenamePrefix, $label) {
                 $year = (int) ($data['year'] ?? now()->year);
                 $months = collect($data['months'] ?? [])->sort()->values();
 
@@ -619,38 +611,27 @@ class EmployeeTable
                     return;
                 }
 
-                $service = app(\App\Services\AttendanceSheetService::class);
-                $sheets = [];
-                foreach ($employees as $employee) {
-                    $employee->loadMissing('company');
-                    foreach ($months as $m) {
-                        $periodStart = \Carbon\CarbonImmutable::createFromDate($year, (int) $m, 1)->startOfMonth();
-                        $periodEnd = $periodStart->endOfMonth();
-                        $sheets[] = $service->buildForEmployee($employee, $periodStart, $periodEnd);
-                    }
-                }
+                // A generálás (Dompdf renderelés) sok dolgozónál percekig tarthat, ezért
+                // háttér-jobban fut (ld. GenerateAttendanceSheetBatchJob) — a Filament bulk
+                // action szinkron HTTP-kérésén belül végezve 10 dolgozó fölött már a
+                // webszerver/PHP időtúllépése hibára futtatta a kérést, mielőtt elkészült
+                // volna a PDF. A kész fájlról adatbázis-értesítés jön letöltési linkkel.
+                \App\Jobs\GenerateAttendanceSheetBatchJob::dispatch(
+                    $employees->pluck('id')->all(),
+                    $year,
+                    $months->all(),
+                    $view,
+                    $filenamePrefix,
+                    $label,
+                    Filament::auth()->id(),
+                );
 
-                $html = view($view, [
-                    'sheets'    => $sheets,
-                    'printedAt' => now()->format('Y-m-d H:i'),
-                ])->render();
-
-                $options = new \Dompdf\Options(['defaultFont' => 'DejaVu Sans']);
-                $dompdf = new \Dompdf\Dompdf($options);
-                $dompdf->loadHtml($html);
-                $dompdf->setPaper('A4', 'portrait');
-                $dompdf->render();
-
-                $filenameMonths = $months->implode('_') ?: now()->format('m');
-
-                // "inline", nem "attachment": alapértelmezésben megnyíljon (új böngésző-fülön),
-                // ne letöltésre kényszerítse a felhasználót.
-                return new StreamedResponse(function () use ($dompdf) {
-                    echo $dompdf->output();
-                }, 200, [
-                    'Content-Type' => 'application/pdf',
-                    'Content-Disposition' => 'inline; filename="'.$filenamePrefix.'_'.$year.'_'.$filenameMonths.'.pdf"',
-                ]);
+                Notification::make()
+                    ->title('A jelenléti ív generálása elindult a háttérben')
+                    ->body($employees->count().' dolgozóra — értesítést kapsz (a haranga ikonnál), ha elkészült és letölthető.')
+                    ->icon('heroicon-o-clock')
+                    ->success()
+                    ->send();
             })
             ->deselectRecordsAfterCompletion();
     }

@@ -11,6 +11,8 @@ use App\Http\Controllers\Scheduler\TreeController;
 //use App\Http\Controllers\TimeEntryCalendarController;
 use App\Http\Controllers\Scheduler\ResourceController;
 use App\Http\Controllers\MyAttendanceSheetController;
+use App\Http\Controllers\AttendanceSheetBatchDownloadController;
+use App\Http\Middleware\EnsureUserIsAdmin;
 
 Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::class, 'download'])
     ->middleware('auth')
@@ -19,6 +21,12 @@ Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::cl
 Route::get('/my-attendance-sheet-detailed/{monthsAgo?}', [MyAttendanceSheetController::class, 'downloadDetailed'])
     ->middleware('auth')
     ->name('my-attendance-sheet-detailed');
+
+// A tömeges (admin) jelenléti ív bulk action háttérben (GenerateAttendanceSheetBatchJob)
+// generált PDF-jének letöltése — a notification action-linkje mutat ide.
+Route::get('/admin/attendance-sheet-batch/{token}/{filename}', [AttendanceSheetBatchDownloadController::class, 'download'])
+    ->middleware(['auth', EnsureUserIsAdmin::class])
+    ->name('attendance-sheet-batch.download');
 
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn() => redirect()->route('filament.user.auth.login'))->name('login');
