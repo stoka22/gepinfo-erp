@@ -33,7 +33,9 @@ class UserPanelProvider extends PanelProvider
             ->brandName('Gepinfo')
             ->login()
             ->sidebarCollapsibleOnDesktop()
-            
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('30s')
+
             // csak a Vezérlőpult marad a főoldalnak
             ->pages([
                 \App\Filament\Pages\UserDashboard::class,
