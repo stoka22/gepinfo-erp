@@ -24,6 +24,16 @@ class AutoCheckoutStalePresence extends Command
             ->whereNotNull('start_time')
             ->whereNull('end_date')
             ->whereNull('end_time')
+            // A munkanapló-importból (worklog-import) származó, kilépés nélküli sorok NEM
+            // "valaki most van bent és elfelejtett kiléptetni" esetek — ezek eleve régi,
+            // már lezajlott (hetekkel/hónapokkal korábbi) műszakok, ahol a forrásfájl
+            // egyszerűen nem tartalmazott kilépést. Ha ez a parancs ezeket is kitalált
+            // kezdés+12h időponttal lezárná, hamis "Vége" időpont kerülne a jelenléti ívre
+            // — élesben azonosítva (Bolics Péter, 2026-08), miután a hiányzó schedule:run
+            // cron pótlása után ez a job először tudott ténylegesen lefutni, és percek
+            // alatt lezárt 539, korábban importált, importáláskor eleve `needs_review`-ra
+            // jelölt nyitott sort. Csak a valós (terminálos/kioszkos) beléptetéseket zárja.
+            ->where(fn ($q) => $q->whereNull('entry_method')->orWhere('entry_method', '!=', 'worklog-import'))
             ->get();
 
         $closed = 0;
