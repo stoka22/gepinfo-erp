@@ -529,7 +529,10 @@ class EmployeeTable
                     ->successNotificationTitle('Kijelentkezve'),
 
                 Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
-                Tables\Actions\DeleteAction::make()->label('')->tooltip('Archiválás'),
+                Tables\Actions\DeleteAction::make()->label('')->tooltip('Archiválás')
+                    ->modalHeading('Dolgozó archiválása')
+                    ->modalDescription('A dolgozó archivált (rejtett) állapotba kerül — az adatai (jelenléti ív, munkaidő napló, szabadság-egyenleg) megmaradnak, és a "Visszaállítás" gombbal bármikor újra aktívvá tehető. Ez NEM végleges törlés.')
+                    ->modalSubmitActionLabel('Archiválás'),
                 Tables\Actions\RestoreAction::make()->label('')->tooltip('Visszaállítás'),
                 Tables\Actions\ForceDeleteAction::make()
                     ->label('')
@@ -552,7 +555,10 @@ class EmployeeTable
                 ),
 
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make()->label('Archiválás'),
+                    Tables\Actions\DeleteBulkAction::make()->label('Archiválás')
+                        ->modalHeading('Kijelölt dolgozók archiválása')
+                        ->modalDescription('A kijelölt dolgozók archivált (rejtett) állapotba kerülnek — az adataik (jelenléti ív, munkaidő napló, szabadság-egyenleg) megmaradnak, és a "Visszaállítás" művelettel bármikor újra aktívvá tehetők. Ez NEM végleges törlés.')
+                        ->modalSubmitActionLabel('Archiválás'),
                     Tables\Actions\RestoreBulkAction::make()->label('Visszaállítás'),
                     Tables\Actions\ForceDeleteBulkAction::make()
                         ->label('Végleges törlés')

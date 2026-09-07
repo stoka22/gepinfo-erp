@@ -51,6 +51,9 @@ class EditEmployee extends EditRecord
         return [
             Actions\DeleteAction::make()->label('Archiválás')
                 ->requiresConfirmation()
+                ->modalHeading('Dolgozó archiválása')
+                ->modalDescription('A dolgozó archivált (rejtett) állapotba kerül — az adatai (jelenléti ív, munkaidő napló, szabadság-egyenleg) megmaradnak, és a "Visszaállítás" gombbal bármikor újra aktívvá tehető. Ez NEM végleges törlés.')
+                ->modalSubmitActionLabel('Archiválás')
                 ->visible(fn ($record) => ! $record->trashed()),
             Actions\RestoreAction::make()->label('Visszaállítás')
                 ->visible(fn ($record) => $record->trashed()),
