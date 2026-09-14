@@ -133,8 +133,14 @@
                     </svg>
                 </a>
             </div>
+
+            <div class="text-xs" style="color:#64748b;">
+                <a href="{{ route('adatvedelem') }}" style="color:#94a3b8;" class="hover:text-white transition">Süti- és adatkezelési tájékoztató</a>
+            </div>
         </div>
     </footer>
+
+    <x-cookie-consent />
 
 </body>
 </html>

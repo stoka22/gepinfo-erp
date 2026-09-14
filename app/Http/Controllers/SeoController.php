@@ -45,6 +45,7 @@ class SeoController extends Controller
             ['loc' => route('szolgaltatasok.index'), 'priority' => '0.8'],
             ['loc' => route('oktatas'), 'priority' => '0.6'],
             ['loc' => route('kapcsolat'), 'priority' => '0.6'],
+            ['loc' => route('adatvedelem'), 'priority' => '0.3'],
         ];
 
         foreach (CompanyServices::all() as $service) {

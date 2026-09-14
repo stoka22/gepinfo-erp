@@ -48,4 +48,9 @@ class PageController extends Controller
     {
         return view('kapcsolat');
     }
+
+    public function privacy(): View
+    {
+        return view('adatvedelem');
+    }
 }

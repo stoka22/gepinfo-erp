@@ -40,3 +40,10 @@ Schedule::command('digest:daily')
     ->dailyAt('07:00')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/daily-digest.log'));
+
+// Adatminimalizálás: a honlap-látogatási rekordokat (page_visits) 12 hónapnál
+// tovább nem tartjuk meg — lásd Süti- és adatkezelési tájékoztató.
+Schedule::command('page-visits:prune')
+    ->monthly()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/page-visits-prune.log'));

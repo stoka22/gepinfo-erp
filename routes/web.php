@@ -51,6 +51,9 @@ Route::middleware('track.visit')->group(function () {
     Route::get('/oktatas', [PageController::class, 'training'])->name('oktatas');
 });
 
+// Jogi/tájékoztató oldal — szándékosan a látogatás-mérésen kívül.
+Route::get('/adatvedelem', [PageController::class, 'privacy'])->name('adatvedelem');
+
 // Termelésfigyelő (korábban a "/" oldal volt, most kiosk-képernyőknek /monitor)
 Route::get('/monitor', function () {
     $d   = today();
