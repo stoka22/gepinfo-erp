@@ -26,8 +26,8 @@ class TrackPageVisit
                 'path' => $request->path(),
                 'route_name' => $request->route()?->getName(),
                 'ip_hash' => hash('sha256', $request->ip() . $userAgent),
-                'user_agent' => mb_substr($userAgent, 0, 255),
-                'referrer' => mb_substr((string) $request->header('referer'), 0, 255) ?: null,
+                'user_agent' => mb_substr($userAgent, 0, 2000),
+                'referrer' => mb_substr((string) $request->header('referer'), 0, 2000) ?: null,
             ]);
         }
 
