@@ -94,6 +94,7 @@
                 <nav class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm font-semibold">
                     <a href="{{ route('home') }}#rolunk" style="color:#e2e8f0;" class="hover:opacity-80 transition">Rólunk</a>
                     <a href="{{ route('szolgaltatasok.index') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Szolgáltatások</a>
+                    <a href="{{ route('oktatas') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Oktatás</a>
                     <a href="{{ route('kapcsolat') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Kapcsolat</a>
                 </nav>
             </div>

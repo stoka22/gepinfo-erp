@@ -43,6 +43,7 @@ class SeoController extends Controller
         $urls = [
             ['loc' => route('home'), 'priority' => '1.0'],
             ['loc' => route('szolgaltatasok.index'), 'priority' => '0.8'],
+            ['loc' => route('oktatas'), 'priority' => '0.6'],
             ['loc' => route('kapcsolat'), 'priority' => '0.6'],
         ];
 

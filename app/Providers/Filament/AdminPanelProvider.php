@@ -45,6 +45,8 @@ class AdminPanelProvider extends PanelProvider
                     ->icon('heroicon-o-cog-6-tooth'),
                 NavigationGroup::make('Kimutatások')
                     ->icon('heroicon-o-chart-bar'),
+                NavigationGroup::make('Oktatás')
+                    ->icon('heroicon-o-academic-cap'),
                 NavigationGroup::make('Készlet')
                     ->icon('heroicon-o-cube')
                     ->collapsed(),
