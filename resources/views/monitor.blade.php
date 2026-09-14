@@ -2,8 +2,9 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
         <meta charset="UTF-8">
-        <title>Termelési áttekintő</title>
+        <title>Termelési áttekintő | Gépinfo</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noindex, nofollow">
         <style>
             :root{
                 --bg: #000000;            /* jelenlegi háttér */

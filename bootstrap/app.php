@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Application;
 use App\Http\Middleware\DeviceTokenAuth;
+use App\Http\Middleware\TrackPageVisit;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
@@ -24,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // alias felvétel (Laravel 11 way)
         $middleware->alias([
             'auth.device' => DeviceTokenAuth::class,
+            'track.visit' => TrackPageVisit::class,
 
         ]);
         $middleware->append(\App\Http\Middleware\TrustHosts::class);

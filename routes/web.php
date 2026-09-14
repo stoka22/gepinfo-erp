@@ -12,6 +12,8 @@ use App\Http\Controllers\Scheduler\TreeController;
 use App\Http\Controllers\Scheduler\ResourceController;
 use App\Http\Controllers\MyAttendanceSheetController;
 use App\Http\Controllers\AttendanceSheetBatchDownloadController;
+use App\Http\Controllers\PageController;
+use App\Http\Controllers\SeoController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 
 Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::class, 'download'])
@@ -35,8 +37,21 @@ Route::post('jump-codes/generate', [JumpCodeController::class, 'generate'])->nam
 //Route::get('/jump-codes', fn () => view('jumpcodes.public'))->name('jumpcodes.public');
 Route::get('/jump-codes', [JumpCodeController::class, 'index'])->name('jumpcodes.public');
 
-// Főoldal (maradhat ahogy van)
-Route::get('/', function () {
+// SEO: kereső-botok idekapcsolódnak, mielőtt bármi mást behúznának.
+Route::get('/robots.txt', [SeoController::class, 'robots'])->name('robots');
+Route::get('/sitemap.xml', [SeoController::class, 'sitemap'])->name('sitemap');
+
+// Főoldal és céges tartalmi oldalak (Szolgáltatások, Kapcsolat) – ide kerül a
+// látogatottság-mérő middleware, hogy legyen rálátás a honlap forgalmára.
+Route::middleware('track.visit')->group(function () {
+    Route::get('/', [PageController::class, 'home'])->name('home');
+    Route::get('/szolgaltatasok', [PageController::class, 'servicesIndex'])->name('szolgaltatasok.index');
+    Route::get('/szolgaltatasok/{slug}', [PageController::class, 'servicesShow'])->name('szolgaltatasok.show');
+    Route::get('/kapcsolat', [PageController::class, 'contact'])->name('kapcsolat');
+});
+
+// Termelésfigyelő (korábban a "/" oldal volt, most kiosk-képernyőknek /monitor)
+Route::get('/monitor', function () {
     $d   = today();
     $y22 = $d->copy()->subDay()->setTime(22, 0);
     $t06 = $d->copy()->setTime(6, 0);
@@ -78,10 +93,10 @@ Route::get('/', function () {
     });
 
     return response()
-        ->view('welcome', ['machines' => $machines])
+        ->view('monitor', ['machines' => $machines])
         ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         ->header('Pragma', 'no-cache');
-});
+})->name('monitor');
 
 // Authos nézetek
 // A régi Breeze-dashboard helyett szerepkör szerint irányítunk a megfelelő Filament panelra
