@@ -186,26 +186,21 @@ jobs:
 
           # A storage/app/public (storage:link cél) a NYILVÁNOSAN kiszolgált feltöltéseket
           # (pl. Oktatás fájlok, eszköz-fájlok) tartalmazza — ezeket az Apache statikusan,
-          # PHP megkerülésével szolgálja ki a public/storage szimlinken keresztül, ezért a
-          # fenti "go-rwx" lezárás után külön vissza kell adni az olvasási jogot a webszerver
-          # számára, különben minden ilyen letöltés 403 Forbidden hibát ad.
+          # PHP megkerülésével szolgálja ki a public/storage szimlinken keresztül. A fenti
+          # "go-rwx" lezárás után ezért:
+          #   1) a "storage" és "storage/app" könyvtáraknak KÜLÖN kell bejárási (x) jogot
+          #      adni "other"-nek — enélkül az Apache már ezen a két szinten elakad, MÉG
+          #      MIELŐTT elérné a lenti public/ mappát (namei -l ezt igazolta: mindkettő
+          #      "drwx------" maradt a "go-rwx" után, tehát tartalmuk listázása/olvasása
+          #      továbbra sem lehetséges kívülről, csak az áthaladás engedélyezett rajtuk);
+          #   2) a "storage/app/public" alatt viszont mindenre (fájlokra és könyvtárakra is)
+          #      kell az olvasási/bejárási jog, hiszen ez a ténylegesen kiszolgált tartalom.
+          if [ -d "$REM/shared/storage/app" ]; then
+            chmod o+x "$REM/shared/storage" "$REM/shared/storage/app" || true
+          fi
           if [ -d "$REM/shared/storage/app/public" ]; then
             chmod -R o+rX "$REM/shared/storage/app/public" || true
           fi
-
-          # IDEIGLENES DIAGNOSZTIKA (2. kör) — a public/storage most már szimlink-e,
-          # és mi látszik a teljes lánc mentén.
-          echo "--- ls -la public/ (uj release) ---"
-          (ls -la "$REM/releases/$REL/public/" | grep -i storage) || true
-          echo "--- namei -l (uj release, teljes lánc) ---"
-          namei -l "$REM/releases/$REL/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
-          echo "--- current -> melyik release ---"
-          (ls -la "$REM/current" 2>&1) || true
-          (readlink -f "$REM/current" 2>&1) || true
-          echo "--- namei -l (current-en keresztül, ahogy Apache latja) ---"
-          namei -l "$REM/current/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
-          echo "--- htaccess a public gyokerben ---"
-          (find "$REM/releases/$REL/public" -maxdepth 1 -iname ".htaccess" -exec cat {} \;) 2>&1 || true
 
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
