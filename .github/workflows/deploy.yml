@@ -175,6 +175,15 @@ jobs:
           # jogosultságok
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
 
+          # A storage/app/public (storage:link cél) a NYILVÁNOSAN kiszolgált feltöltéseket
+          # (pl. Oktatás fájlok, eszköz-fájlok) tartalmazza — ezeket az Apache statikusan,
+          # PHP megkerülésével szolgálja ki a public/storage szimlinken keresztül, ezért a
+          # fenti "go-rwx" lezárás után külön vissza kell adni az olvasási jogot a webszerver
+          # számára, különben minden ilyen letöltés 403 Forbidden hibát ad.
+          if [ -d "$REM/shared/storage/app/public" ]; then
+            chmod -R o+rX "$REM/shared/storage/app/public" || true
+          fi
+
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
           # laravel/breeze) tartalmazó manifeszt marad érvényben egy --no-dev telepítés után,
