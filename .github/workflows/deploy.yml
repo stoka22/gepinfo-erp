@@ -184,6 +184,15 @@ jobs:
             chmod -R o+rX "$REM/shared/storage/app/public" || true
           fi
 
+          # IDEIGLENES DIAGNOSZTIKA — miért ad 403-at a public/storage kiszolgálása.
+          # (Ártalmatlan, csak olvas; a következő commit-ban eltávolítjuk.)
+          echo "--- namei -l a teljes útvonalon ---"
+          namei -l "$REM/releases/$REL/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
+          echo "--- whoami / id ---"
+          whoami; id
+          echo "--- apache/httpd folyamat tulajdonosa (ha látható) ---"
+          ps aux 2>/dev/null | grep -i "httpd\|apache" | grep -v grep || echo "(nem látható)"
+
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
           # laravel/breeze) tartalmazó manifeszt marad érvényben egy --no-dev telepítés után,
