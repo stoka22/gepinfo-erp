@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\RedirectAdminFromUserPanel;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Navigation\NavigationGroup;
@@ -88,6 +89,7 @@ class UserPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                RedirectAdminFromUserPanel::class,
             ])
             ->authMiddleware([
                 FilamentAuthenticate::class,
