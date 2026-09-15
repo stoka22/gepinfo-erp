@@ -195,11 +195,16 @@ jobs:
           #      továbbra sem lehetséges kívülről, csak az áthaladás engedélyezett rajtuk);
           #   2) a "storage/app/public" alatt viszont mindenre (fájlokra és könyvtárakra is)
           #      kell az olvasási/bejárási jog, hiszen ez a ténylegesen kiszolgált tartalom.
+          # Csoport ÉS "other" is megkapja — nem tudjuk biztosan, melyik azonosítóval
+          # fut az Apache ezen a szerveren (a namei -l szerint a fiók home könyvtára is
+          # csoport-bejárhatóként van beállítva, ami arra utal, hogy a webszerver a
+          # tulajdonos CSOPORTJÁVAL fut, nem "other"-ként — de mindkettőt beállítjuk,
+          # hogy bármelyik modell esetén működjön).
           if [ -d "$REM/shared/storage/app" ]; then
-            chmod o+x "$REM/shared/storage" "$REM/shared/storage/app" || true
+            chmod go+x "$REM/shared/storage" "$REM/shared/storage/app" || true
           fi
           if [ -d "$REM/shared/storage/app/public" ]; then
-            chmod -R o+rX "$REM/shared/storage/app/public" || true
+            chmod -R go+rX "$REM/shared/storage/app/public" || true
           fi
 
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
