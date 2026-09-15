@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\TrainingMaterial;
 use App\Support\CompanyServices;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PageController extends Controller
 {
@@ -42,6 +44,21 @@ class PageController extends Controller
         abort_if($service === null, 404);
 
         return view('szolgaltatasok.show', ['service' => $service]);
+    }
+
+    /**
+     * A feltöltött oktatási fájlokat PHP-n (Laravel-en) keresztül szolgáljuk ki,
+     * nem a public/storage szimlinken át statikusan — a szerver Apache-
+     * konfigurációja ugyanis nem engedi a szimlinken keresztüli statikus
+     * kiszolgálást (403), miközben a PHP-s elérés a tulajdonos jogaival fut,
+     * és így mindig működik, a fájlrendszer-jogosultságoktól függetlenül.
+     */
+    public function downloadMaterial(TrainingMaterial $trainingMaterial): StreamedResponse
+    {
+        abort_unless($trainingMaterial->kind === 'file' && $trainingMaterial->file_path, 404);
+        abort_unless(Storage::disk('public')->exists($trainingMaterial->file_path), 404);
+
+        return Storage::disk('public')->download($trainingMaterial->file_path);
     }
 
     public function contact(): View

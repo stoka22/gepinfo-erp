@@ -135,7 +135,7 @@ class TrainingMaterialResource extends Resource
                     ->label('')
                     ->tooltip('Letöltés')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->url(fn (TrainingMaterial $record): string => Storage::disk('public')->url($record->file_path))
+                    ->url(fn (TrainingMaterial $record): string => route('oktatas.download', $record))
                     ->openUrlInNewTab()
                     ->visible(fn (TrainingMaterial $record): bool =>
                         $record->kind === 'file' && filled($record->file_path) && Storage::disk('public')->exists($record->file_path)

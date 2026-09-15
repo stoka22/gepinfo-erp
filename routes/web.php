@@ -49,6 +49,7 @@ Route::middleware('track.visit')->group(function () {
     Route::get('/szolgaltatasok/{slug}', [PageController::class, 'servicesShow'])->name('szolgaltatasok.show');
     Route::get('/kapcsolat', [PageController::class, 'contact'])->name('kapcsolat');
     Route::get('/oktatas', [PageController::class, 'training'])->name('oktatas');
+    Route::get('/oktatas/letoltes/{trainingMaterial}', [PageController::class, 'downloadMaterial'])->name('oktatas.download');
 });
 
 // Jogi/tájékoztató oldal — szándékosan a látogatás-mérésen kívül.

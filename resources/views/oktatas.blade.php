@@ -39,8 +39,7 @@
                                 @if ($item->file_size_for_humans)
                                     <div class="text-xs text-slate-400 shrink-0">{{ $item->file_size_for_humans }}</div>
                                 @endif
-                                <a href="{{ $item->file_url }}"
-                                   target="_blank" rel="noopener"
+                                <a href="{{ route('oktatas.download', $item) }}"
                                    class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition shrink-0">
                                     <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M12 3v12" /><polyline points="7,10 12,15 17,10" /><path d="M5 21h14" />
