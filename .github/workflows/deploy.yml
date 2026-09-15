@@ -195,15 +195,17 @@ jobs:
 
           # IDEIGLENES DIAGNOSZTIKA (2. kör) — a public/storage most már szimlink-e,
           # és mi látszik a teljes lánc mentén.
-          echo "--- ls -la public/ ---"
-          ls -la "$REM/releases/$REL/public/" | grep -i storage
-          echo "--- namei -l (teljes lánc) ---"
+          echo "--- ls -la public/ (uj release) ---"
+          (ls -la "$REM/releases/$REL/public/" | grep -i storage) || true
+          echo "--- namei -l (uj release, teljes lánc) ---"
           namei -l "$REM/releases/$REL/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
-          echo "--- current symlink ---"
-          ls -la "$REM/current" 2>&1 || true
-          readlink -f "$REM/current" 2>&1 || true
+          echo "--- current -> melyik release ---"
+          (ls -la "$REM/current" 2>&1) || true
+          (readlink -f "$REM/current" 2>&1) || true
+          echo "--- namei -l (current-en keresztül, ahogy Apache latja) ---"
+          namei -l "$REM/current/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
           echo "--- htaccess a public gyokerben ---"
-          find "$REM/releases/$REL/public" -maxdepth 1 -iname ".htaccess" -exec cat {} \; 2>&1 || true
+          (find "$REM/releases/$REL/public" -maxdepth 1 -iname ".htaccess" -exec cat {} \;) 2>&1 || true
 
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
