@@ -186,12 +186,14 @@ jobs:
 
           # IDEIGLENES DIAGNOSZTIKA — miért ad 403-at a public/storage kiszolgálása.
           # (Ártalmatlan, csak olvas; a következő commit-ban eltávolítjuk.)
-          echo "--- namei -l a teljes útvonalon ---"
-          namei -l "$REM/releases/$REL/public/storage/oktatas/lezernyalab-kozpontositasa.pdf" 2>&1 || true
-          echo "--- whoami / id ---"
-          whoami; id
-          echo "--- apache/httpd folyamat tulajdonosa (ha látható) ---"
-          ps aux 2>/dev/null | grep -i "httpd\|apache" | grep -v grep || echo "(nem látható)"
+          echo "--- readlink public/storage ---"
+          readlink -f "$REM/releases/$REL/public/storage" 2>&1 || true
+          echo "--- ls shared/storage/app/public ---"
+          ls -la "$REM/shared/storage/app/public/" 2>&1 || true
+          echo "--- find shared/storage a pdf nevére ---"
+          find "$REM/shared" -iname "*lezernyalab*" 2>&1 || true
+          echo "--- DB rekord (training_materials) ---"
+          "$PHP" "$ART" tinker --execute="App\Models\TrainingMaterial::all(['id','title','kind','file_path'])->each(fn(\$m)=>print_r(\$m->toArray()));" 2>&1 || true
 
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.
