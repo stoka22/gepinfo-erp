@@ -169,8 +169,17 @@ jobs:
           ln -sfn "$REM/shared/.env"            "$REM/releases/$REL/.env"
 
           # public/storage
+          # Ha bármi más (nem szimlink — pl. egy tévedésből verziókövetett üres
+          # könyvtár) van itt, azt eltávolítjuk, KÜLÖNBEN a storage:link parancs
+          # "already exists" üzenettel lemondja a futást, és a feltöltött fájlok
+          # (pl. Oktatás anyagok) sosem lesznek elérhetők a nyilvános URL-en.
           cd "$REM/releases/$REL"
-          [ -L public/storage ] || "$PHP" "$ART" storage:link || true
+          if [ -L public/storage ]; then
+            :
+          else
+            rm -rf public/storage
+            "$PHP" "$ART" storage:link || true
+          fi
 
           # jogosultságok
           chmod -R u+rwX,go-rwx "$REM/shared/storage" "$REM/shared/bootstrap" || true
@@ -183,17 +192,6 @@ jobs:
           if [ -d "$REM/shared/storage/app/public" ]; then
             chmod -R o+rX "$REM/shared/storage/app/public" || true
           fi
-
-          # IDEIGLENES DIAGNOSZTIKA — miért ad 403-at a public/storage kiszolgálása.
-          # (Ártalmatlan, csak olvas; a következő commit-ban eltávolítjuk.)
-          echo "--- readlink public/storage ---"
-          readlink -f "$REM/releases/$REL/public/storage" 2>&1 || true
-          echo "--- ls shared/storage/app/public ---"
-          ls -la "$REM/shared/storage/app/public/" 2>&1 || true
-          echo "--- find shared/storage a pdf nevére ---"
-          find "$REM/shared" -iname "*lezernyalab*" 2>&1 || true
-          echo "--- DB rekord (training_materials) ---"
-          "$PHP" "$ART" tinker --execute="App\Models\TrainingMaterial::all(['id','title','kind','file_path'])->each(fn(\$m)=>print_r(\$m->toArray()));" 2>&1 || true
 
           # A csomag-manifeszt (bootstrap/cache/packages.php / services.php) a shared/ alatt
           # van, tehát release-ek között megosztott. Ha egy régi, dev-függőséget (pl.

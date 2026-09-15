@@ -17,6 +17,7 @@
 /node_modules/
 /public/hot
 /public/build
+/public/storage
 
 # Ha valaha publikáltál vendor asseteket:
 # (Filamentnél 3.x-ben ritka, de nem árt)
