@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Providers\Filament\UserPanelProvider::class,
         App\Providers\AuthServiceProvider::class,
         App\Providers\BladeFilamentBridgeProvider::class,
+        App\Providers\VoltServiceProvider::class,
     ])
 
     ->withRouting(

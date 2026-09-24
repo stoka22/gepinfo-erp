@@ -228,10 +228,17 @@ const char *resetReasonString()
 
 String hardwareDeviceId()
 {
-	// ESP8266-on nincs kozvetlen EFUSE MAC lekerdezes, mint ESP32-n -- a
-	// gyari egyedi lapkaazonositot (ESP.getChipId()) hasznaljuk helyette.
+	// A szerver (DeviceEnrollmentController::normalizeDeviceId) pontosan 12
+	// hex jegyu, teljes 6 bajtos MAC-cimet var "ESP8266_<12 HEX>" alakban --
+	// az ESP.getChipId() csak a MAC also 3 bajtjabol szarmazik (6 jegy), az
+	// NEM eleg, "Malformed device_id" 422-t eredmenyez. A teljes STA MAC-et
+	// hasznaljuk, ugyanugy mint amit a WiFi radio ambient azonositokent ad.
+	WiFi.mode(WIFI_STA);
+	uint8_t mac[6];
+	WiFi.macAddress(mac);
 	char buffer[24];
-	snprintf(buffer, sizeof(buffer), "ESP8266_%06X", ESP.getChipId());
+	snprintf(buffer, sizeof(buffer), "ESP8266_%02X%02X%02X%02X%02X%02X",
+			 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	return String(buffer);
 }
 
@@ -291,6 +298,18 @@ bool enrollDevice()
 
 	String enrollmentUrl = runtimeApiUrl;
 	enrollmentUrl.replace("/device/push", "/device/enroll");
+
+	{
+		IPAddress resolvedIp;
+		int hostStart = enrollmentUrl.indexOf("://") + 3;
+		int hostEnd = enrollmentUrl.indexOf('/', hostStart);
+		String hostOnly = enrollmentUrl.substring(hostStart, hostEnd < 0 ? enrollmentUrl.length() : hostEnd);
+		if (WiFi.hostByName(hostOnly.c_str(), resolvedIp))
+			Serial.printf("DNS: %s -> %s\n", hostOnly.c_str(), resolvedIp.toString().c_str());
+		else
+			Serial.printf("DNS FELOLDAS SIKERTELEN: %s\n", hostOnly.c_str());
+	}
+
 	StaticJsonDocument<256> requestDoc;
 	requestDoc["device_id"] = runtimeDeviceId;
 	String payload;
@@ -298,15 +317,27 @@ bool enrollDevice()
 
 	BearSSL::WiFiClientSecure client;
 	client.setInsecure();
+	client.setBufferSizes(1024, 1024);
 	HTTPClient http;
 	if (!http.begin(client, enrollmentUrl))
+	{
+		Serial.println("Enrollment: http.begin() sikertelen (rossz URL?).");
 		return false;
+	}
 	http.addHeader("Content-Type", "application/json");
 	http.setAuthorization(runtimeApiBasicAuthUser.c_str(), runtimeApiBasicAuthPass.c_str());
 	int code = http.POST(payload);
 	String response = http.getString();
+	Serial.printf("Enrollment kuldott payload: %s\n", payload.c_str());
+	Serial.printf("Enrollment code=%d, HTTPClient hiba: %s\n", code, http.errorToString(code).c_str());
+	Serial.printf("Enrollment valasz body: %s\n", response.c_str());
+	if (code < 0)
+	{
+		char sslError[128];
+		int sslErrorCode = client.getLastSSLError(sslError, sizeof(sslError));
+		Serial.printf("BearSSL utolso hiba (%d): %s\n", sslErrorCode, sslError);
+	}
 	http.end();
-	Serial.printf("Enrollment code=%d\n", code);
 
 	if (code == 202)
 	{
@@ -597,6 +628,9 @@ void scanWifiNetworks()
 		Serial.println("WiFi scan nem talalt halozatot.");
 		return;
 	}
+	Serial.println("Teljes nyers WiFi scan:");
+	for (int i = 0; i < found; i++)
+		Serial.printf("  raw %d: %s, RSSI=%d, channel=%d\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
 	for (int i = 0; i < found && allNetworkCount < MAX_WIFI_SCAN_NETWORKS; i++)
 	{
 		String ssid = WiFi.SSID(i);

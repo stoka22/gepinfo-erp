@@ -132,3 +132,83 @@ teszt-parancs volt), ezért biztonságos volt a tiszta csere:
   ami nem ezen a route-on/kontrolleren keresztül megy. A `routes/web.php`-ból
   a megfelelő route-bejegyzések (`/devices`, `/devices/approve/{pending}`)
   is törlésre kerültek.
+
+## Élő, felhasználót érintő hibalánc feltárva és javítva (2026-09-24)
+
+A teljes tesztsuite átvizsgálásakor (nem csak a pulse-counter munka során) egy
+egymásra épülő hibalánc derült ki, ami **valós, élesben futó oldalakat**
+érintett, nem csak teszteket:
+
+1. **`bootstrap/app.php`** explicit `->withProviders([...])` tömbje sosem
+   tartalmazta a `App\Providers\VoltServiceProvider`-t -- emiatt `Volt::mount()`
+   sosem futott le, tehát **egyetlen Livewire Volt-komponens sem volt
+   elérhető sehol az appban** (profil-űrlapok, stb.). Pótolva.
+2. `resources/views/filament/pages/jump-code-form.blade.php` egy
+   `<x-filament::alert>` komponenst használt, ami **a telepített Filament
+   3.3-ban sosem is létezett** (ellenőrizve a teljes `vendor/filament`
+   csomagban -- se PHP osztályként, se view-ként). Lecserélve egy sima,
+   Filament szín-tokenekkel stílusozott divre.
+3. `resources/views/partials/navigation.blade.php` (minden `<x-app-layout>`-ot
+   használó oldalon megjelenő navsáv) két nemlétező route-ra hivatkozott:
+   `route('jump-code-generator')` (a valódi név `jumpcodes.public`) és
+   `route('logout')` (nincs egységes logout route, csak
+   `filament.admin.auth.logout`/`filament.user.auth.logout` létezik
+   panelenként). **Ez minden bejelentkezett felhasználónál elszállt volna
+   bármelyik ilyen oldal (pl. `/profile`, `/machines`) meglátogatásakor.**
+   Javítva.
+4. `resources/views/layouts/app.blade.php` `@yield('content')`-et használt
+   `{{ $slot }}` helyett a `<main>` elemben -- mivel `<x-app-layout>` egy
+   **komponens** (`App\View\Components\AppLayout`), nem `@extends`-es
+   sablon, a `@yield` sosem kapott tartalmat: **minden ezt használó oldal
+   (`/profile`, `/machines`, `/machines/create`, `/machines/{id}/edit`)
+   üres `<main>`-t renderelt**, a tényleges oldaltartalom (űrlapok, listák)
+   sosem jelent meg. Javítva.
+5. **`MachineController`** a `machines.index`/`machines.create`/
+   `machines.edit` nézeteket várta (`resources/views/machines/*.blade.php`),
+   de ez a mappa nem is létezett -- a tényleges fájlok tévesen a
+   `resources/views/livewire/machines/` alatt voltak (`index.blade.php`,
+   `create.blade.php`), `edit.blade.php` pedig **egyáltalán nem létezett**.
+   A `/machines` oldal ezért minden látogatásnál "View not found" 500-as
+   hibával elszállt volna. A két meglévő fájl áthelyezve a helyes útvonalra,
+   az `edit.blade.php` pótolva (a `create.blade.php` mintájára,
+   előtöltve a szerkesztett gép adataival). Új `tests/Feature/
+   MachinesPagesTest.php` fedi mind a 4 műveletet (lista/create/edit/store),
+   mert korábban egyáltalán nem volt teszt erre a funkcióra -- ezért maradt
+   ez a hiba észrevétlen.
+
+Mind az 5 pont valós, addig teszttel le nem fedett, élesben ténylegesen
+elérhető oldalakat/funkciókat érintett -- nem csak a most archivált holt
+kódot.
+
+## Sosem bekötött Breeze-kori auth-útvonalak (`routes/auth.php`) (2026-09-24)
+
+A `bootstrap/app.php` `->withRouting()` hívása csak a `web`/`api`/`commands`/
+`health` route-fájlokat regisztrálja -- a `routes/auth.php` (a standard
+Laravel Breeze scaffold auth-útvonalai: regisztráció, elfelejtett jelszó,
+jelszó-visszaállítás, email-megerősítés, jelszó-megerősítés, valamint egy
+Volt-alapú `/login`) **sosem volt sehonnan `require`-elve**, feltehetően
+amikor a bejelentkezés a Filament panelekre lett átállítva (a `web.php`-beli
+`/login` route explicit a Filament user-panel loginra irányít át), de ezt a
+fájlt és a hozzá tartozó Volt-oldalakat elfelejtették törölni.
+
+Egyik Filament panel sem engedélyezi a `->passwordReset()`/`->registration()`/
+`->emailVerification()` funkciókat (csak `->login()`), tehát ezek a
+funkciók ma **sehonnan nem érhetők el** -- egy elfelejtett jelszavú
+felhasználónak az admin tud kézzel új jelszót beállítani a Filament
+`UserResource` szerkesztőjén (`password` mező), ez az egyetlen létező
+út. **Felhasználói döntés (2026-09-24): ez szándékos, marad így** -- nincs
+szükség önkiszolgáló regisztrációra/jelszó-visszaállításra egy
+admin-provisionelt HR-rendszeren, csak a holt kód archiválása történt meg,
+funkcionális változtatás nélkül:
+
+- `routes/auth.php`
+- `resources/views/livewire/pages/auth/{login,register,forgot-password,
+  reset-password,verify-email,confirm-password}.blade.php`
+- `tests/Feature/Auth/{AuthenticationTest,EmailVerificationTest,
+  PasswordConfirmationTest,PasswordResetTest,RegistrationTest}.php`
+
+**Kivétel, NEM archiválva**: `tests/Feature/Auth/PasswordUpdateTest.php` --
+ez a `livewire/profile/update-password-form.blade.php` élő, valódi Volt-
+komponenst teszteli (a `/profile` oldalon, bejelentkezve a saját jelszavad
+cseréje), ami a fenti hibalánc javítása után ténylegesen működik is
+(zöld teszt).

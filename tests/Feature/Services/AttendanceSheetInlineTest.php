@@ -1,9 +1,11 @@
 <?php
 
 use App\Filament\Resources\EmployeeResource\Pages\ListEmployees;
+use App\Jobs\GenerateAttendanceSheetBatchJob;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
 it('opens the self-service attendance sheet inline instead of forcing a download', function () {
@@ -46,11 +48,14 @@ it('exposes both the summary and the detailed attendance-sheet bulk actions on t
         ->assertTableBulkActionExists('attendance_sheet_detailed');
 });
 
-it('builds the summary and detailed bulk actions with an inline (not attachment) Content-Disposition', function () {
-    // A két bulk action ugyanazt a StreamedResponse-építő zárt függvényt hívja meg — ezt itt
-    // közvetlenül, Livewire nélkül futtatjuk, mert a Livewire teszt-API nem teszi könnyen
-    // elérhetővé egy bulk action StreamedResponse visszatérési értékét.
+it('dispatches the summary and detailed bulk actions as a background batch job, not a synchronous download', function () {
+    // Korábban ez a két bulk action szinkron StreamedResponse-t épített -- ezt később
+    // háttér-jobra (GenerateAttendanceSheetBatchJob) cserélték, mert élesben 10 dolgozó
+    // fölött a szinkron Dompdf-renderelés túllépte a webszerver/PHP időtúllépését (lásd a
+    // job osztály doc-kommentjét). A teszt ezt a jelenlegi, szándékos viselkedést
+    // ellenőrzi: az action jobot dispatchol és nem ad vissza semmilyen HTTP választ.
     config(['app.env' => 'local']);
+    Queue::fake();
 
     $company = Company::create(['name' => 'Inline Direct Kft.']);
     $admin = User::factory()->create(['company_id' => $company->id, 'role' => 'admin']);
@@ -67,21 +72,21 @@ it('builds the summary and detailed bulk actions with an inline (not attachment)
 
         $response = $actionClosure(collect([$employee]), ['year' => now()->year, 'months' => [now()->format('m')]]);
 
-        expect($response)->toBeInstanceOf(\Symfony\Component\HttpFoundation\StreamedResponse::class);
-        $disposition = $response->headers->get('Content-Disposition');
-        expect($disposition)->toContain('inline');
-        expect($disposition)->not->toContain('attachment');
+        expect($response)->toBeNull();
     }
+
+    Queue::assertPushed(GenerateAttendanceSheetBatchJob::class, 2);
 });
 
-it('processes multiple employees in one merged export and raises the memory limit for the render', function () {
-    // Éles hiba: sok dolgozó egyszerre kiválasztva (pl. a teljes cég) az alapértelmezett
-    // 128M PHP memória-limitet a Dompdf renderelés túllépte ("Allowed memory size
-    // exhausted" fatal error, mérve: ~52 dolgozónál) -- a bulk action mostantól 512M-re
-    // emeli a limitet a renderelés idejére. Itt csak azt ellenőrizzük, hogy az action
-    // ténylegesen lefuttatja ezt az emelést (nem szimulálunk valódi memóriatúllépést,
-    // mert az elfuttatott teszt-folyamat maga is a limithez közeli memóriát használ).
+it('processes multiple employees in one merged batch job dispatch', function () {
+    // Éles hiba (korábbi, szinkron megoldásnál): sok dolgozó egyszerre kiválasztva (pl. a
+    // teljes cég) az alapértelmezett 128M PHP memória-limitet a Dompdf renderelés
+    // túllépte ("Allowed memory size exhausted" fatal error, mérve: ~52 dolgozónál) --
+    // emiatt lett a renderelés háttér-jobra (GenerateAttendanceSheetBatchJob) kiszervezve,
+    // ami saját maga emeli a memória-limitet a futása alatt. Itt azt ellenőrizzük, hogy
+    // az action egyetlen jobot dispatchol az összes kijelölt dolgozó ID-jével.
     config(['app.env' => 'local']);
+    Queue::fake();
 
     $company = Company::create(['name' => 'Inline Multi Kft.']);
     $admin = User::factory()->create(['company_id' => $company->id, 'role' => 'admin']);
@@ -100,6 +105,11 @@ it('processes multiple employees in one merged export and raises the memory limi
 
     $response = $actionClosure($employees, ['year' => now()->year, 'months' => [now()->format('m')]]);
 
-    expect($response)->toBeInstanceOf(\Symfony\Component\HttpFoundation\StreamedResponse::class);
-    expect(ini_get('memory_limit'))->toBe('512M');
+    expect($response)->toBeNull();
+    Queue::assertPushed(GenerateAttendanceSheetBatchJob::class, function ($job) use ($employees) {
+        $ids = (new ReflectionProperty($job, 'employeeIds'))->getValue($job);
+        sort($ids);
+
+        return $ids === $employees->pluck('id')->sort()->values()->all();
+    });
 });

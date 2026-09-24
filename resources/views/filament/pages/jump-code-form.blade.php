@@ -53,10 +53,8 @@
                 @endif
 
                 @if(session('error') || isset($error))
-                    <div class="mt-4">
-                        <x-filament::alert type="danger">
-                            {{ session('error', $error ?? 'Hiba történt') }}
-                        </x-filament::alert>
+                    <div class="mt-4 rounded-lg border border-danger-300 bg-danger-50 px-4 py-3 text-sm font-medium text-danger-700 dark:border-danger-800 dark:bg-danger-900/20 dark:text-danger-400">
+                        {{ session('error', $error ?? 'Hiba történt') }}
                     </div>
                 @endif
             </div>
