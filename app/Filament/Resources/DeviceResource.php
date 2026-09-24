@@ -87,6 +87,38 @@ class DeviceResource extends Resource
                         $record->update(['meta' => $meta]);
                     }),
             ])->columns(3),
+
+            Forms\Components\Section::make('WiFi hálózatok')
+                ->description('Priorizált SSID/jelszó lista, amit a firmware a beégetett hotspot ELŐTT próbál. A sorrend számít -- a lista tetején lévőt próbálja először. Üresen hagyott jelszó a meglévőt megtartja (ugyanahhoz az SSID-hez).')
+                ->hidden(fn (?Device $record) => ! $record)
+                ->schema([
+                    Forms\Components\Repeater::make('wifi_networks_input')
+                        ->label('')
+                        ->schema([
+                            Forms\Components\TextInput::make('ssid')
+                                ->label('SSID')
+                                ->required()
+                                ->maxLength(64),
+                            Forms\Components\TextInput::make('password')
+                                ->label('Jelszó')
+                                ->password()
+                                ->revealable()
+                                ->maxLength(64)
+                                ->placeholder('•••••••• (üresen hagyva: változatlan)'),
+                        ])
+                        ->columns(2)
+                        ->reorderable()
+                        ->reorderableWithButtons()
+                        ->addActionLabel('Új hálózat hozzáadása')
+                        ->dehydrated()
+                        ->afterStateHydrated(function (Forms\Components\Repeater $component, ?Device $record) {
+                            $component->state(
+                                collect($record?->meta['wifi_networks'] ?? [])
+                                    ->map(fn (array $n) => ['ssid' => $n['ssid'], 'password' => ''])
+                                    ->all()
+                            );
+                        }),
+                ]),
         ]);
     }
 

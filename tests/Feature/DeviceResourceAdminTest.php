@@ -71,6 +71,29 @@ it('renders the DevicesStatusTable widget without error', function () {
     Livewire::test(DevicesStatusTable::class)->assertOk()->assertSeeText('3');
 });
 
+it('saves wifi networks from the edit form, encrypted, and keeps an unchanged password on blank input', function () {
+    $admin = actingAsAdmin();
+    $device = Device::create(['user_id' => $admin->id, 'name' => 'Wifi Panel', 'mac_address' => 'AA:BB:CC:DD:EE:04']);
+    $device->update(['meta' => ['wifi_networks' => [
+        ['ssid' => 'Old-Net', 'password' => \Illuminate\Support\Facades\Crypt::encryptString('old-pass')],
+    ]]]);
+
+    Livewire::test(\App\Filament\Resources\DeviceResource\Pages\EditDevice::class, ['record' => $device->getRouteKey()])
+        ->fillForm([
+            'wifi_networks_input' => [
+                ['ssid' => 'Old-Net', 'password' => ''], // blank -> keep old-pass
+                ['ssid' => 'New-Net', 'password' => 'new-pass'],
+            ],
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $networks = collect($device->refresh()->meta['wifi_networks']);
+    expect($networks)->toHaveCount(2);
+    expect(\Illuminate\Support\Facades\Crypt::decryptString($networks->firstWhere('ssid', 'Old-Net')['password']))->toBe('old-pass');
+    expect(\Illuminate\Support\Facades\Crypt::decryptString($networks->firstWhere('ssid', 'New-Net')['password']))->toBe('new-pass');
+});
+
 it('renders the MachinesHealthTable widget through the device_channels join without error', function () {
     $admin = actingAsAdmin();
     $machine = Machine::create(['company_id' => $admin->company_id, 'name' => 'Widget Gép', 'code' => 'WG-1']);

@@ -133,6 +133,7 @@ class DevicePushController extends Controller
             'reboot' => false,
             'restart' => false,
             'commands' => $pendingCommands->map(fn (Command $c) => ['cmd' => $c->cmd])->values(),
+            'wifi_networks' => $this->decryptedWifiNetworks($device),
         ];
 
         if ($provisioning) {
@@ -244,6 +245,40 @@ class DevicePushController extends Controller
         usort($sanitized, fn ($a, $b) => $a['measured_at']->timestamp <=> $b['measured_at']->timestamp);
 
         return $sanitized;
+    }
+
+    /**
+     * A devices.meta.wifi_networks -- admin által, eszközönként megadható,
+     * priorizált SSID/jelszó lista (DeviceResource "WiFi hálózatok" repeater).
+     * A firmware savePreferredNetworksIfChanged()-je ezt a pontos alakot
+     * várja: [{ssid, password}, ...], sima szöveges jelszóval -- a tárolás
+     * titkosított (Crypt::encryptString), csak ebben a válaszban dekódolva,
+     * pontosan az Energy projekt decryptedWifiNetworks()-mintája szerint.
+     * Mindig visszaadjuk (üres tömbként is), mert a firmware minden push-
+     * válaszban megnézi, nem csak első alkalommal.
+     */
+    private function decryptedWifiNetworks(Device $device): array
+    {
+        return collect($device->meta['wifi_networks'] ?? [])
+            ->map(fn (array $network) => [
+                'ssid' => $network['ssid'],
+                'password' => $this->decryptWifiPassword($network['password'] ?? null),
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function decryptWifiPassword(?string $value): ?string
+    {
+        if (! $value) {
+            return $value;
+        }
+
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            return $value;
+        }
     }
 
     /**

@@ -886,15 +886,18 @@ bool postSample(const PulseSample &s)
 
 	BearSSL::WiFiClientSecure client;
 	client.setInsecure();
-	client.setBufferSizes(1024, 1024);
+	client.setBufferSizes(2048, 2048);
 	Serial.printf("CHECKPOINT F, heap=%u\n", ESP.getFreeHeap());
 	HTTPClient http;
 	http.begin(client, runtimeApiUrl);
+	Serial.printf("CHECKPOINT G, heap=%u\n", ESP.getFreeHeap());
 	http.addHeader("Content-Type", "application/json");
 	http.addHeader("X-API-KEY", runtimeApiKey.c_str());
 	http.setAuthorization(runtimeApiBasicAuthUser.c_str(), runtimeApiBasicAuthPass.c_str());
+	Serial.printf("CHECKPOINT H, heap=%u\n", ESP.getFreeHeap());
 
 	int code = http.POST(payload);
+	Serial.printf("CHECKPOINT I, heap=%u, code=%d\n", ESP.getFreeHeap(), code);
 	String response = http.getString();
 	http.end();
 	Serial.printf("POST code=%d response=%s\n", code, response.c_str());
@@ -1034,7 +1037,8 @@ void setup()
 		ESP.restart();
 	}
 
-	if (WiFi.status() == WL_CONNECTED && runtimeOtaPassword.length() > 0)
+	Serial.println("DIAGNOSTIC: ArduinoOTA.begin() ideiglenesen kihagyva (postSample() crash izolalasa).");
+	if (false && WiFi.status() == WL_CONNECTED && runtimeOtaPassword.length() > 0)
 	{
 		ArduinoOTA.setHostname(runtimeDeviceId.c_str());
 		ArduinoOTA.setPassword(runtimeOtaPassword.c_str());

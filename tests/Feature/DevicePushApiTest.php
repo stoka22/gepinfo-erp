@@ -160,6 +160,28 @@ it('caps an oversized backlog at 5 entries', function () {
     expect(Pulse::count())->toBe(6);
 });
 
+it('returns the decrypted wifi_networks list configured for the device', function () {
+    [$device, $apiKey] = createEnrolledDevice();
+    $device->update(['meta' => array_merge($device->meta ?? [], [
+        'wifi_networks' => [
+            ['ssid' => 'Gyar-WiFi', 'password' => \Illuminate\Support\Facades\Crypt::encryptString('titkosjelszo')],
+        ],
+    ])]);
+
+    $response = $this->withHeaders(['X-API-KEY' => $apiKey])->postJson('/api/device/push', pushPayload());
+
+    $response->assertOk()->assertJsonPath('wifi_networks.0.ssid', 'Gyar-WiFi')
+        ->assertJsonPath('wifi_networks.0.password', 'titkosjelszo');
+});
+
+it('returns an empty wifi_networks array when none is configured', function () {
+    [, $apiKey] = createEnrolledDevice();
+
+    $response = $this->withHeaders(['X-API-KEY' => $apiKey])->postJson('/api/device/push', pushPayload());
+
+    $response->assertOk()->assertJsonPath('wifi_networks', []);
+});
+
 it('offers a firmware update only when the device has a matching-platform target that differs', function () {
     [$device, $apiKey] = createEnrolledDevice();
     Firmware::create([
