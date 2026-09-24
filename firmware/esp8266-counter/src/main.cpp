@@ -842,6 +842,7 @@ bool postSample(const PulseSample &s)
 		return false;
 	}
 
+	Serial.printf("CHECKPOINT A, heap=%u\n", ESP.getFreeHeap());
 	String timestamp = isoTimestampUtc();
 	StaticJsonDocument<1536> doc;
 	doc["device_id"] = runtimeDeviceId;
@@ -856,6 +857,7 @@ bool postSample(const PulseSample &s)
 	wifi["ssid"] = WiFi.SSID();
 	wifi["rssi"] = WiFi.RSSI();
 	wifi["ip"] = WiFi.localIP().toString();
+	Serial.printf("CHECKPOINT B, heap=%u\n", ESP.getFreeHeap());
 	if (wifiScanPending)
 	{
 		JsonArray scan = doc.createNestedArray("wifi_scan");
@@ -866,6 +868,7 @@ bool postSample(const PulseSample &s)
 			network["rssi"] = wifiScanResults[i].rssi;
 		}
 	}
+	Serial.printf("CHECKPOINT C, heap=%u\n", ESP.getFreeHeap());
 	JsonObject totals = doc.createNestedObject("pulses_total");
 	totals["d1"] = s.total[0];
 	totals["d2"] = s.total[1];
@@ -875,11 +878,16 @@ bool postSample(const PulseSample &s)
 	if (configDoc["backlog"].is<JsonArray>() && configDoc["backlog"].as<JsonArray>().size() > 0)
 		doc["backlog"] = configDoc["backlog"];
 
+	Serial.printf("CHECKPOINT D, heap=%u, overflowed=%d, doc_len=%u\n", ESP.getFreeHeap(), doc.overflowed(), measureJson(doc));
 	String payload;
+	payload.reserve(measureJson(doc) + 16);
 	serializeJson(doc, payload);
+	Serial.printf("CHECKPOINT E, heap=%u, payload_len=%u\n", ESP.getFreeHeap(), payload.length());
 
 	BearSSL::WiFiClientSecure client;
 	client.setInsecure();
+	client.setBufferSizes(1024, 1024);
+	Serial.printf("CHECKPOINT F, heap=%u\n", ESP.getFreeHeap());
 	HTTPClient http;
 	http.begin(client, runtimeApiUrl);
 	http.addHeader("Content-Type", "application/json");

@@ -46,7 +46,7 @@ class DeviceResource extends Resource
                     ->inline(false)
                     ->extraAttributes(['title' => 'Cron ki/bekapcsolása ehhez az eszközhöz']),
             ])->columns(2)
-                ->helperText('A gép-hozzárendelés csatornánként (d1-d4) történik, lásd lent.'),
+                ->description('A gép-hozzárendelés csatornánként (d1-d4) történik, lásd lent.'),
 
             Forms\Components\Section::make('Firmware / Telemetria')->schema([
                 Forms\Components\TextInput::make('platform')->label('Platform')->disabled(),
