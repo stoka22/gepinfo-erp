@@ -13,11 +13,6 @@ Schedule::command('production:generate')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/production-generate.log'));
 
-Schedule::command('pulses:generate')
-    ->everyMinute()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/pulses-generate.log'));
-    
 Schedule::command('vacation:rebuild')->yearlyOn(1, 1, '03:00');
 
 // A háttérbe tett jobokat (pl. GenerateAttendanceSheetBatchJob, Filament adatbázis-

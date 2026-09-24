@@ -13,7 +13,6 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Support\Str;
 
 class PendingDeviceResource extends Resource
 {
@@ -76,20 +75,30 @@ class PendingDeviceResource extends Resource
                             ->placeholder('Ha üres, a javasolt név vagy MAC alapján töltjük'),
                     ])
                     ->action(function (array $data, PendingDevice $record) {
+                        // Nincs device_token többé -- a jóváhagyás után az
+                        // eszköz a saját /api/device/enroll hívásával szerzi
+                        // meg az API-kulcsát (DeviceEnrollmentController), a
+                        // mac_address alapján azonosítva. A machine_id itt
+                        // csak kényelmi kezdőérték -- a tényleges csatorna
+                        // (d1-d4) -> gép hozzárendelést a Device szerkesztő
+                        // "Csatornák" fülén lehet finomhangolni.
                         $device = Device::create([
                             'user_id'      => $data['user_id'],
                             'machine_id'   => $data['machine_id'] ?? null,
                             'name'         => $data['name'] ?: ($record->proposed_name ?: ('Device '.$record->mac_address)),
                             'mac_address'  => $record->mac_address,
                             'location'     => null,
-                            'device_token' => Str::random(48),
                         ]);
+
+                        if (! empty($data['machine_id'])) {
+                            $device->channels()->where('channel', 1)->update(['machine_id' => $data['machine_id']]);
+                        }
 
                         $record->delete();
 
                         Notification::make()
                             ->title('Eszköz jóváhagyva')
-                            ->body('Token: '.$device->device_token)
+                            ->body("{$device->name} jóváhagyva -- a firmware a következő enroll-próbálkozásnál automatikusan megkapja az API-kulcsát.")
                             ->success()
                             ->send();
                     }),

@@ -69,3 +69,66 @@ Egyik résznek sem volt élő route-ja vagy elérhető adatforrása. A
 azt a `ResourceShiftAssignment`/`ShiftPattern` élő admin felülete
 ténylegesen használhatóvá teszi – ezt beépítettük a `TaskController`
 store/storeSplit/move/resize metódusaiba.
+
+## Régi eszköz-számláló (device/pulse) kontraktus lecserélve (2026-09-24)
+
+A gepinfo darabszámláló (pulse-counter) rendszer teljes újratervezése
+(lásd `C:\Users\TothGabor\.claude\plans\whimsical-seeking-flame.md`, a
+felhasználó gépén) a testvér "Energy" projekt kontraktusát vette alapul.
+Élő hardver soha nem függött a régi `/api/device/hello|pulse` végpontoktól
+(az egyetlen `pulses` sor-termelő a szintetikus `pulses:generate`
+teszt-parancs volt), ezért biztonságos volt a tiszta csere:
+
+- `app/Http/Controllers/Api/DeviceHelloController.php`,
+  `DeviceAuthHelloController.php`, `DevicePulseController.php` – a
+  `DeviceEnrollmentController`/`DevicePushController` váltja őket
+  (self-enrollment + push egy kontraktban, one-shot parancs-kézbesítéssel).
+- `app/Http/Middleware/DeviceTokenAuth.php` – a `DeviceApiKeyMiddleware`
+  váltja (device_id + X-API-KEY, bcrypt-elt kulcs-ellenőrzés).
+- `app/Http/Controllers/DeviceApiController.php` – egyetlen route sem
+  hivatkozott rá sehol (megerősítve grep-pel), tisztán holt kód volt, és az
+  `ack()` metódusa emellett egy valódi biztonsági rést is tartalmazott
+  (bárki bármelyik parancsot lezárhatta ID-tallózással, eszköz-tulajdonlás
+  ellenőrzése nélkül).
+- `app/Console/Commands/GenerateDevicePulses.php` (`pulses:generate`) – a
+  régi, egycsatornás (`count`/`delta`/`sample_id`) séma szintetikus
+  teszt-adat-generátora volt; ezek az oszlopok a `pulses` táblából is
+  törlésre kerültek (`2026_09_24_090002_drop_legacy_columns_from_pulses_table.php`).
+- `app/Filament/Resources/DeviceResource/RelationManagers/FirmwaresRelationManager.php` –
+  sosem volt regisztrálva a `DeviceResource::getRelations()`-ben (csak egy
+  holt `use` import mutatott rá), tehát a felületen sosem jelent meg. A
+  benne lévő `FileUpload` emellett nem is a `FirmwareResource` formjával
+  egyező diskre mentett volna (nem adott meg explicit `disk()`-et, a
+  globális default diskre esett volna vissza) – kettős okból holt/hibás
+  kód volt.
+- `App\Filament\Resources\FirmwareResource\Pages\CreateFirmware::afterCreate()`
+  és `EditFirmware::afterSave()` – ugyanazt a fájl-metaadat-számítást
+  (méret/mime/sha256) végezték el, amit a `Firmware::booted()::saved()`
+  model-hook is elvégez minden mentésnél, csak a globális default disket
+  (`CreateFirmware`) illetve explicit `'public'` disket (`EditFirmware`)
+  nézték. Amíg a `FileUpload` maga is a `'public'` diskre mentett, ez
+  véletlenül működött; a firmware-katalógus `'local'` (privát) diskre
+  váltásakor ez a két duplikátum csendben semmit nem talált volna
+  (disk-mismatch) – törölve a kódból (nem a fájlokból archiválva, mert
+  method-body törlés volt, nem külön fájl), egyetlen kanonikus hely maradt
+  a modellben.
+- `app/Http/Controllers/DeviceController.php`, `PendingDeviceController.php`,
+  `resources/views/livewire/devices/{index,create,edit}.blade.php`,
+  `resources/views/livewire/dashboard.blade.php` – egy be nem fejezett,
+  Filament-panelek előtti Breeze-kori eszközkezelő próbálkozás maradványai.
+  Az `index.blade.php`-nek volt élő route-ja (`/devices`), de már ELŐZETESEN
+  is 500-zal elszállt volna minden látogatónál, mert a `route('devices.create')`
+  hívás egy sosem regisztrált route-ra mutatott (`devices.create`/`.edit`
+  seholsem volt bejegyezve, csak ez a két üres Volt-stub fájl létezett
+  hozzájuk, tartalom nélkül). A `dashboard.blade.php`-t semmi nem renderelte
+  (a `dashboard` nevű route régóta csak a Filament panelekre irányít át,
+  sosem ad vissza nézetet) -- a benne lévő `Pulse::sum('delta')` és
+  `$p->count`/`$p->delta` hivatkozások a mostanra törölt legacy oszlopokra
+  mutattak, de mivel a fájl amúgy sem futott le sosem, ez csak megerősítés,
+  nem önmagában ok volt az archiválásra. A `devices.approve` route-nak (és a
+  `PendingDeviceController::approve()`-nak) az egyetlen hívója ez a szintén
+  soha nem renderelt dashboard-nézet volt -- a ténylegesen élő jóváhagyási
+  felület a Filament `PendingDeviceResource` saját, beépített akciója,
+  ami nem ezen a route-on/kontrolleren keresztül megy. A `routes/web.php`-ból
+  a megfelelő route-bejegyzések (`/devices`, `/devices/approve/{pending}`)
+  is törlésre kerültek.

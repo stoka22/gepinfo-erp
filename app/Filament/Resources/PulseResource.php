@@ -3,16 +3,18 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PulseResource\Pages;
-use App\Filament\Resources\PulseResource\RelationManagers;
 use App\Models\Pulse;
-use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
+/**
+ * A pulse-ok eszköz-generált telemetria, nem admin-szerkeszthető adat --
+ * mint az Energy projektnél a reading-eknek sincs create/edit UI-ja -- ezért
+ * csak lista+törlés marad. Egy eszköz 4 csatornája (d1-d4) mostantól akár
+ * külön-külön géphez is tartozhat (device_channels), ezért minden csatorna-
+ * oszlop mellett feltüntetjük, melyik géphez van éppen rendelve.
+ */
 class PulseResource extends Resource
 {
     protected static ?string $model = Pulse::class;
@@ -23,60 +25,50 @@ class PulseResource extends Resource
     protected static ?string $modelLabel      = 'Impulzus';
     protected static ?string $pluralLabel     = 'Eszköz impulzusok';
 
-    public static function form(Form $form): Form
-    {
-        return $form
-            ->schema([
-                Forms\Components\TextInput::make('device_id')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('sample_id')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\DateTimePicker::make('sample_time')
-                    ->required(),
-                Forms\Components\TextInput::make('count')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('delta')
-                    ->required()
-                    ->numeric(),
-            ]);
-    }
-
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn ($query) => $query->with('device.channels.machine'))
             ->columns([
-                Tables\Columns\TextColumn::make('device_id')
-                    ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('sample_id')
-                    ->numeric()
+                Tables\Columns\TextColumn::make('device.name')
+                    ->label('Eszköz')
+                    ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('sample_time')
+                    ->label('Időpont')
                     ->dateTime()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('count')
+
+                Tables\Columns\TextColumn::make('d1_delta')
+                    ->label('d1 Δ')
                     ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('delta')
-                    ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('updated_at')
+                    ->description(fn (Pulse $r) => $r->device?->machineForChannel(1)?->name ?? '—'),
+                Tables\Columns\TextColumn::make('d2_delta')
+                    ->label('d2 Δ')
+                    ->numeric()
+                    ->sortable()
+                    ->description(fn (Pulse $r) => $r->device?->machineForChannel(2)?->name ?? '—'),
+                Tables\Columns\TextColumn::make('d3_delta')
+                    ->label('d3 Δ')
+                    ->numeric()
+                    ->sortable()
+                    ->description(fn (Pulse $r) => $r->device?->machineForChannel(3)?->name ?? '—'),
+                Tables\Columns\TextColumn::make('d4_delta')
+                    ->label('d4 Δ')
+                    ->numeric()
+                    ->sortable()
+                    ->description(fn (Pulse $r) => $r->device?->machineForChannel(4)?->name ?? '—'),
+
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Rögzítve')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->defaultSort('sample_time', 'desc')
             ->filters([
                 //
-            ])
-            ->actions([
-                Tables\Actions\EditAction::make()->label('')->tooltip('Szerkesztés'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -96,8 +88,6 @@ class PulseResource extends Resource
     {
         return [
             'index' => Pages\ListPulses::route('/'),
-            'create' => Pages\CreatePulse::route('/create'),
-            'edit' => Pages\EditPulse::route('/{record}/edit'),
         ];
     }
 }

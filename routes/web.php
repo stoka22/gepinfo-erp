@@ -4,7 +4,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\MachineController;
-use App\Http\Controllers\PendingDeviceController;
 use App\Http\Controllers\JumpCodeController;
 use App\Http\Controllers\Scheduler\TaskController;
 use App\Http\Controllers\Scheduler\TreeController;
@@ -65,18 +64,34 @@ Route::get('/monitor', function () {
     $t00 = $d->copy()->startOfDay();
     $t24 = $d->copy()->addDay()->startOfDay();
 
-    $machines = Cache::remember('dash:v3:' . now()->format('YmdHi'), 50, function () use ($y22, $t06, $t14, $t22, $t00, $t24) {
+    $machines = Cache::remember('dash:v4:' . now()->format('YmdHi'), 50, function () use ($y22, $t06, $t14, $t22, $t00, $t24) {
+        // v4: egy eszköz 4 csatornája (d1..d4) akár 4 különböző géphez is
+        // tartozhat -- a machines->devices->pulses JOIN helyett a
+        // device_channels táblán keresztül, csatornánként a megfelelő
+        // d{n}_delta oszlopot összegezzük (nem a régi, egycsatornás
+        // "count" mezőt, amit a valódi eszköz-API sosem írt).
+        $channelDelta = <<<'SQL'
+            CASE dc.channel
+                WHEN 1 THEN COALESCE(p.d1_delta,0)
+                WHEN 2 THEN COALESCE(p.d2_delta,0)
+                WHEN 3 THEN COALESCE(p.d3_delta,0)
+                WHEN 4 THEN COALESCE(p.d4_delta,0)
+                ELSE 0
+            END
+        SQL;
+
         $rows = DB::select(<<<SQL
             SELECT
               m.id, m.name,
-              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN COALESCE(p.count,0) ELSE 0 END) AS ej,
-              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN COALESCE(p.count,0) ELSE 0 END) AS de,
-              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN COALESCE(p.count,0) ELSE 0 END) AS du,
-              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN COALESCE(p.count,0) ELSE 0 END) AS ossz,
-              COALESCE(MAX(p.created_at), '1970-01-01') AS last_at
+              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN {$channelDelta} ELSE 0 END) AS ej,
+              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN {$channelDelta} ELSE 0 END) AS de,
+              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN {$channelDelta} ELSE 0 END) AS du,
+              SUM(CASE WHEN p.sample_time >= ? AND p.sample_time < ? THEN {$channelDelta} ELSE 0 END) AS ossz,
+              COALESCE(MAX(d.last_seen_at), '1970-01-01') AS last_at
             FROM machines m
-            LEFT JOIN devices d ON d.machine_id = m.id
-            LEFT JOIN pulses  p ON p.device_id  = d.id
+            LEFT JOIN device_channels dc ON dc.machine_id = m.id AND dc.active = 1
+            LEFT JOIN devices d ON d.id = dc.device_id
+            LEFT JOIN pulses  p ON p.device_id = dc.device_id
             WHERE m.active = 1
             GROUP BY m.id, m.name
             ORDER BY m.name
@@ -118,8 +133,6 @@ Route::view('profile', 'profile')->middleware(['auth'])->name('profile');
 
 // Eszközök/machines
 Route::middleware(['auth'])->group(function () {
-    Route::view('/devices', 'livewire.devices.index')->name('devices.index');
-    Route::post('/devices/approve/{pending}', [PendingDeviceController::class, 'approve'])->name('devices.approve');
     Route::resource('machines', MachineController::class);
     //Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntriesCalendarFeedController::class)->name('time-entries.calendar.events');
     Route::get('/time-entries/calendar-feed', \App\Http\Controllers\TimeEntryCalendarController::class) ->name('time-entries.calendar.events');

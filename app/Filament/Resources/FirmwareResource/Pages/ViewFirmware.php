@@ -20,8 +20,10 @@ class ViewFirmware extends ViewRecord
                 ->label('Letöltés')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->visible(fn () => filled($this->record?->file_path))
-                ->url(fn () => url(Storage::url($this->record->file_path)))
-                ->openUrlInNewTab(),
+                // A fájl a privát 'local' diskről jön (nincs nyilvános
+                // URL-je), ezért egy admin-hitelesített stream-letöltés.
+                ->action(fn () => Storage::disk('local')
+                    ->download($this->record->file_path, $this->record->version.'.bin')),
         ];
     }
 }

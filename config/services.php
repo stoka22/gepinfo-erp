@@ -17,6 +17,11 @@ return [
         'secret' => env('TERMINAL_SECRET'),
     ],
 
+    'gepinfo_device' => [
+        'enrollment_user' => env('DEVICE_ENROLLMENT_USER'),
+        'enrollment_password' => env('DEVICE_ENROLLMENT_PASSWORD'),
+    ],
+
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
     ],

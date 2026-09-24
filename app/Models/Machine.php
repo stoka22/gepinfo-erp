@@ -31,6 +31,11 @@ class Machine extends Model
         return $this->hasMany(Device::class);
     }
 
+    public function deviceChannels()
+    {
+        return $this->hasMany(DeviceChannel::class);
+    }
+
     protected static function booted(): void
     {
         // Konzol alatt ne szűrjünk; app használat közben szűrjünk cégre

@@ -3,8 +3,8 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DeviceResource\Pages;
+use App\Filament\Resources\DeviceResource\RelationManagers\ChannelsRelationManager;
 use App\Filament\Resources\DeviceResource\RelationManagers\DeviceFilesRelationManager;
-use App\Filament\Resources\DeviceResource\RelationManagers\FirmwaresRelationManager;
 use App\Models\Command;
 use App\Models\Device;
 use App\Models\Firmware;
@@ -18,8 +18,6 @@ use Filament\Tables\Table;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ViewColumn;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Filament\Tables\Columns\ToggleColumn;
 
 class DeviceResource extends Resource
@@ -37,37 +35,57 @@ class DeviceResource extends Resource
                     ->required()
                     ->searchable()
                     ->preload(),
-                Forms\Components\Select::make('machine_id')
-                    ->relationship('machine', 'name')
-                    ->searchable()
-                    ->preload(),
                 Forms\Components\TextInput::make('name')->required(),
                 Forms\Components\TextInput::make('mac_address')
                     ->required()
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true)
+                    ->helperText('A firmware ebből (kettőspont nélkül, ESP32_/ESP8266_ előtaggal) származtatja az enrollment device_id-t.'),
                 Forms\Components\TextInput::make('location'),
                 Forms\Components\Toggle::make('cron_enabled')
                     ->label('')
                     ->inline(false)
                     ->extraAttributes(['title' => 'Cron ki/bekapcsolása ehhez az eszközhöz']),
-            ])->columns(2),
+            ])->columns(2)
+                ->helperText('A gép-hozzárendelés csatornánként (d1-d4) történik, lásd lent.'),
 
             Forms\Components\Section::make('Firmware / Telemetria')->schema([
+                Forms\Components\TextInput::make('platform')->label('Platform')->disabled(),
                 Forms\Components\TextInput::make('fw_version')->label('FW verzió')->disabled(),
                 Forms\Components\TextInput::make('ssid')->disabled(),
                 Forms\Components\TextInput::make('rssi')->numeric()->disabled(),
                 Forms\Components\DateTimePicker::make('last_seen_at')->disabled(),
                 Forms\Components\TextInput::make('last_ip')->disabled(),
-                Forms\Components\TextInput::make('device_token')
-                    ->disabled()
-                    ->suffixAction(
-                        Forms\Components\Actions\Action::make('regen')
-                            ->icon('heroicon-o-key')
-                            ->label('Új token')
-                            ->action(fn ($set) => $set('device_token', Str::random(48)))
-                    ),
-                Forms\Components\TextInput::make('ota_channel')->label('Csatorna')->placeholder('stable/beta'),
-                Forms\Components\TextInput::make('rollback_url')->label('Rollback URL'),
+                Forms\Components\Select::make('firmware_target_version')
+                    ->label('Cél firmware-verzió')
+                    ->helperText('Eszközönkénti cél (nem flotta-szintű) -- csak a device.platform-mal egyező firmware-ek közül.')
+                    ->options(function (?Device $record) {
+                        if (! $record?->platform) {
+                            return [];
+                        }
+
+                        return Firmware::query()
+                            ->where('platform', $record->platform)
+                            ->orderByDesc('published_at')
+                            ->pluck('version', 'version');
+                    })
+                    ->placeholder('— nincs cél beállítva —')
+                    ->afterStateHydrated(function (Forms\Components\Select $component, ?Device $record) {
+                        $component->state($record?->meta['firmware_target_version'] ?? null);
+                    })
+                    ->dehydrated(false)
+                    ->live()
+                    ->afterStateUpdated(function (?string $state, ?Device $record) {
+                        if (! $record) {
+                            return;
+                        }
+                        $meta = $record->meta ?? [];
+                        if ($state) {
+                            $meta['firmware_target_version'] = $state;
+                        } else {
+                            unset($meta['firmware_target_version']);
+                        }
+                        $record->update(['meta' => $meta]);
+                    }),
             ])->columns(3),
         ]);
     }
@@ -79,7 +97,12 @@ class DeviceResource extends Resource
                 TextColumn::make('user.name')->label('User')->sortable()->toggleable(),
                 TextColumn::make('name')->label('Eszköz')->searchable()->sortable(),
                 TextColumn::make('mac_address')->label('MAC')->copyable()->toggleable()->sortable(),
-                TextColumn::make('machine.name')->label('Gép')->badge()->toggleable(),
+                TextColumn::make('machines.name')
+                    ->label('Gépek')
+                    ->badge()
+                    ->separator(',')
+                    ->placeholder('— nincs csatorna hozzárendelve —')
+                    ->toggleable(),
 
                 ViewColumn::make('status_ui')
                     ->label('Státusz')
@@ -115,74 +138,15 @@ class DeviceResource extends Resource
                     ->action(fn () => Device::query()->update(['cron_enabled' => false])),
             ])
             ->actions([
-                Tables\Actions\Action::make('ota')
-                    ->label('OTA frissítés')
-                    ->icon('heroicon-o-arrow-up-tray')
-                    ->color('success')
-                    ->iconButton()
-                    ->tooltip('OTA frissítés')
-                    ->form([
-                        Forms\Components\Select::make('firmware_id')
-                            ->label('Válassz firmware-t')
-                            ->options(
-                                \App\Models\Firmware::query()
-                                    ->orderByDesc('published_at')
-                                    ->orderByDesc('id')
-                                    ->get()
-                                    ->mapWithKeys(fn ($fw) => [
-                                        $fw->id => trim(
-                                            collect([
-                                                $fw->version,
-                                                $fw->hardware_code ? "({$fw->hardware_code})" : null,
-                                                $fw->published_at ? $fw->published_at->format('Y-m-d') : null,
-                                            ])->filter()->implode(' ')
-                                        ),
-                                    ])
-                                    ->all()
-                            )
-                            ->searchable()
-                            ->required(),
-                    ])
-                    ->action(function (array $data, Device $record) {
-                        $fw  = Firmware::findOrFail($data['firmware_id']);
-
-                        // abszolút URL az aktuális hosttal (nem ragad localhost-ra)
-                        $url = url(Storage::url($fw->file_path));
-
-                        Command::create([
-                            'device_id' => $record->id,
-                            'cmd'       => 'ota',
-                            'args'      => ['url' => $url],
-                            'status'    => 'pending',
-                        ]);
-
-                        Notification::make()
-                            ->title('OTA parancs kiadva')
-                            ->body("FW: {$fw->version}")
-                            ->success()
-                            ->send();
-                    }),
-
-                Tables\Actions\Action::make('rollback')
-                    ->icon('heroicon-o-arrow-uturn-left')
-                    ->color('warning')
-                    ->iconButton()
-                    ->tooltip('Visszatérés')
-                    ->requiresConfirmation()
-                    ->action(function (Device $record) {
-                        if (!$record->rollback_url) {
-                            Notification::make()->title('Nincs rollback URL')->danger()->send();
-                            return;
-                        }
-                        Command::create([
-                            'device_id' => $record->id,
-                            'cmd'       => 'ota',
-                            'args'      => ['url' => $record->rollback_url],
-                            'status'    => 'pending',
-                        ]);
-                        Notification::make()->title('Rollback parancs kiadva')->success()->send();
-                    }),
-
+                // Az OTA-frissítés mostantól a "Cél firmware-verzió" mezőn
+                // (szerkesztő űrlap) keresztül megy -- a firmware a push-
+                // válasz `firmware{version,url}` kulcsán keresztül kapja meg
+                // a célt, nem egy egyszeri, kézzel megadott URL-es
+                // parancson. A régi "ota"/"rollback" gomb (ami egy
+                // tetszőleges URL-t küldött egy Command-ban) nincs is
+                // bekötve a valódi firmware kontraktjába -- az
+                // applyOneShotCommands() csak "reboot"/"factory_reset"
+                // parancstípust ismer fel, ezért törölve.
                 Tables\Actions\Action::make('reboot')
                     ->icon('heroicon-o-arrow-path')
                     ->color('gray')
@@ -245,6 +209,7 @@ class DeviceResource extends Resource
     public static function getRelations(): array
     {
         return [
+            ChannelsRelationManager::class,
             DeviceFilesRelationManager::class,
         ];
     }

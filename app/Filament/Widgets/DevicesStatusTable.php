@@ -16,11 +16,14 @@ class DevicesStatusTable extends BaseWidget
 
     public function table(Table $table): Table
     {
+        $onlineTimeout = (int) config('devices.online_timeout', 60);
         $since = now()->subMinutes(5);
 
-        // 5 perces impulzus-összeg eszközönként
+        // 5 perces impulzus-összeg eszközönként -- mind a 4 csatorna együtt
+        // (nem a régi, egycsatornás "delta" oszlop, amit a valódi eszköz-API
+        // sosem írt).
         $sub5m = Pulse::query()
-            ->select('device_id', DB::raw('SUM(delta) as pulses_5m'))
+            ->select('device_id', DB::raw('SUM(d1_delta + d2_delta + d3_delta + d4_delta) as pulses_5m'))
             ->where('sample_time', '>=', $since)
             ->groupBy('device_id');
 
@@ -47,7 +50,7 @@ class DevicesStatusTable extends BaseWidget
                 Tables\Columns\IconColumn::make('is_online_flag')
                     ->label('Státusz')
                     ->boolean()
-                    ->state(fn ($record) => $record->last_seen_at?->gte($since))
+                    ->state(fn ($record) => $record->last_seen_at?->gte(now()->subSeconds($onlineTimeout)))
                     ->trueIcon('heroicon-o-signal')
                     ->falseIcon('heroicon-o-no-symbol')
                     ->trueColor('success')

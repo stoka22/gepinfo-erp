@@ -1,7 +1,7 @@
 <?php // bootstrap/app.php
 
 use Illuminate\Foundation\Application;
-use App\Http\Middleware\DeviceTokenAuth;
+use App\Http\Middleware\DeviceApiKeyMiddleware;
 use App\Http\Middleware\TrackPageVisit;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -24,16 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         // alias felvétel (Laravel 11 way)
         $middleware->alias([
-            'auth.device' => DeviceTokenAuth::class,
+            'device.api.key' => DeviceApiKeyMiddleware::class,
             'track.visit' => TrackPageVisit::class,
 
         ]);
         $middleware->append(\App\Http\Middleware\TrustHosts::class);
-        // ha globálisan akarnád minden kérésre:
-        // $middleware->append(\App\Http\Middleware\DeviceTokenAuth::class);
-
-        // ha egy meglévő csoporthoz (pl. 'api') akarod hozzáadni:
-        // $middleware->appendToGroup('api', \App\Http\Middleware\DeviceTokenAuth::class);
     })
     ->withExceptions(function ($exceptions) {
         //
