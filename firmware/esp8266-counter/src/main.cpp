@@ -842,7 +842,6 @@ bool postSample(const PulseSample &s)
 		return false;
 	}
 
-	Serial.printf("CHECKPOINT A, heap=%u\n", ESP.getFreeHeap());
 	String timestamp = isoTimestampUtc();
 	StaticJsonDocument<1536> doc;
 	doc["device_id"] = runtimeDeviceId;
@@ -857,7 +856,6 @@ bool postSample(const PulseSample &s)
 	wifi["ssid"] = WiFi.SSID();
 	wifi["rssi"] = WiFi.RSSI();
 	wifi["ip"] = WiFi.localIP().toString();
-	Serial.printf("CHECKPOINT B, heap=%u\n", ESP.getFreeHeap());
 	if (wifiScanPending)
 	{
 		JsonArray scan = doc.createNestedArray("wifi_scan");
@@ -868,7 +866,6 @@ bool postSample(const PulseSample &s)
 			network["rssi"] = wifiScanResults[i].rssi;
 		}
 	}
-	Serial.printf("CHECKPOINT C, heap=%u\n", ESP.getFreeHeap());
 	JsonObject totals = doc.createNestedObject("pulses_total");
 	totals["d1"] = s.total[0];
 	totals["d2"] = s.total[1];
@@ -878,26 +875,27 @@ bool postSample(const PulseSample &s)
 	if (configDoc["backlog"].is<JsonArray>() && configDoc["backlog"].as<JsonArray>().size() > 0)
 		doc["backlog"] = configDoc["backlog"];
 
-	Serial.printf("CHECKPOINT D, heap=%u, overflowed=%d, doc_len=%u\n", ESP.getFreeHeap(), doc.overflowed(), measureJson(doc));
 	String payload;
 	payload.reserve(measureJson(doc) + 16);
 	serializeJson(doc, payload);
-	Serial.printf("CHECKPOINT E, heap=%u, payload_len=%u\n", ESP.getFreeHeap(), payload.length());
 
+	// setBufferSizes/setTimeout/setReuse: lasd README/AGENT_COMMS.md -- a
+	// nagyobb, hitelesitett push-payload (X-API-KEY + tenyleges adat) a
+	// kis BearSSL-pufferrel es alapertelmezett timeout-tal Soft WDT
+	// reset-et okozott COM3-on (2026-09-24), miutan mar volt api_key.
+	// Gyokerok meg nincs 100%-osan lezarva -- lasd AGENT_COMMS.md.
 	BearSSL::WiFiClientSecure client;
 	client.setInsecure();
 	client.setBufferSizes(2048, 2048);
-	Serial.printf("CHECKPOINT F, heap=%u\n", ESP.getFreeHeap());
 	HTTPClient http;
 	http.begin(client, runtimeApiUrl);
-	Serial.printf("CHECKPOINT G, heap=%u\n", ESP.getFreeHeap());
+	http.setTimeout(5000);
+	http.setReuse(false);
 	http.addHeader("Content-Type", "application/json");
 	http.addHeader("X-API-KEY", runtimeApiKey.c_str());
 	http.setAuthorization(runtimeApiBasicAuthUser.c_str(), runtimeApiBasicAuthPass.c_str());
-	Serial.printf("CHECKPOINT H, heap=%u\n", ESP.getFreeHeap());
 
 	int code = http.POST(payload);
-	Serial.printf("CHECKPOINT I, heap=%u, code=%d\n", ESP.getFreeHeap(), code);
 	String response = http.getString();
 	http.end();
 	Serial.printf("POST code=%d response=%s\n", code, response.c_str());
@@ -1037,8 +1035,7 @@ void setup()
 		ESP.restart();
 	}
 
-	Serial.println("DIAGNOSTIC: ArduinoOTA.begin() ideiglenesen kihagyva (postSample() crash izolalasa).");
-	if (false && WiFi.status() == WL_CONNECTED && runtimeOtaPassword.length() > 0)
+	if (WiFi.status() == WL_CONNECTED && runtimeOtaPassword.length() > 0)
 	{
 		ArduinoOTA.setHostname(runtimeDeviceId.c_str());
 		ArduinoOTA.setPassword(runtimeOtaPassword.c_str());

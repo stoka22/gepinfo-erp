@@ -145,7 +145,15 @@ class DevicePushController extends Controller
             $response['firmware'] = $firmware;
         }
 
-        return response()->json($response, 200, ['Connection' => 'close']);
+        // A 'Connection: close' fejlécet szándékosan NEM küldjük itt --
+        // korábban itt volt (a törölt DevicePulseController mintáját
+        // követve), de a firmware-oldali session gyanúja szerint ez
+        // hozzájárulhatott egy ESP8266 BearSSL Soft WDT reset crash-hez
+        // az első sikeres push()-nál (2026-09-24). Az /enroll válasza sosem
+        // küldte ezt a fejlécet, és az sosem omlott össze -- kérésükre
+        // eltávolítva innen is, hogy a két végpont válasza ebből a
+        // szempontból konzisztens legyen.
+        return response()->json($response);
     }
 
     /**
