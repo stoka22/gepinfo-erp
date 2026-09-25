@@ -13,6 +13,7 @@ use App\Http\Controllers\MyAttendanceSheetController;
 use App\Http\Controllers\AttendanceSheetBatchDownloadController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\SeoController;
+use App\Http\Controllers\Admin\FirmwareUploadController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 
 Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::class, 'download'])
@@ -28,6 +29,14 @@ Route::get('/my-attendance-sheet-detailed/{monthsAgo?}', [MyAttendanceSheetContr
 Route::get('/admin/attendance-sheet-batch/{token}/{filename}', [AttendanceSheetBatchDownloadController::class, 'download'])
     ->middleware(['auth', EnsureUserIsAdmin::class])
     ->name('attendance-sheet-batch.download');
+
+// Sima (nem Livewire) multipart form POST a firmware .bin feltöltéséhez --
+// lásd App\Http\Controllers\Admin\FirmwareUploadController doc-kommentjét:
+// a Filament FileUpload /livewire/upload-file végpontját élesben blokkolja
+// egy WAF-szabály bináris tartalomra, ezt a sima route-ot viszont nem.
+Route::post('/admin/firmware-upload', [FirmwareUploadController::class, 'store'])
+    ->middleware(['auth', EnsureUserIsAdmin::class])
+    ->name('admin.firmware.upload');
 
 // 1) Régi /login -> Filament USER login
 Route::get('/login', fn() => redirect()->route('filament.user.auth.login'))->name('login');

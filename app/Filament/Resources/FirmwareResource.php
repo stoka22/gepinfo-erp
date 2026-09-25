@@ -4,13 +4,12 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\FirmwareResource\Pages;
 use App\Models\Firmware;
-use Filament\Forms\Components\{Select, TextInput, Textarea, Toggle, DateTimePicker, FileUpload, Hidden};
+use Filament\Forms\Components\{Select, TextInput, Textarea, Toggle, DateTimePicker, Hidden};
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Carbon;
 
 class FirmwareResource extends Resource
 {
@@ -86,51 +85,15 @@ class FirmwareResource extends Resource
 
             TextInput::make('build')->numeric()->minValue(1)->default(1),
 
-            FileUpload::make('file_path')
-                ->label('Firmware fájl')
-                ->disk('local')
-                ->directory('firmware')
-                ->required()
-                ->preserveFilenames()
-                ->openable()
-                ->downloadable()
-                ->acceptedFileTypes(['application/octet-stream','.bin','.uf2','.zip'])
-                ->maxSize(100*1024)
-                ->live()
-                ->afterStateUpdated(function ($state, callable $set) {
-                    if (!$state) return;
-                    $file = is_array($state) ? ($state[0] ?? null) : $state;
-                    if (!$file) return;
-
-                    if ($file instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile) {
-                        $originalName = $file->getClientOriginalName();
-                        $basename     = pathinfo($originalName, PATHINFO_FILENAME);
-
-                        // meta
-                        $set('mime_type', $file->getMimeType());
-                        $set('file_size', $file->getSize());
-                        $set('sha256', hash_file('sha256', $file->getRealPath()));
-
-                        if (preg_match('/(?:^|[_\-])v?(\d+\.\d+(?:\.\d+)?)/i', $basename, $m)) {
-                            $set('version', $m[1]);
-                        }
-                        if (preg_match('/(?:^|[_\-])b(?:uild)?\s*(\d{1,6})/i', $basename, $m)) {
-                            $set('build', (int) $m[1]);
-                        }
-                        if (preg_match('/(ESP32(?:-WROOM-\w+)?|ESP8266|STM32\w+|RP2040)/i', $basename, $m)) {
-                            $set('hardware_code', strtoupper($m[1]));
-                            if (stripos($m[1], 'ESP32') === 0) {
-                                $set('platform', 'esp32');
-                            } elseif (stripos($m[1], 'ESP8266') === 0) {
-                                $set('platform', 'esp8266');
-                            }
-                        }
-                        $mtime = @filemtime($file->getRealPath());
-                        if ($mtime) {
-                            $set('published_at', Carbon::createFromTimestamp($mtime));
-                        }
-                    }
-                }),
+            // A firmware-fájl (.bin) feltöltése/cseréje SZÁNDÉKOSAN nincs
+            // itt -- a Filament FileUpload komponens a /livewire/upload-file
+            // végpontot használja, amit élesben egy WAF-szabály blokkol
+            // bináris tartalomra (lásd FirmwareUploadController
+            // doc-kommentjét). Új firmware feltöltése ezért egy külön, sima
+            // <form>-alapú oldalon történik (CreateFirmware egyedi nézete);
+            // szerkesztéskor a bináris NEM cserélhető (ahogy az Energy
+            // projekt mintája is csak létrehozást/törlést ismer, cserét
+            // nem) -- egy új verzióhoz új firmware-rekordot kell feltölteni.
 
             Toggle::make('forced')->label('Kötelező frissítés'),
 
