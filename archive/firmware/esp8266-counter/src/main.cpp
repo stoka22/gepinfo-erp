@@ -6,7 +6,6 @@
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <Ticker.h>
 #include <time.h>
 #include "config_local.h"
 
@@ -59,15 +58,22 @@ TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
 )CERT";
 
 // --- Szoftveres watchdog (nincs dedikalt HW task watchdog ESP8266-on) ---
-Ticker wdTicker;
-volatile uint16_t wdSecondsSinceFeed = 0;
-const uint16_t WATCHDOG_TIMEOUT_S = 120;
+// FONTOS (2026-09-24): korabban Ticker (hardveres timer ISR) hivta a
+// wdTick()-et 1 masodpercenkent. Ez GYANITHATOAN race conditiont okozott
+// az ESP8266 core "cont" stack-valto mechanizmusaval (esp_suspend/
+// __esp_delay, core_esp8266_main.cpp) pontosan akkor, ha az ISR egy
+// hosszabb blokkolo halozati hivas (BearSSL POST) suspend/resume
+// ablakaban sult el -- ez okozhatta a postSample() Soft WDT reset
+// crash-loopjat (reprodukalva COM3-on, lasd AGENT_COMMS.md). Athelyezve
+// egyszeru millis()-alapu, NEM-ISR szamlalasra, hogy ez a race kizarva
+// legyen.
+unsigned long wdLastFeedMs = 0;
+const unsigned long WATCHDOG_TIMEOUT_MS = 120000UL;
 
-void ICACHE_RAM_ATTR wdTick() { wdSecondsSinceFeed++; }
-void feedWatchdog() { wdSecondsSinceFeed = 0; }
+void feedWatchdog() { wdLastFeedMs = millis(); }
 void checkWatchdog()
 {
-	if (wdSecondsSinceFeed > WATCHDOG_TIMEOUT_S)
+	if (millis() - wdLastFeedMs > WATCHDOG_TIMEOUT_MS)
 	{
 		Serial.println("Szoftveres watchdog timeout, ujrainditas.");
 		ESP.restart();
@@ -1000,7 +1006,7 @@ void setup()
 	Serial.printf("Elozo ujrainditas oka: %s\n", resetReasonString());
 	randomSeed(ESP.getCycleCount());
 
-	wdTicker.attach(1.0, wdTick);
+	feedWatchdog();
 
 	configLoad();
 	initializeConfigDefaults();

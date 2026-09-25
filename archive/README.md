@@ -212,3 +212,24 @@ ez a `livewire/profile/update-password-form.blade.php` élő, valódi Volt-
 komponenst teszteli (a `/profile` oldalon, bejelentkezve a saját jelszavad
 cseréje), ami a fenti hibalánc javítása után ténylegesen működik is
 (zöld teszt).
+
+## ESP8266 darabszámláló firmware (`firmware/esp8266-counter`) (2026-09-25)
+
+**Felhasználói döntés**: az ESP8266 platform hosszú távon alkalmatlan a
+darabszámláló feladatra (a `postSample()` első HTTPS push-ánál
+reprodukálható `Soft WDT reset` crash-loop, amit a firmware-oldali session
+szisztematikusan kizárt minden szoftveres gyanú alól -- TLS-puffer, timeout,
+stack méret, ArduinoOTA, Connection:close fejléc, Ticker-ISR --, lásd
+`AGENT_COMMS.md` 2026-09-24-es bejegyzései). A felhasználó úgy döntött, hogy
+ezt a platformot végleg felszámolja, és kizárólag az ESP32-vel (`firmware/
+esp32-counter`) halad tovább, ami a teljes tervezett funkciósort
+kompromisszum nélkül tartalmazza (PCNT hardveres impulzusszámlálás, valódi
+NVS, HW-watchdog, OTA A/B rollback-safety).
+
+Az egész `firmware/esp8266-counter` PlatformIO projekt (forráskód +
+gitignore-olt `config_local.h`, ami egy már enrollolt teszt-panel valódi API-
+kulcsát tartalmazza) ide lett áthelyezve `git mv`-vel, törlés helyett, hogy a
+git history és a hibakeresési munka dokumentálva maradjon, ha valaha
+visszatérnének rá. Nincs rá élő hivatkozás sehonnan (önálló PlatformIO
+projekt, nem függ tőle és nem hivatkozik rá semmi az `esp32-counter`
+projektben vagy a Laravel backendben).
