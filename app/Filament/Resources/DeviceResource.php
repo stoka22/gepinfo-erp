@@ -17,7 +17,6 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Columns\IconColumn;
-use Filament\Tables\Columns\Layout\Split;
 use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextColumn\TextColumnSize;
@@ -130,84 +129,110 @@ class DeviceResource extends Resource
     {
         return $table
             ->columns([
-                // Kompakt, több soros elrendezés (Filament Split/Stack layout):
-                // a korábbi 10 önálló oszlop egy sorban nem fért el a
-                // képernyőn -- most 2-2 összetartozó mező egy cellába kerül,
-                // egymás alá rendezve, hogy a teljes sor szélessége jelentősen
-                // csökkenjen, anélkül hogy bármelyik adat eltűnne.
-                Split::make([
-                    Stack::make([
-                        TextColumn::make('name')
-                            ->label('Eszköz')
-                            ->weight(FontWeight::Bold)
-                            ->searchable()
-                            ->sortable(),
-                        TextColumn::make('mac_address')
-                            ->label('MAC')
-                            ->copyable()
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->sortable()
-                            ->toggleable(),
-                    ])->space(1),
+                // Kompakt, több soros elrendezés: minden bejegyzés itt egy
+                // ÖNÁLLÓ táblázat-oszlop (nem egy közös Split-be csomagolva),
+                // hogy a sorok normál táblaként, egységesen igazodjanak
+                // egymás alá -- egy közös Split flex-konténerben a cellák
+                // szélessége soronként eltérően alakult volna a tartalom
+                // hossza szerint, ami "összevissza" (nem oszlopba igazodó)
+                // hatást keltett. Egy-egy Stack-en belül 2 összetartozó mező
+                // kerül egymás alá, hogy a teljes sor szélessége csökkenjen.
+                Stack::make([
+                    TextColumn::make('name')
+                        ->label('Eszköz')
+                        ->weight(FontWeight::Bold)
+                        ->searchable()
+                        ->sortable(),
+                    TextColumn::make('mac_address')
+                        ->label('MAC')
+                        ->copyable()
+                        ->color('gray')
+                        ->size(TextColumnSize::Small)
+                        ->sortable()
+                        ->toggleable(),
+                ])->space(1),
 
-                    Stack::make([
-                        TextColumn::make('user.name')
-                            ->label('User')
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->sortable()
-                            ->toggleable(),
-                        TextColumn::make('machines.name')
-                            ->label('Gépek')
-                            ->badge()
-                            ->separator(',')
-                            ->placeholder('— nincs csatorna hozzárendelve —')
-                            ->toggleable(),
-                    ])->space(1)->grow(),
+                Stack::make([
+                    TextColumn::make('user.name')
+                        ->label('User')
+                        ->color('gray')
+                        ->size(TextColumnSize::Small)
+                        ->sortable()
+                        ->toggleable(),
+                    TextColumn::make('machines.name')
+                        ->label('Gépek')
+                        ->badge()
+                        ->separator(',')
+                        ->placeholder('— nincs csatorna hozzárendelve —')
+                        ->toggleable(),
+                ])->space(1),
 
-                    ViewColumn::make('status_ui')
-                        ->label('Státusz')
-                        ->view('filament.tables.columns.device-status')
-                        ->alignCenter()
-                        ->grow(false),
+                // Önálló, egységesen igazodó oszlop -- zöld pipa (online) /
+                // piros x (offline). Inline style-lal színezve, mert a
+                // Filament admin panel LEFORDÍTOTT CSS-e (vendor/filament/
+                // filament/dist/theme.css) csak a saját palettájának
+                // ténylegesen használt osztályait tartalmazza (pl.
+                // text-danger-500, text-gray-500, text-primary-500) -- a
+                // blade-ben korábban használt tetszőleges "!text-green-500"/
+                // "!text-red-500" Tailwind-osztályoknak ebben a fájlban
+                // SOSEM volt CSS-szabálya, ezért nem is látszottak színesnek.
+                ViewColumn::make('status_ui')
+                    ->label('Státusz')
+                    ->view('filament.tables.columns.device-status')
+                    ->alignCenter(),
 
-                    Stack::make([
-                        TextColumn::make('fw_version')
-                            ->label('FW')
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->toggleable(),
-                        TextColumn::make('ssid')
-                            ->label('SSID')
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->toggleable(),
-                    ])->space(1)->alignEnd()->grow(false),
+                Stack::make([
+                    TextColumn::make('ssid')
+                        ->label('SSID')
+                        ->color('gray')
+                        ->size(TextColumnSize::Small)
+                        ->toggleable(),
+                    TextColumn::make('rssi')
+                        ->label('RSSI')
+                        ->color('gray')
+                        ->size(TextColumnSize::Small)
+                        ->sortable()
+                        ->toggleable(),
+                ])->space(1),
 
-                    Stack::make([
-                        TextColumn::make('rssi')
-                            ->label('RSSI')
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->sortable()
-                            ->toggleable(),
-                        TextColumn::make('last_seen_at')
-                            ->label('Utolsó jel')
-                            ->since()
-                            ->color('gray')
-                            ->size(TextColumnSize::Small)
-                            ->sortable(),
-                    ])->space(1)->alignEnd()->grow(false),
+                TextColumn::make('fw_version')
+                    ->label('FW')
+                    ->color('gray')
+                    ->size(TextColumnSize::Small)
+                    ->toggleable(),
 
-                    ToggleColumn::make('cron_enabled')
-                        ->label('Cron')
-                        ->alignCenter()
-                        ->onColor('success')
-                        ->offColor('gray')
-                        ->extraAttributes(['title' => 'Cron ki/bekapcsolása'])
-                        ->grow(false),
-                ])->from('md'),
+                TextColumn::make('last_seen_at')
+                    ->label('Utolsó jel')
+                    ->formatStateUsing(function (?Carbon $state): string {
+                        if (! $state) {
+                            return '—';
+                        }
+
+                        $seconds = $state->diffInSeconds(now());
+                        if ($seconds < 60) {
+                            return $seconds.'s';
+                        }
+
+                        $minutes = intdiv($seconds, 60);
+                        if ($minutes < 60) {
+                            return $minutes.'m';
+                        }
+
+                        $hours = intdiv($minutes, 60);
+                        if ($hours < 24) {
+                            return $hours.':'.str_pad((string) ($minutes % 60), 2, '0', STR_PAD_LEFT);
+                        }
+
+                        return intdiv($hours, 24).'d';
+                    })
+                    ->sortable(),
+
+                ToggleColumn::make('cron_enabled')
+                    ->label('Cron')
+                    ->alignCenter()
+                    ->onColor('success')
+                    ->offColor('gray')
+                    ->extraAttributes(['title' => 'Cron ki/bekapcsolása']),
             ])
             ->poll('2s')
             ->defaultSort('last_seen_at', 'desc')
