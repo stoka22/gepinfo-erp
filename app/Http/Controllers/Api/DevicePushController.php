@@ -145,6 +145,15 @@ class DevicePushController extends Controller
             $response['firmware'] = $firmware;
         }
 
+        // Csak akkor küldjük ki, ha az admin korábban ténylegesen átbillentette
+        // (DeviceResource "Teszt-impulzus szimulátor" kapcsolója) -- ha a
+        // meta kulcs sosem lett beállítva, a mező kimarad a válaszból, hogy
+        // a firmware kontraktusa szerint ("ha kimarad, nem változtat semmin")
+        // egy sosem konfigurált eszköz alapállapota ne módosuljon.
+        if (array_key_exists('simulate_test_pulses', $device->meta ?? [])) {
+            $response['simulate_test_pulses'] = (bool) $device->meta['simulate_test_pulses'];
+        }
+
         // A 'Connection: close' fejlécet szándékosan NEM küldjük itt --
         // korábban itt volt (a törölt DevicePulseController mintáját
         // követve), de a firmware-oldali session gyanúja szerint ez

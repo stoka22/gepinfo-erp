@@ -111,6 +111,11 @@
                                             <span class="dv-ota-badge {{ ($live['ota_enabled'] ?? false) ? 'on' : 'off' }}">
                                                 {{ ($live['ota_enabled'] ?? false) ? 'OTA engedélyezve' : 'OTA letiltva' }}
                                             </span>
+                                            @if (! empty($live['wifi_scan']))
+                                                <span class="dv-muted" title="Csatlakozáskor mért legerősebb hálózatok">
+                                                    Scan: {{ collect($live['wifi_scan'])->map(fn ($n) => ($n['ssid'] ?? '?').' ('.($n['rssi'] ?? '-').')')->implode(', ') }}
+                                                </span>
+                                            @endif
                                         </div>
                                     @endif
                                     @if ($activeCommand)

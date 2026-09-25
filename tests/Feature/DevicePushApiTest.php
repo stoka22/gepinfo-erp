@@ -220,3 +220,24 @@ it('omits firmware when the device already reports the target version', function
 
     $response->assertOk()->assertJsonMissingPath('firmware');
 });
+
+it('omits simulate_test_pulses from the response when never configured by the admin', function () {
+    [, $apiKey] = createEnrolledDevice();
+
+    $response = $this->withHeaders(['X-API-KEY' => $apiKey])->postJson('/api/device/push', pushPayload());
+
+    $response->assertOk()->assertJsonMissingPath('simulate_test_pulses');
+});
+
+it('includes simulate_test_pulses once the admin has explicitly toggled it, even when false', function () {
+    [$device, $apiKey] = createEnrolledDevice();
+    $device->update(['meta' => array_merge($device->meta ?? [], ['simulate_test_pulses' => true])]);
+
+    $response = $this->withHeaders(['X-API-KEY' => $apiKey])->postJson('/api/device/push', pushPayload());
+    $response->assertOk()->assertJsonPath('simulate_test_pulses', true);
+
+    $device->update(['meta' => array_merge($device->meta ?? [], ['simulate_test_pulses' => false])]);
+
+    $response = $this->withHeaders(['X-API-KEY' => $apiKey])->postJson('/api/device/push', pushPayload());
+    $response->assertOk()->assertJsonPath('simulate_test_pulses', false);
+});

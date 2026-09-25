@@ -87,6 +87,22 @@ class DeviceResource extends Resource
                         }
                         $record->update(['meta' => $meta]);
                     }),
+                Forms\Components\Toggle::make('simulate_test_pulses_input')
+                    ->label('Teszt-impulzus szimulátor')
+                    ->helperText('Firmware-oldali kapcsoló: bekapcsolva az eszköz saját magának szimulál impulzusokat csatornánként (valós szenzor nélkül is folyamatosan nő a számláló). Az eszköz a következő push-nál (nem csak újraindításkor) alkalmazza.')
+                    ->afterStateHydrated(function (Forms\Components\Toggle $component, ?Device $record) {
+                        $component->state((bool) ($record?->meta['simulate_test_pulses'] ?? false));
+                    })
+                    ->dehydrated(false)
+                    ->live()
+                    ->afterStateUpdated(function (bool $state, ?Device $record) {
+                        if (! $record) {
+                            return;
+                        }
+                        $meta = $record->meta ?? [];
+                        $meta['simulate_test_pulses'] = $state;
+                        $record->update(['meta' => $meta]);
+                    }),
             ])->columns(3),
 
             Forms\Components\Section::make('WiFi hálózatok')
