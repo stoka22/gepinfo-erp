@@ -164,7 +164,15 @@
     </div>
 
     <style>
-        .dv-page { display: grid; gap: 16px; }
+        /* A .dv-page egy CSS grid a Filament oldal-tartalom (szintén flex/
+           grid) BELSEJÉBEN -- grid/flex gyermekeknek alapból "min-width:
+           auto" az értékük, ami miatt a bennük lévő táblázat min-width-je
+           az EGÉSZ oldalt szélesebbre nyomta a viewportnál (ezért lógott ki,
+           és emiatt nem érvényesült a .dv-table-scroll-on beállított
+           overflow-x: auto sem -- a görgetés csak akkor működik, ha a szülő
+           tényleg korlátozza a szélességet). min-width: 0 mindenhol a
+           láncban, hogy a görgetés a táblázat SAJÁT dobozán belül maradjon. */
+        .dv-page { display: grid; gap: 16px; min-width: 0; }
 
         .dv-toolbar {
             display: flex;
@@ -179,6 +187,7 @@
             border-radius: 18px;
             padding: 16px;
             color: #e5e7eb;
+            min-width: 0;
         }
 
         .dv-summary-grid {
@@ -215,14 +224,16 @@
 
         .dv-table-scroll { width: 100%; overflow-x: auto; }
 
-        .dv-table { width: 100%; min-width: 1050px; border-collapse: collapse; }
+        .dv-table { width: 100%; min-width: 1250px; border-collapse: collapse; table-layout: fixed; }
         .dv-table th, .dv-table td {
             border-bottom: 1px solid #1e293b;
-            padding: 12px 10px;
+            padding: 10px 8px;
             text-align: left;
             vertical-align: top;
             color: #e5e7eb;
+            overflow-wrap: break-word;
         }
+        .dv-table th:last-child, .dv-table td:last-child { width: 260px; }
         .dv-table th {
             color: #94a3b8;
             font-size: 12px;
@@ -279,6 +290,6 @@
             margin: 2px;
         }
 
-        .dv-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+        .dv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
     </style>
 </x-filament-panels::page>
