@@ -111,11 +111,6 @@
                                             <span class="dv-ota-badge {{ ($live['ota_enabled'] ?? false) ? 'on' : 'off' }}">
                                                 {{ ($live['ota_enabled'] ?? false) ? 'OTA engedélyezve' : 'OTA letiltva' }}
                                             </span>
-                                            @if (! empty($live['wifi_scan']))
-                                                <span class="dv-muted" title="Csatlakozáskor mért legerősebb hálózatok">
-                                                    Scan: {{ collect($live['wifi_scan'])->map(fn ($n) => ($n['ssid'] ?? '?').' ('.($n['rssi'] ?? '-').')')->implode(', ') }}
-                                                </span>
-                                            @endif
                                         </div>
                                     @endif
                                     @if ($activeCommand)
@@ -143,34 +138,38 @@
                                 </td>
                                 <td>
                                     <div class="dv-actions">
-                                        <a href="{{ \App\Filament\Resources\DeviceResource::getUrl('edit', ['record' => $device]) }}"
-                                           class="dv-icon-btn"
-                                           title="Szerkesztés (WiFi hálózatok, firmware-cél, csatorna-gép hozzárendelés)">
-                                            <x-filament::icon icon="heroicon-o-pencil-square" class="dv-icon" />
-                                        </a>
-                                        <button type="button" class="dv-icon-btn"
-                                                wire:click="reboot({{ $device->id }})" wire:confirm="Biztosan újraindítod?"
-                                                @if ($activeCommand) disabled @endif
-                                                title="Újraindítás (parancsot küld az eszköznek, a következő push-kor hajtja végre)">
-                                            <x-filament::icon icon="heroicon-o-arrow-path" class="dv-icon" />
-                                        </button>
-                                        @if ($activeCommand)
+                                        <div class="dv-action-group">
+                                            <a href="{{ \App\Filament\Resources\DeviceResource::getUrl('edit', ['record' => $device]) }}"
+                                               class="dv-icon-btn"
+                                               title="Szerkesztés (WiFi hálózatok, firmware-cél, csatorna-gép hozzárendelés)">
+                                                <x-filament::icon icon="heroicon-o-pencil-square" class="dv-icon" />
+                                            </a>
                                             <button type="button" class="dv-icon-btn"
-                                                    wire:click="stopCommands({{ $device->id }})" wire:confirm="Leállítod a függőben lévő parancsokat?"
-                                                    title="Függőben lévő parancsok leállítása">
-                                                <x-filament::icon icon="heroicon-o-hand-raised" class="dv-icon" />
+                                                    wire:click="reboot({{ $device->id }})" wire:confirm="Biztosan újraindítod?"
+                                                    @if ($activeCommand) disabled @endif
+                                                    title="Újraindítás (parancsot küld az eszköznek, a következő push-kor hajtja végre)">
+                                                <x-filament::icon icon="heroicon-o-arrow-path" class="dv-icon" />
                                             </button>
-                                        @endif
-                                        <button type="button" class="dv-icon-btn dv-icon-danger"
-                                                wire:click="factoryReset({{ $device->id }})" wire:confirm="Biztosan factory reset-eled? Az eszköz újra-enrollmentre fog szorulni."
-                                                title="Factory reset (törli az eszköz NVS-tárolóját, újra-enrollment szükséges utána)">
-                                            <x-filament::icon icon="heroicon-o-exclamation-triangle" class="dv-icon" />
-                                        </button>
-                                        <button type="button" class="dv-icon-btn dv-icon-danger"
-                                                wire:click="deleteDevice({{ $device->id }})" wire:confirm="Biztosan törlöd ezt az eszközt?"
-                                                title="Eszköz törlése (végleges, az összes hozzá tartozó adattal együtt)">
-                                            <x-filament::icon icon="heroicon-o-trash" class="dv-icon" />
-                                        </button>
+                                            @if ($activeCommand)
+                                                <button type="button" class="dv-icon-btn"
+                                                        wire:click="stopCommands({{ $device->id }})" wire:confirm="Leállítod a függőben lévő parancsokat?"
+                                                        title="Függőben lévő parancsok leállítása">
+                                                    <x-filament::icon icon="heroicon-o-hand-raised" class="dv-icon" />
+                                                </button>
+                                            @endif
+                                        </div>
+                                        <div class="dv-action-group dv-action-group-danger">
+                                            <button type="button" class="dv-icon-btn dv-icon-danger"
+                                                    wire:click="factoryReset({{ $device->id }})" wire:confirm="Biztosan factory reset-eled? Az eszköz újra-enrollmentre fog szorulni."
+                                                    title="Factory reset (törli az eszköz NVS-tárolóját, újra-enrollment szükséges utána)">
+                                                <x-filament::icon icon="heroicon-o-exclamation-triangle" class="dv-icon" />
+                                            </button>
+                                            <button type="button" class="dv-icon-btn dv-icon-danger"
+                                                    wire:click="deleteDevice({{ $device->id }})" wire:confirm="Biztosan törlöd ezt az eszközt?"
+                                                    title="Eszköz törlése (végleges, az összes hozzá tartozó adattal együtt)">
+                                                <x-filament::icon icon="heroicon-o-trash" class="dv-icon" />
+                                            </button>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -270,7 +269,7 @@
            pontosan ezt a divet jelenti (overflow-y:auto rajta). */
         .dv-table-scroll { width: 100%; max-height: 65vh; overflow: auto; }
 
-        .dv-table { width: 100%; min-width: 1100px; border-collapse: collapse; table-layout: fixed; }
+        .dv-table { width: 100%; min-width: 1000px; border-collapse: collapse; table-layout: fixed; }
         .dv-table th, .dv-table td {
             border-bottom: 1px solid #1e293b;
             padding: 10px 8px;
@@ -279,7 +278,7 @@
             color: #e5e7eb;
             overflow-wrap: break-word;
         }
-        .dv-table th:last-child, .dv-table td:last-child { width: 170px; }
+        .dv-table th:last-child, .dv-table td:last-child { width: 90px; }
         .dv-table th {
             position: sticky;
             top: 0;
@@ -340,6 +339,8 @@
             margin: 2px;
         }
 
-        .dv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+        .dv-actions { display: flex; flex-direction: column; gap: 8px; }
+        .dv-action-group { display: grid; grid-template-columns: repeat(2, 30px); gap: 6px; }
+        .dv-action-group-danger { padding-top: 8px; border-top: 1px dashed #334155; }
     </style>
 </x-filament-panels::page>

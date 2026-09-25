@@ -109,6 +109,21 @@ class DeviceResource extends Resource
                 ->description('Priorizált SSID/jelszó lista, amit a firmware a beégetett hotspot ELŐTT próbál. A sorrend számít -- a lista tetején lévőt próbálja először. Üresen hagyott jelszó a meglévőt megtartja (ugyanahhoz az SSID-hez).')
                 ->hidden(fn (?Device $record) => ! $record)
                 ->schema([
+                    Forms\Components\Placeholder::make('wifi_scan_list')
+                        ->label('Legutóbb észlelt hálózatok (csatlakozáskor mérve, RSSI szerint)')
+                        ->content(function (?Device $record) {
+                            $scan = $record?->meta['live']['wifi_scan'] ?? [];
+                            if (empty($scan)) {
+                                return 'Nincs még mentett keresési eredmény.';
+                            }
+
+                            return new \Illuminate\Support\HtmlString(
+                                collect($scan)
+                                    ->map(fn (array $n) => '<span style="display:inline-flex;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:rgba(59,130,246,.15);color:#93c5fd;margin:2px;">'
+                                        .e($n['ssid'] ?? '?').' ('.e($n['rssi'] ?? '-').' dBm)</span>')
+                                    ->implode(' ')
+                            );
+                        }),
                     Forms\Components\Repeater::make('wifi_networks_input')
                         ->label('')
                         ->schema([
