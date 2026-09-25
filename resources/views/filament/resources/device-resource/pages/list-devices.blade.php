@@ -64,10 +64,20 @@
         <div class="dv-card">
             <div class="dv-table-scroll">
                 <table class="dv-table">
+                    <colgroup>
+                        <col style="width: 150px">
+                        <col style="width: 150px">
+                        <col style="width: 70px">
+                        <col style="width: 60px">
+                        <col style="width: 190px">
+                        <col style="width: 130px">
+                        <col style="width: 140px">
+                        <col style="width: 90px">
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Eszköz</th>
-                            <th>ESP32 / Device UID</th>
+                            <th>UID</th>
                             <th>Állapot</th>
                             <th>Utolsó adat</th>
                             <th>Élő állapot</th>
@@ -220,7 +230,7 @@
         .dv-summary-card .dv-label { color: #94a3b8; font-size: 13px; }
         .dv-summary-card .dv-value { font-size: 26px; font-weight: 800; margin-top: 6px; }
 
-        .dv-muted { color: #94a3b8; }
+        .dv-muted { color: #94a3b8; font-size: 12px; }
         .dv-ok { color: #22c55e; }
         .dv-bad { color: #fb7185; }
         .dv-warn { color: #facc15; }
@@ -278,7 +288,11 @@
             color: #e5e7eb;
             overflow-wrap: break-word;
         }
-        .dv-table th:last-child, .dv-table td:last-child { width: 90px; }
+        /* A táblázat szöveg maximális mérete a "SSID"/élő-állapot cellák
+           méretéhez igazítva (12px) -- korábban a sima <b>/szöveg cellák
+           (Eszköz, UID) öröklődve nagyobbak voltak, mint a .dv-live-cell
+           alatti szöveg, emiatt aránytalannak tűnt a táblázat. */
+        .dv-table td { font-size: 12px; }
         .dv-table th {
             position: sticky;
             top: 0;
@@ -292,9 +306,11 @@
 
         .dv-badge {
             display: inline-flex;
+            align-items: center;
+            line-height: 1;
             border-radius: 999px;
-            padding: 4px 9px;
-            font-size: 12px;
+            padding: 4px 8px;
+            font-size: 11px;
             font-weight: 800;
         }
         .dv-badge.online { background: rgba(34, 197, 94, .15); color: #22c55e; }
@@ -309,9 +325,11 @@
 
         .dv-ota-badge {
             display: inline-flex;
+            align-items: center;
+            line-height: 1;
             border-radius: 999px;
-            padding: 2px 8px;
-            font-size: 11px;
+            padding: 3px 6px;
+            font-size: 10px;
             font-weight: 800;
         }
         .dv-ota-badge.on { background: rgba(34, 197, 94, .15); color: #22c55e; }
@@ -319,9 +337,11 @@
 
         .dv-reboot-badge {
             display: inline-flex;
+            align-items: center;
+            line-height: 1;
             border-radius: 999px;
-            padding: 2px 8px;
-            font-size: 11px;
+            padding: 3px 6px;
+            font-size: 10px;
             font-weight: 800;
             margin-top: 4px;
             background: rgba(250, 204, 21, .15);
@@ -330,9 +350,11 @@
 
         .dv-machine-pill {
             display: inline-flex;
+            align-items: center;
+            line-height: 1;
             border-radius: 999px;
-            padding: 3px 9px;
-            font-size: 12px;
+            padding: 3px 8px;
+            font-size: 11px;
             font-weight: 700;
             background: rgba(59, 130, 246, .15);
             color: #93c5fd;
