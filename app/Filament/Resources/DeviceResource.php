@@ -15,8 +15,12 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextColumn\TextColumnSize;
 use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Columns\ToggleColumn;
 
@@ -126,32 +130,84 @@ class DeviceResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('user.name')->label('User')->sortable()->toggleable(),
-                TextColumn::make('name')->label('Eszköz')->searchable()->sortable(),
-                TextColumn::make('mac_address')->label('MAC')->copyable()->toggleable()->sortable(),
-                TextColumn::make('machines.name')
-                    ->label('Gépek')
-                    ->badge()
-                    ->separator(',')
-                    ->placeholder('— nincs csatorna hozzárendelve —')
-                    ->toggleable(),
+                // Kompakt, több soros elrendezés (Filament Split/Stack layout):
+                // a korábbi 10 önálló oszlop egy sorban nem fért el a
+                // képernyőn -- most 2-2 összetartozó mező egy cellába kerül,
+                // egymás alá rendezve, hogy a teljes sor szélessége jelentősen
+                // csökkenjen, anélkül hogy bármelyik adat eltűnne.
+                Split::make([
+                    Stack::make([
+                        TextColumn::make('name')
+                            ->label('Eszköz')
+                            ->weight(FontWeight::Bold)
+                            ->searchable()
+                            ->sortable(),
+                        TextColumn::make('mac_address')
+                            ->label('MAC')
+                            ->copyable()
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->sortable()
+                            ->toggleable(),
+                    ])->space(1),
 
-                ViewColumn::make('status_ui')
-                    ->label('Státusz')
-                    ->view('filament.tables.columns.device-status')
-                    ->alignCenter(),
+                    Stack::make([
+                        TextColumn::make('user.name')
+                            ->label('User')
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->sortable()
+                            ->toggleable(),
+                        TextColumn::make('machines.name')
+                            ->label('Gépek')
+                            ->badge()
+                            ->separator(',')
+                            ->placeholder('— nincs csatorna hozzárendelve —')
+                            ->toggleable(),
+                    ])->space(1)->grow(),
 
-                TextColumn::make('fw_version')->label('FW')->toggleable(),
-                TextColumn::make('ssid')->toggleable(),
-                TextColumn::make('rssi')->label('RSSI')->toggleable()->sortable(),
-                TextColumn::make('last_seen_at')->label('Utolsó jel')->since()->sortable(),
+                    ViewColumn::make('status_ui')
+                        ->label('Státusz')
+                        ->view('filament.tables.columns.device-status')
+                        ->alignCenter()
+                        ->grow(false),
 
-                ToggleColumn::make('cron_enabled')
-                    ->label('Cron')
-                    ->alignCenter()
-                    ->onColor('success')
-                    ->offColor('gray')
-                    ->extraAttributes(['title' => 'Cron ki/bekapcsolása']),
+                    Stack::make([
+                        TextColumn::make('fw_version')
+                            ->label('FW')
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->toggleable(),
+                        TextColumn::make('ssid')
+                            ->label('SSID')
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->toggleable(),
+                    ])->space(1)->alignEnd()->grow(false),
+
+                    Stack::make([
+                        TextColumn::make('rssi')
+                            ->label('RSSI')
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->sortable()
+                            ->toggleable(),
+                        TextColumn::make('last_seen_at')
+                            ->label('Utolsó jel')
+                            ->since()
+                            ->color('gray')
+                            ->size(TextColumnSize::Small)
+                            ->sortable(),
+                    ])->space(1)->alignEnd()->grow(false),
+
+                    ToggleColumn::make('cron_enabled')
+                        ->label('Cron')
+                        ->alignCenter()
+                        ->onColor('success')
+                        ->offColor('gray')
+                        ->extraAttributes(['title' => 'Cron ki/bekapcsolása'])
+                        ->grow(false),
+                ])->from('md'),
             ])
             ->poll('2s')
             ->defaultSort('last_seen_at', 'desc')
