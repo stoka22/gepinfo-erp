@@ -11,6 +11,8 @@ use App\Models\Firmware;
 use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -109,28 +111,55 @@ class DeviceResource extends Resource
                 ->description('Priorizált SSID/jelszó lista, amit a firmware a beégetett hotspot ELŐTT próbál. A sorrend számít -- a lista tetején lévőt próbálja először. Üresen hagyott jelszó a meglévőt megtartja (ugyanahhoz az SSID-hez).')
                 ->hidden(fn (?Device $record) => ! $record)
                 ->schema([
-                    Forms\Components\Placeholder::make('wifi_scan_list')
+                    Forms\Components\Placeholder::make('wifi_scan_empty')
                         ->label('Legutóbb észlelt hálózatok (csatlakozáskor mérve, RSSI szerint)')
-                        ->content(function (?Device $record) {
-                            $scan = $record?->meta['live']['wifi_scan'] ?? [];
-                            if (empty($scan)) {
-                                return 'Nincs még mentett keresési eredmény.';
-                            }
-
-                            return new \Illuminate\Support\HtmlString(
-                                collect($scan)
-                                    ->map(fn (array $n) => '<span style="display:inline-flex;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:rgba(59,130,246,.15);color:#93c5fd;margin:2px;">'
-                                        .e($n['ssid'] ?? '?').' ('.e($n['rssi'] ?? '-').' dBm)</span>')
-                                    ->implode(' ')
-                            );
-                        }),
+                        ->content('Nincs még mentett keresési eredmény.')
+                        ->visible(fn (?Device $record) => empty($record?->meta['live']['wifi_scan'])),
+                    // Kattintható gombok, egyenként a legutóbbi keresés max
+                    // 5 SSID-jéhez -- a régi verzió csak egy statikus, NEM
+                    // kattintható badge-listát mutatott (Placeholder), ezért
+                    // a felhasználó nem tudott a beolvasott hálózatok közül
+                    // választani (a screenshotján a böngésző SAJÁT
+                    // jelszó-kitöltő ablaka jelent meg az üres SSID mezőben,
+                    // azzal semmi kapcsolatuk). A form() statikus metódus
+                    // nem kapja meg közvetlenül a $record-ot, ezért fix 5
+                    // "slot" Action készül, mindegyik saját closure-ral
+                    // (label/visible/action) dönti el futásidőben, van-e
+                    // hozzá tartozó scan-bejegyzés -- Set/Get-tel közvetlenül
+                    // a wifi_networks_input Repeater állapotába ír, ugyanúgy
+                    // mint az Energy "+ Hozzáadás" gombja (ott vanilla
+                    // JS-sel, itt a Filament saját, form-natív
+                    // Action-mechanizmusával).
+                    Forms\Components\Actions::make(
+                        collect(range(0, 4))->map(fn (int $i) => Forms\Components\Actions\Action::make("add_scan_{$i}")
+                            ->label(function (?Device $record) use ($i) {
+                                $net = $record?->meta['live']['wifi_scan'][$i] ?? null;
+                                return $net ? ('+ '.$net['ssid'].' ('.($net['rssi'] ?? '-').' dBm)') : '';
+                            })
+                            ->size('sm')
+                            ->color('gray')
+                            ->visible(fn (?Device $record) => ! empty($record?->meta['live']['wifi_scan'][$i]['ssid']))
+                            ->action(function (Set $set, Get $get, ?Device $record) use ($i) {
+                                $ssid = $record?->meta['live']['wifi_scan'][$i]['ssid'] ?? null;
+                                if (! $ssid) {
+                                    return;
+                                }
+                                $current = collect($get('wifi_networks_input') ?? []);
+                                if ($current->contains(fn (array $row) => ($row['ssid'] ?? null) === $ssid)) {
+                                    return;
+                                }
+                                $set('wifi_networks_input', $current->push(['ssid' => $ssid, 'password' => ''])->values()->all());
+                            }))->all()
+                    )
+                        ->visible(fn (?Device $record) => ! empty($record?->meta['live']['wifi_scan'])),
                     Forms\Components\Repeater::make('wifi_networks_input')
                         ->label('')
                         ->schema([
                             Forms\Components\TextInput::make('ssid')
                                 ->label('SSID')
                                 ->required()
-                                ->maxLength(64),
+                                ->maxLength(64)
+                                ->autocomplete(false),
                             Forms\Components\TextInput::make('password')
                                 ->label('Jelszó')
                                 ->password()
