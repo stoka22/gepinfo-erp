@@ -86,7 +86,8 @@ it('saves wifi networks from the edit form, encrypted, and keeps an unchanged pa
             ],
         ])
         ->call('save')
-        ->assertHasNoFormErrors();
+        ->assertHasNoFormErrors()
+        ->assertRedirect(\App\Filament\Resources\DeviceResource::getUrl('index'));
 
     $networks = collect($device->refresh()->meta['wifi_networks']);
     expect($networks)->toHaveCount(2);

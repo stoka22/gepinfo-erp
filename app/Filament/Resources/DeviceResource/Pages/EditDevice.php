@@ -18,6 +18,24 @@ class EditDevice extends EditRecord
         ];
     }
 
+    // Alapból a Mentés a szerkesztő oldalon MARAD (getRedirectUrl() alap
+    // értéke null), a Mégse pedig document.referrer-re/böngésző-history
+    // back()-re támaszkodik -- SPA (wire:navigate) módban ez nem mindig
+    // megbízható. A felhasználó kérésére mindkettő explicit a lista
+    // nézetre irányít.
+    protected function getRedirectUrl(): string
+    {
+        return static::getResource()::getUrl('index');
+    }
+
+    protected function getCancelFormAction(): Actions\Action
+    {
+        return Actions\Action::make('cancel')
+            ->label(__('filament-panels::resources/pages/edit-record.form.actions.cancel.label'))
+            ->color('gray')
+            ->url(static::getResource()::getUrl('index'));
+    }
+
     /**
      * A "wifi_networks_input" repeater nem valódi Device-oszlop -- itt
      * fésüljük össze a devices.meta.wifi_networks JSON-nal, titkosítva a
