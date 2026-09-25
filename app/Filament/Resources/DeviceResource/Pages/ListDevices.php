@@ -46,22 +46,6 @@ class ListDevices extends ListRecords
             ->get();
     }
 
-    public function toggleCron(int $deviceId): void
-    {
-        $device = Device::findOrFail($deviceId);
-        $device->update(['cron_enabled' => ! $device->cron_enabled]);
-    }
-
-    public function enableAllCron(): void
-    {
-        Device::query()->update(['cron_enabled' => true]);
-    }
-
-    public function disableAllCron(): void
-    {
-        Device::query()->update(['cron_enabled' => false]);
-    }
-
     public function reboot(int $deviceId): void
     {
         Command::create(['device_id' => $deviceId, 'cmd' => 'reboot', 'status' => 'pending']);

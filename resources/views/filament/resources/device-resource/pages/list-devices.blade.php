@@ -3,7 +3,7 @@
         $devices = $this->getDevices();
         $onlineCount = $devices->filter(fn ($d) => $d->is_online)->count();
         $offlineCount = $devices->count() - $onlineCount;
-        $activeCount = $devices->where('cron_enabled', true)->count();
+        $mappedMachineCount = $devices->pluck('machines')->flatten()->pluck('id')->unique()->count();
 
         $rssiClass = function (?int $rssi): string {
             if ($rssi === null) return '';
@@ -56,8 +56,8 @@
                 <div class="dv-value dv-bad">{{ $offlineCount }}</div>
             </div>
             <div class="dv-card dv-summary-card">
-                <div class="dv-label">Aktív (cron)</div>
-                <div class="dv-value">{{ $activeCount }}</div>
+                <div class="dv-label">Hozzárendelt gép</div>
+                <div class="dv-value">{{ $mappedMachineCount }}</div>
             </div>
         </div>
 
@@ -96,8 +96,7 @@
                                 <td>
                                     <span class="dv-badge {{ $device->is_online ? 'online' : 'offline' }}">
                                         {{ $device->is_online ? 'online' : 'offline' }}
-                                    </span><br>
-                                    <span class="dv-muted">{{ $device->cron_enabled ? 'aktív' : 'inaktív' }}</span>
+                                    </span>
                                 </td>
                                 <td>{{ $formatShortAge($device->last_seen_at) }}</td>
                                 <td>
@@ -139,16 +138,34 @@
                                 </td>
                                 <td>
                                     <div class="dv-actions">
-                                        <a href="{{ \App\Filament\Resources\DeviceResource::getUrl('edit', ['record' => $device]) }}" class="dv-btn dv-small">Szerkesztés</a>
-                                        <button type="button" class="dv-btn dv-small dv-secondary" wire:click="toggleCron({{ $device->id }})">
-                                            {{ $device->cron_enabled ? 'Letiltás' : 'Engedélyezés' }}
+                                        <a href="{{ \App\Filament\Resources\DeviceResource::getUrl('edit', ['record' => $device]) }}"
+                                           class="dv-icon-btn"
+                                           title="Szerkesztés (WiFi hálózatok, firmware-cél, csatorna-gép hozzárendelés)">
+                                            <x-filament::icon icon="heroicon-o-pencil-square" class="dv-icon" />
+                                        </a>
+                                        <button type="button" class="dv-icon-btn"
+                                                wire:click="reboot({{ $device->id }})" wire:confirm="Biztosan újraindítod?"
+                                                @if ($activeCommand) disabled @endif
+                                                title="Újraindítás (parancsot küld az eszköznek, a következő push-kor hajtja végre)">
+                                            <x-filament::icon icon="heroicon-o-arrow-path" class="dv-icon" />
                                         </button>
-                                        <button type="button" class="dv-btn dv-small dv-secondary" wire:click="reboot({{ $device->id }})" wire:confirm="Biztosan újraindítod?" @if ($activeCommand) disabled @endif>Újraindítás</button>
                                         @if ($activeCommand)
-                                            <button type="button" class="dv-btn dv-small dv-secondary" wire:click="stopCommands({{ $device->id }})" wire:confirm="Leállítod a függőben lévő parancsokat?">Parancsok leállítása</button>
+                                            <button type="button" class="dv-icon-btn"
+                                                    wire:click="stopCommands({{ $device->id }})" wire:confirm="Leállítod a függőben lévő parancsokat?"
+                                                    title="Függőben lévő parancsok leállítása">
+                                                <x-filament::icon icon="heroicon-o-hand-raised" class="dv-icon" />
+                                            </button>
                                         @endif
-                                        <button type="button" class="dv-btn dv-small dv-danger" wire:click="factoryReset({{ $device->id }})" wire:confirm="Biztosan factory reset-eled? Az eszköz újra-enrollmentre fog szorulni.">Factory reset</button>
-                                        <button type="button" class="dv-btn dv-small dv-danger" wire:click="deleteDevice({{ $device->id }})" wire:confirm="Biztosan törlöd ezt az eszközt?">Eszköz törlése</button>
+                                        <button type="button" class="dv-icon-btn dv-icon-danger"
+                                                wire:click="factoryReset({{ $device->id }})" wire:confirm="Biztosan factory reset-eled? Az eszköz újra-enrollmentre fog szorulni."
+                                                title="Factory reset (törli az eszköz NVS-tárolóját, újra-enrollment szükséges utána)">
+                                            <x-filament::icon icon="heroicon-o-exclamation-triangle" class="dv-icon" />
+                                        </button>
+                                        <button type="button" class="dv-icon-btn dv-icon-danger"
+                                                wire:click="deleteDevice({{ $device->id }})" wire:confirm="Biztosan törlöd ezt az eszközt?"
+                                                title="Eszköz törlése (végleges, az összes hozzá tartozó adattal együtt)">
+                                            <x-filament::icon icon="heroicon-o-trash" class="dv-icon" />
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -222,6 +239,24 @@
         .dv-btn.dv-small { padding: 6px 9px; font-size: 12px; }
         .dv-btn[disabled] { opacity: .5; cursor: not-allowed; }
 
+        .dv-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            background: #334155;
+            border: 0;
+            border-radius: 9px;
+            cursor: pointer;
+        }
+        .dv-icon-btn:hover { background: #475569; }
+        .dv-icon-btn.dv-icon-danger { background: rgba(220, 38, 38, .2); }
+        .dv-icon-btn.dv-icon-danger:hover { background: rgba(220, 38, 38, .35); }
+        .dv-icon-btn[disabled] { opacity: .4; cursor: not-allowed; }
+        .dv-icon { width: 16px; height: 16px; color: #e5e7eb; }
+        .dv-icon-danger .dv-icon { color: #fca5a5; }
+
         /* Fix magasságú belső görgetés: a táblázat X (vízszintes) ÉS Y
            (függőleges) irányban is a SAJÁT dobozán belül görgethető,
            ahelyett hogy az egész oldal nyúlna a sorok számával -- a fejléc
@@ -230,7 +265,7 @@
            pontosan ezt a divet jelenti (overflow-y:auto rajta). */
         .dv-table-scroll { width: 100%; max-height: 65vh; overflow: auto; }
 
-        .dv-table { width: 100%; min-width: 1250px; border-collapse: collapse; table-layout: fixed; }
+        .dv-table { width: 100%; min-width: 1100px; border-collapse: collapse; table-layout: fixed; }
         .dv-table th, .dv-table td {
             border-bottom: 1px solid #1e293b;
             padding: 10px 8px;
@@ -239,7 +274,7 @@
             color: #e5e7eb;
             overflow-wrap: break-word;
         }
-        .dv-table th:last-child, .dv-table td:last-child { width: 260px; }
+        .dv-table th:last-child, .dv-table td:last-child { width: 170px; }
         .dv-table th {
             position: sticky;
             top: 0;
