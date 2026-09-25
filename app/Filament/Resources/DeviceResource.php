@@ -17,9 +17,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Columns\IconColumn;
-use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextColumn\TextColumnSize;
 use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Columns\ToggleColumn;
 
@@ -129,77 +127,63 @@ class DeviceResource extends Resource
     {
         return $table
             ->columns([
-                // Kompakt, több soros elrendezés: minden bejegyzés itt egy
-                // ÖNÁLLÓ táblázat-oszlop (nem egy közös Split-be csomagolva),
-                // hogy a sorok normál táblaként, egységesen igazodjanak
-                // egymás alá -- egy közös Split flex-konténerben a cellák
-                // szélessége soronként eltérően alakult volna a tartalom
-                // hossza szerint, ami "összevissza" (nem oszlopba igazodó)
-                // hatást keltett. Egy-egy Stack-en belül 2 összetartozó mező
-                // kerül egymás alá, hogy a teljes sor szélessége csökkenjen.
-                Stack::make([
-                    TextColumn::make('name')
-                        ->label('Eszköz')
-                        ->weight(FontWeight::Bold)
-                        ->searchable()
-                        ->sortable(),
-                    TextColumn::make('mac_address')
-                        ->label('MAC')
-                        ->copyable()
-                        ->color('gray')
-                        ->size(TextColumnSize::Small)
-                        ->sortable()
-                        ->toggleable(),
-                ])->space(1),
+                // Sima, egysoros Filament-oszlopok -- egyéni Stack/Split
+                // elrendezéssel próbálkoztunk korábban, de az élesben rosszul
+                // nézett ki (a sorok nem igazodtak rendesen, a Státusz-ikon
+                // elcsúszva jelent meg). A kompaktságot most a natív,
+                // jól bevált módon oldjuk meg: a másodlagos oszlopok
+                // (MAC, User, SSID, RSSI, FW) alapból el vannak rejtve
+                // (->toggleable(isToggledHiddenByDefault: true)), a jobb
+                // felső oszlopválasztó gombbal bármikor visszakapcsolhatók.
+                TextColumn::make('name')
+                    ->label('Eszköz')
+                    ->weight(FontWeight::Bold)
+                    ->searchable()
+                    ->sortable(),
 
-                Stack::make([
-                    TextColumn::make('user.name')
-                        ->label('User')
-                        ->color('gray')
-                        ->size(TextColumnSize::Small)
-                        ->sortable()
-                        ->toggleable(),
-                    TextColumn::make('machines.name')
-                        ->label('Gépek')
-                        ->badge()
-                        ->separator(',')
-                        ->placeholder('— nincs csatorna hozzárendelve —')
-                        ->toggleable(),
-                ])->space(1),
+                TextColumn::make('mac_address')
+                    ->label('MAC')
+                    ->copyable()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
-                // Önálló, egységesen igazodó oszlop -- zöld pipa (online) /
-                // piros x (offline). Inline style-lal színezve, mert a
-                // Filament admin panel LEFORDÍTOTT CSS-e (vendor/filament/
-                // filament/dist/theme.css) csak a saját palettájának
-                // ténylegesen használt osztályait tartalmazza (pl.
-                // text-danger-500, text-gray-500, text-primary-500) -- a
-                // blade-ben korábban használt tetszőleges "!text-green-500"/
-                // "!text-red-500" Tailwind-osztályoknak ebben a fájlban
-                // SOSEM volt CSS-szabálya, ezért nem is látszottak színesnek.
+                TextColumn::make('user.name')
+                    ->label('User')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('machines.name')
+                    ->label('Gépek')
+                    ->badge()
+                    ->separator(',')
+                    ->placeholder('— nincs csatorna hozzárendelve —')
+                    ->toggleable(),
+
+                // Zöld pipa (online) / piros x (offline). Inline style-lal
+                // színezve, mert a Filament admin panel LEFORDÍTOTT CSS-e
+                // (vendor/filament/filament/dist/theme.css) csak a saját
+                // palettája ténylegesen használt osztályait tartalmazza
+                // (pl. text-danger-500, text-gray-500, text-primary-500) --
+                // egy tetszőleges "!text-green-500"/"!text-red-500"
+                // Tailwind-osztálynak ebben a fájlban SOSEM volt
+                // CSS-szabálya, ezért nem is látszott színesnek.
                 ViewColumn::make('status_ui')
                     ->label('Státusz')
                     ->view('filament.tables.columns.device-status')
                     ->alignCenter(),
 
-                Stack::make([
-                    TextColumn::make('ssid')
-                        ->label('SSID')
-                        ->color('gray')
-                        ->size(TextColumnSize::Small)
-                        ->toggleable(),
-                    TextColumn::make('rssi')
-                        ->label('RSSI')
-                        ->color('gray')
-                        ->size(TextColumnSize::Small)
-                        ->sortable()
-                        ->toggleable(),
-                ])->space(1),
+                TextColumn::make('ssid')
+                    ->label('SSID')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('rssi')
+                    ->label('RSSI')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('fw_version')
                     ->label('FW')
-                    ->color('gray')
-                    ->size(TextColumnSize::Small)
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('last_seen_at')
                     ->label('Utolsó jel')
