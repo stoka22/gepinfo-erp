@@ -26,7 +26,10 @@
 
         $formatShortAge = function (?\Carbon\Carbon $state): string {
             if (! $state) return '-';
-            $seconds = $state->diffInSeconds(now());
+            // Carbon::diffInSeconds() mikroszekundum-pontosságú floatot ad
+            // vissza (pl. "58.771306"), nem egészet -- (int) cast nélkül ez
+            // egyenesen a kiírt szövegbe kerülne tizedesjegyekkel.
+            $seconds = (int) $state->diffInSeconds(now());
             if ($seconds < 60) return "{$seconds}s";
             $minutes = intdiv($seconds, 60);
             if ($minutes < 60) return "{$minutes}m";
@@ -66,11 +69,11 @@
                 <table class="dv-table">
                     <colgroup>
                         <col style="width: 150px">
-                        <col style="width: 190px">
-                        <col style="width: 90px">
-                        <col style="width: 70px">
-                        <col style="width: 190px">
-                        <col style="width: 140px">
+                        <col style="width: 170px">
+                        <col style="width: 75px">
+                        <col style="width: 65px">
+                        <col style="width: 175px">
+                        <col style="width: 125px">
                         <col style="width: 90px">
                     </colgroup>
                     <thead>
@@ -273,10 +276,10 @@
            pontosan ezt a divet jelenti (overflow-y:auto rajta). */
         .dv-table-scroll { width: 100%; max-height: 65vh; overflow: auto; }
 
-        .dv-table { width: 100%; min-width: 1000px; border-collapse: collapse; table-layout: fixed; }
+        .dv-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
         .dv-table th, .dv-table td {
             border-bottom: 1px solid #1e293b;
-            padding: 10px 8px;
+            padding: 10px 6px;
             text-align: left;
             vertical-align: top;
             color: #e5e7eb;
