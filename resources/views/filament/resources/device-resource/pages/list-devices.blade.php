@@ -222,7 +222,13 @@
         .dv-btn.dv-small { padding: 6px 9px; font-size: 12px; }
         .dv-btn[disabled] { opacity: .5; cursor: not-allowed; }
 
-        .dv-table-scroll { width: 100%; overflow-x: auto; }
+        /* Fix magasságú belső görgetés: a táblázat X (vízszintes) ÉS Y
+           (függőleges) irányban is a SAJÁT dobozán belül görgethető,
+           ahelyett hogy az egész oldal nyúlna a sorok számával -- a fejléc
+           "position: sticky"-vel a görgető konténerhez (nem a viewporthoz)
+           rögzítve marad, ez a nearest-scrolling-ancestor szabály miatt itt
+           pontosan ezt a divet jelenti (overflow-y:auto rajta). */
+        .dv-table-scroll { width: 100%; max-height: 65vh; overflow: auto; }
 
         .dv-table { width: 100%; min-width: 1250px; border-collapse: collapse; table-layout: fixed; }
         .dv-table th, .dv-table td {
@@ -235,6 +241,10 @@
         }
         .dv-table th:last-child, .dv-table td:last-child { width: 260px; }
         .dv-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #0f172a;
             color: #94a3b8;
             font-size: 12px;
             text-transform: uppercase;
