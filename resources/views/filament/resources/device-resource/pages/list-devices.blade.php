@@ -66,11 +66,10 @@
                 <table class="dv-table">
                     <colgroup>
                         <col style="width: 150px">
-                        <col style="width: 150px">
-                        <col style="width: 70px">
-                        <col style="width: 60px">
                         <col style="width: 190px">
-                        <col style="width: 130px">
+                        <col style="width: 90px">
+                        <col style="width: 70px">
+                        <col style="width: 190px">
                         <col style="width: 140px">
                         <col style="width: 90px">
                     </colgroup>
@@ -81,7 +80,6 @@
                             <th>Állapot</th>
                             <th>Utolsó adat</th>
                             <th>Élő állapot</th>
-                            <th>Firmware</th>
                             <th>Gépek</th>
                             <th>Műveletek</th>
                         </tr>
@@ -101,7 +99,15 @@
                                 <td>
                                     <b>{{ $device->mac_address }}</b><br>
                                     <span class="dv-muted">{{ $device->platform ?: '-' }}</span><br>
-                                    <span class="dv-muted">API: {{ $device->api_key_hash ? 'beállítva' : 'nincs beállítva' }}</span>
+                                    <span class="dv-muted">API: {{ $device->api_key_hash ? 'beállítva' : 'nincs beállítva' }}</span><br>
+                                    <span class="dv-ssid">{{ $device->fw_version ?: 'Ismeretlen firmware' }}</span><br>
+                                    @if (! $target)
+                                        <span class="dv-muted">Nincs cél kijelölve</span>
+                                    @elseif ($target === $device->fw_version)
+                                        <span class="dv-ok">Naprakész</span>
+                                    @else
+                                        <span class="dv-warn">Frissítés kiküldve: {{ $target }}</span>
+                                    @endif
                                 </td>
                                 <td>
                                     <span class="dv-badge {{ $device->is_online ? 'online' : 'offline' }}">
@@ -126,18 +132,6 @@
                                     @if ($activeCommand)
                                         <span class="dv-reboot-badge pending">{{ $activeCommand->cmd }} függőben</span>
                                     @endif
-                                </td>
-                                <td>
-                                    <div class="dv-live-cell">
-                                        <span class="dv-ssid">{{ $device->fw_version ?: 'Ismeretlen' }}</span>
-                                        @if (! $target)
-                                            <span class="dv-muted">Nincs cél kijelölve</span>
-                                        @elseif ($target === $device->fw_version)
-                                            <span class="dv-ok">Naprakész</span>
-                                        @else
-                                            <span class="dv-warn">Frissítés kiküldve: {{ $target }}</span>
-                                        @endif
-                                    </div>
                                 </td>
                                 <td>
                                     @forelse ($device->machines as $machine)
@@ -185,7 +179,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="dv-muted">Nincs eszköz.</td>
+                                <td colspan="7" class="dv-muted">Nincs eszköz.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -286,13 +280,13 @@
             text-align: left;
             vertical-align: top;
             color: #e5e7eb;
-            overflow-wrap: break-word;
         }
-        /* A táblázat szöveg maximális mérete a "SSID"/élő-állapot cellák
-           méretéhez igazítva (12px) -- korábban a sima <b>/szöveg cellák
-           (Eszköz, UID) öröklődve nagyobbak voltak, mint a .dv-live-cell
-           alatti szöveg, emiatt aránytalannak tűnt a táblázat. */
-        .dv-table td { font-size: 12px; }
+        /* Csak a td-kben törünk szó közepén is (pl. hosszú MAC-cím/IP nem
+           férne ki egy keskeny oszlopban egyébként) -- a th fejlécekben ez
+           korábban szavak KÖZEPÉN tördelt (pl. "ÁLLAPOT" -> "ÁLLAPO"/"T"),
+           ami csúnya és pontatlan volt. A fejléc csak szóközöknél törhet. */
+        .dv-table td { font-size: 12px; overflow-wrap: break-word; }
+        .dv-table th { overflow-wrap: normal; word-break: keep-all; }
         .dv-table th {
             position: sticky;
             top: 0;
@@ -316,7 +310,12 @@
         .dv-badge.online { background: rgba(34, 197, 94, .15); color: #22c55e; }
         .dv-badge.offline { background: rgba(248, 113, 113, .15); color: #fb7185; }
 
-        .dv-live-cell { display: grid; gap: 2px; font-size: 12px; min-width: 150px; }
+        /* justify-items:start -- grid alapból SZÉLESSÉGRE NYÚJTJA a
+           gyermek elemeket a teljes oszlopszélességre (justify-items:
+           stretch az alapérték), ezért nyúlt túl a badge/pill háttere a
+           tényleges szövegen -- ezt írja felül, hogy a badge a saját
+           tartalmához igazodjon. */
+        .dv-live-cell { display: grid; gap: 2px; font-size: 12px; min-width: 150px; justify-items: start; }
         .dv-live-cell .dv-ssid { font-weight: 800; color: #e5e7eb; }
         .dv-rssi { font-weight: 800; }
         .dv-rssi.dv-good { color: #22c55e; }
