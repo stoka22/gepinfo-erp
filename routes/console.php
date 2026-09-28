@@ -31,6 +31,18 @@ Schedule::command('attendance:auto-checkout')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/attendance-auto-checkout.log'));
 
+// Teljesen üres (bejegyzés nélküli) munkanapokra "felülvizsgálandó" szabadság-jelölőt hoz
+// létre, hogy a hiány a needs_review admin sorban látszódjon, ne csendben maradjon el a
+// jelenléti ívről. Hajnal 1-kor fut (a felhasználó explicit döntése): ilyenkor biztosan
+// nincs aktív műszak, tehát a vizsgált időszak mindig a már lezárt előző nap(ok)ra esik,
+// nem kavarhat bele egy még folyamatban lévő jelenlétbe. Az alapértelmezett 30 napos
+// visszatekintő ablak minden nap újra átfut a legutóbbi napokon, de a meglévő-bejegyzés-
+// ellenőrzés miatt idempotens (nem duplikál).
+Schedule::command('attendance:flag-missing-days')
+    ->dailyAt('01:00')
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/attendance-flag-missing-days.log'));
+
 Schedule::command('digest:daily')
     ->dailyAt('07:00')
     ->withoutOverlapping()
