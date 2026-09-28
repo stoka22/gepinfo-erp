@@ -387,6 +387,47 @@ it('caps "Felhasznált" vacation days at the report period, not the whole calend
     expect($septemberSheet['vacation']['monthlyUsed'])->toBe(2.0);
 });
 
+it('does not mark a weekend or holiday inside a multi-day vacation date range as "Szabadság" with an 8-hour credit -- regression for Nagy Noémi Pálma 2026-08-22/23', function () {
+    $company = Company::create(['name' => 'Heti Szabi Kft.']);
+    $employee = Employee::create(['name' => 'Heti Szabi Teszt', 'company_id' => $company->id]);
+
+    // Egy hetes szabadság, egyetlen összefüggő date-range-ként rögzítve: 2026-08-18 (kedd) --
+    // 2026-08-24 (hétfő). Lefedi a hétvégét (22-23) és egy ünnepnapot (20, Államalapítás) is,
+    // ahogy egy valós "jövő héten szabin vagyok" bejegyzés természetesen tenné.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Vacation->value, 'status' => TimeEntryStatus::Approved->value,
+        'start_date' => '2026-08-18', 'end_date' => '2026-08-24',
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 8, 1), CarbonImmutable::create(2026, 8, 31));
+    $days = collect($sheet['days'])->keyBy('date');
+
+    // Munkanapok a tartományon belül: valódi "Szabadság", 8:00 jóváírással.
+    foreach (['2026-08-18', '2026-08-19', '2026-08-21', '2026-08-24'] as $workday) {
+        expect($days[$workday]['note'])->toBe('Szabadság');
+        expect($days[$workday]['hoursLabel'])->toBe('8:00');
+        expect($days[$workday]['overtimeLabel'])->toBe('0:00');
+    }
+
+    // Ünnepnap a tartományon belül: az ünnep neve, NEM "Szabadság".
+    expect($days['2026-08-20']['note'])->toBe('Államalapítás');
+    expect($days['2026-08-20']['hoursLabel'])->toBeNull();
+
+    // Hétvége a tartományon belül: "Pihenőnap", NEM "Szabadság" -- és nincs 8 órás jóváírás.
+    expect($days['2026-08-22']['note'])->toBe('Pihenőnap');
+    expect($days['2026-08-22']['hoursLabel'])->toBeNull();
+    expect($days['2026-08-22']['overtimeLabel'])->toBeNull();
+    expect($days['2026-08-23']['note'])->toBe('Pihenőnap');
+    expect($days['2026-08-23']['hoursLabel'])->toBeNull();
+    expect($days['2026-08-23']['overtimeLabel'])->toBeNull();
+
+    // A havi "ledolgozott" csak a 4 valódi szabadság-munkanap 8:00-áját tartalmazza (32:00),
+    // a hétvégi/ünnepi napok fantom 8 órája NEM számít bele.
+    expect($sheet['workedHours']['monthly'])->toBe('32:00');
+});
+
 it('flags each individually short-worked day with a "Csúszó" note in its own row, even when the month\'s net overtime is not negative', function () {
     $company = Company::create(['name' => 'Napi Hiány Kft.']);
     $employee = Employee::create(['name' => 'Napi Hiány Teszt', 'company_id' => $company->id]);

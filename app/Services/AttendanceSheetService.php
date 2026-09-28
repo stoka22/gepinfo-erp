@@ -112,7 +112,17 @@ class AttendanceSheetService
             /** @var \Illuminate\Support\Collection<int, TimeEntry> $entriesToday */
             $entriesToday = $presenceByDate->get($dateStr, collect());
             $absence = $absenceByDate[$dateStr] ?? null;
-            $isVacationDay = ($absence['type'] ?? null) === TimeEntryType::Vacation->value;
+            // FONTOS: egy TÖBBNAPOS szabadság-bejegyzés (pl. 2026-08-18..24, egy teljes hetes
+            // szabi) a benne foglalt hétvégét/ünnepnapot IS lefedi naptári tartományként, hiszen
+            // az admin/import egyetlen összefüggő date-range-ként rögzíti -- de ezeken a
+            // napokon a dolgozó eleve nem lett volna köteles dolgozni, tehát nem "használódik
+            // el" rájuk szabadság, és nem járna 8 óra jóváírás sem. Élesben azonosítva (Nagy
+            // Noémi Pálma, 2026-08-22/23 szombat-vasárnap tévesen "Szabadság"-ként jelent meg
+            // 8:00 jóváírással). A WorkdayResolver -- ugyanaz, amit az import-osztályozás és a
+            // flag-missing-days parancs is használ -- dönti el, hogy a nap ténylegesen munkanap
+            // volt-e ennek a dolgozónak (hétvége/ünnep/egyéni műszakminta figyelembevételével).
+            $isWorkday = $this->workdayResolver->isWorkingDayForEmployee($employee, $d);
+            $isVacationDay = ($absence['type'] ?? null) === TimeEntryType::Vacation->value && $isWorkday;
 
             // Napi szintű összesítés: a küszöböt a NAP ÖSSZES szakaszának együttes ledolgozott
             // idejére alkalmazzuk (ld. OvertimeBalanceService::totalWorkedMinutesForDay), nem
@@ -175,10 +185,15 @@ class AttendanceSheetService
             if ($inRequestedPeriod) {
                 $holidayName = $this->workdayResolver->holidayName($d);
 
-                $note = $holidayName ?? $absence['label'] ?? null;
-                if (! $note && $d->isWeekend() && $entriesToday->isEmpty()) {
+                // Sorrend: ünnep > pihenőnap (nem munkanap, nincs tényleges jelenlét) > a
+                // bejegyzés saját címkéje (Szabadság/Táppénz/stb.). A pihenőnap-ágnak MEG KELL
+                // előznie az absence-címkét, különben egy többnapos szabadság-bejegyzésbe eső
+                // hétvége "Szabadság"-ként jelenne meg (ld. $isVacationDay dokkommentje feljebb).
+                $note = $holidayName;
+                if (! $note && ! $isWorkday && $entriesToday->isEmpty()) {
                     $note = 'Pihenőnap';
                 }
+                $note ??= $absence['label'] ?? null;
                 // Az adott napon hiányosan ledolgozott (a küszöb alatti) munkaidő soronkénti
                 // jelölése -- a havi összesítő "Csúszó" sortól (ld. lent, monthlyMinutes < 0)
                 // FÜGGETLENÜL, hiszen egy hónapon belül a napi hiányok és többletek
@@ -274,8 +289,14 @@ class AttendanceSheetService
                 'remaining'   => max(0.0, $entitledDays - $usedDaysAsOfPeriod),
             ],
             'overtime' => [
+                // "Átvihető": a naptári év elejétől EBBEN A HÓNAPBAN göngyölt végegyenleg --
+                // ezt viszi tovább a következő hónap "Áthozott" sora.
                 'yearly'  => $this->formatMinutes($yearlyOvertimeMinutes),
+                // "Havi": a riport hónapjának SAJÁT (önmagában vett) nettó változása.
                 'monthly' => $this->formatMinutes($monthlyOvertimeMinutes),
+                // "Áthozott": az előző hónap végén (ebbe a hónapba behozott) egyenleg --
+                // Áthozott + Havi = Átvihető, egy önmagát ellenőrző, auditálható lánc.
+                'carriedOver' => $this->formatMinutes($yearlyOvertimeMinutes - $monthlyOvertimeMinutes),
                 // Nyers (nem formázott) havi túlóra-eltérés -- a Blade sablon ez alapján
                 // dönti el, kell-e "Csúszó" (hiány) sor az ívre. Csak akkor negatív, ha a
                 // dolgozó a hónap egészében NETTÓ kevesebbet dolgozott a kötelezőnél.

@@ -39,9 +39,10 @@
             </tr>
             <tr>
                 <td colspan="3">
-                    <strong>Túlóra (egyenleg):</strong>
-                    Összes éves: {{ $sheet['overtime']['yearly'] }},
-                    Aktuális havi: {{ $sheet['overtime']['monthly'] }}
+                    <strong>Túlóra:</strong>
+                    Áthozott: {{ $sheet['overtime']['carriedOver'] }},
+                    Átvihető: {{ $sheet['overtime']['yearly'] }},
+                    Havi: {{ $sheet['overtime']['monthly'] }}
                 </td>
             </tr>
             @if ($sheet['overtime']['monthlyMinutes'] < 0)
