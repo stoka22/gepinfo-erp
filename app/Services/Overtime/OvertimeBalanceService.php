@@ -2,6 +2,8 @@
 
 namespace App\Services\Overtime;
 
+use App\Enums\TimeEntryStatus;
+use App\Enums\TimeEntryType;
 use App\Models\Employee;
 use App\Models\OvertimeBalance;
 use App\Models\TimeEntry;
@@ -252,7 +254,22 @@ class OvertimeBalanceService
         return [$regular, $overtime];
     }
 
-    /** Göngyölt egyenleg módosítása; a keret negatív is lehet. */
+    /**
+     * Göngyölt egyenleg módosítása; a keret negatív is lehet.
+     *
+     * @deprecated Relatív (increment-alapú) módosítás -- kötegelt műveleteknél (tömeges
+     * import, tömeges jóváhagyás) bizonyítottan elcsúszhat, mert minden hívás a MÁR
+     * eltárolt (esetleg épp egy másik, ugyanabban a kötegben futó mentés által még nem
+     * konzisztens) értékhez képest számol. Élesben azonosítva (2026-09): egy dolgozó
+     * egyenlege 173 órával tért el a saját bejegyzéseinek tényleges összegétől, az
+     * eltérés egy tömeges importon és egy tömeges admin-műveleten belül, pár másodperc
+     * alatt, kaotikus fel-le ugrálásokkal keletkezett. Új kód helyette a
+     * recomputeBalance()-t használja, ami mindig NULLÁRÓL, a tényleges bejegyzésekből
+     * számolja újra a teljes egyenleget -- ez kötegelt/ismételt hívás esetén is mindig
+     * a helyes végeredményhez konvergál, sosem halmozódik hiba. Csak a
+     * RecomputeOvertimeBalances parancs korábbi (már lecserélt) hívásai és esetleges
+     * régi migrációk/seederek miatt maradt itt, ne használd új kódban.
+     */
     public function applyDelta(int $employeeId, ?int $companyId, int $deltaMinutes): OvertimeBalance
     {
         $balance = OvertimeBalance::firstOrCreate(
@@ -261,6 +278,40 @@ class OvertimeBalanceService
         );
 
         $balance->increment('balance_minutes', $deltaMinutes);
+
+        return $balance->fresh();
+    }
+
+    /**
+     * Göngyölt egyenleg NULLÁRÓL történő újraszámolása a dolgozó ÖSSZES (jelenlét-alapú
+     * napi eltérés + jóváhagyott, túlóra-keret terhére elszámolt) bejegyzéséből -- ez a
+     * kanonikus, önjavító módszer az applyDelta() relatív increment helyett: mivel
+     * mindig a TÉNYLEGES adatbázis-állapotból számol abszolút végeredményt (nem egy
+     * korábbi, esetleg már elcsúszott értékhez ad hozzá), kötegelt/ismételt hívás esetén
+     * is mindig a helyes összeghez konvergál, sosem halmozhat hibát.
+     */
+    public function recomputeBalance(int $employeeId, ?int $companyId): OvertimeBalance
+    {
+        $presenceMinutes = (int) TimeEntry::query()
+            ->where('employee_id', $employeeId)
+            ->where('type', TimeEntryType::Presence->value)
+            ->sum('overtime_delta_minutes');
+
+        $consumptionMinutes = (int) TimeEntry::query()
+            ->where('employee_id', $employeeId)
+            ->where('type', TimeEntryType::Overtime->value)
+            ->where('status', TimeEntryStatus::Approved->value)
+            ->get()
+            ->sum(fn (TimeEntry $e) => (int) round(((float) $e->hours) * 60));
+
+        $balance = OvertimeBalance::firstOrCreate(
+            ['employee_id' => $employeeId],
+            ['company_id' => $companyId, 'balance_minutes' => 0]
+        );
+
+        $balance->company_id = $companyId ?? $balance->company_id;
+        $balance->balance_minutes = $presenceMinutes + $consumptionMinutes;
+        $balance->save();
 
         return $balance->fresh();
     }

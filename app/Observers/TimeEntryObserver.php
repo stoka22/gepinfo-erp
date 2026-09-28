@@ -144,13 +144,10 @@ class TimeEntryObserver
         $siblingsAppliedDelta = (int) $siblings->sum(fn (TimeEntry $s) => (int) ($s->overtime_delta_minutes ?? 0));
         $newEntryDelta = $newDayDelta - $siblingsAppliedDelta;
 
-        $wasSettled = (bool) $entry->getOriginal('overtime_settled_at');
-        $oldEntryDelta = $wasSettled ? (int) $entry->getOriginal('overtime_delta_minutes') : 0;
-
-        if ($newEntryDelta !== $oldEntryDelta) {
-            $this->service->applyDelta($entry->employee_id, $entry->company_id, $newEntryDelta - $oldEntryDelta);
-        }
-
+        // A tényleges OvertimeBalance-frissítés a saved()-ben történik, MIUTÁN ez a
+        // bejegyzés a végleges overtime_delta_minutes-szel ténylegesen lemezre került --
+        // ld. saved() doc-kommentjét, miért NEM itt (relatív increment/applyDelta()) megy
+        // a keret-módosítás.
         $entry->overtime_delta_minutes = $newEntryDelta;
         $entry->overtime_settled_at = now();
     }
@@ -174,11 +171,42 @@ class TimeEntryObserver
             if ($minutes === $oldMinutes) {
                 return;
             }
-            $this->service->applyDelta($entry->employee_id, $entry->company_id, $minutes - $oldMinutes);
-        } else {
-            $this->service->applyDelta($entry->employee_id, $entry->company_id, $minutes);
         }
 
+        // A tényleges OvertimeBalance-frissítés a saved()-ben történik -- ld. ott.
         $entry->overtime_settled_at = now();
+    }
+
+    /**
+     * Az OvertimeBalance TÉNYLEGES újraszámolása -- SZÁNDÉKOSAN a saved() eseményben,
+     * NEM a saving()-ban (ahol korábban egy relatív applyDelta()-hívás történt): a
+     * saving() idején ez a bejegyzés MÉG NINCS lemezre írva a végleges
+     * overtime_delta_minutes/hours értékével, ezért egy itt futtatott újraszámolás a
+     * SAJÁT, még régi adatával számolna. A saved()-ben a bejegyzés már véglegesen
+     * elmentve -- a recomputeBalance() ekkor a TELJES, aktuális adatbázis-állapotból
+     * (nem egy korábbi, esetleg elcsúszott értékhez képesti increment-ből) számolja az
+     * egyenleget, ezért kötegelt/ismételt mentés esetén is mindig helyes végeredményhez
+     * konvergál -- ld. OvertimeBalanceService::recomputeBalance() doc-kommentjét.
+     */
+    public function saved(TimeEntry $entry): void
+    {
+        if ($entry->type === TimeEntryType::Presence && $entry->wasChanged('overtime_delta_minutes')) {
+            $this->service->recomputeBalance($entry->employee_id, $entry->company_id);
+            return;
+        }
+
+        // FONTOS: a trigger NEM az overtime_settled_at változására épül -- az egy
+        // időbélyeg, és ha két elszámolás ugyanabban a másodpercben történik (pl. gyors
+        // egymás utáni admin-korrekció, vagy teszt), a DB-oszlop pontossága miatt a
+        // "régi" és "új" érték AZONOS lehet, ekkor wasChanged() hamisan false-t adna,
+        // és egy valódi órakorrekció csendben elveszne az egyenlegből. A "hours"/
+        // "status" mezők tényleges ÉRTÉKváltozása megbízható jelző.
+        if ($entry->type === TimeEntryType::Overtime
+            && (float) ($entry->hours ?? 0) < 0
+            && $entry->status === TimeEntryStatus::Approved
+            && ($entry->wasChanged('hours') || $entry->wasChanged('status'))
+        ) {
+            $this->service->recomputeBalance($entry->employee_id, $entry->company_id);
+        }
     }
 }

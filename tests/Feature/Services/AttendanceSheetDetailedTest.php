@@ -271,3 +271,71 @@ it('renders the detailed attendance sheet PDF export view with segment rows', fu
     expect($html)->toContain('16:30');
     expect($html)->toContain('Render Teszt');
 });
+
+it('caps the "yearly" overtime/worked-hours summary at the report period, not the whole calendar year -- regression for the "always shows the same total every month" bug', function () {
+    $company = Company::create(['name' => 'Éves Göngyöleg Kft.']);
+    $employee = Employee::create(['name' => 'Éves Göngyöleg Teszt', 'company_id' => $company->id]);
+
+    // Augusztusban +1:00 túlóra egy napon.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-08-10', 'start_time' => '08:00:00',
+        'end_date' => '2026-08-10', 'end_time' => '17:30:00', // 9:30 -> 1:00 túlóra a 8:30-as küszöb felett
+    ]);
+
+    // Szeptemberben egy MÁSIK, külön +2:00 túlóra egy napon -- ez a "jövőbeli" hónap
+    // szempontjából az augusztusi ívhez képest.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-09-10', 'start_time' => '08:00:00',
+        'end_date' => '2026-09-10', 'end_time' => '18:30:00', // 10:30 -> 2:00 túlóra
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+
+    $augustSheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 8, 1), CarbonImmutable::create(2026, 8, 31));
+    $septemberSheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30));
+
+    // Az augusztusi ív éves összesítője csak az augusztusi (+1:00) túlórát látja -- a
+    // szeptemberi (+2:00) MÉG NEM történt meg "augusztus végéig göngyölve" nézőpontból.
+    expect($augustSheet['overtime']['yearly'])->toBe('1:00');
+    // A szeptemberi ív éves összesítője viszont MÁR mindkettőt látja: 1:00 + 2:00 = 3:00.
+    expect($septemberSheet['overtime']['yearly'])->toBe('3:00');
+    // A kettőnek KÜLÖNBÖZNIE kell -- ez volt a hiba lényege (korábban mindkettő 3:00-t
+    // mutatott volna, mert a számítás mindig a teljes naptári évet összegezte).
+    expect($augustSheet['overtime']['yearly'])->not->toBe($septemberSheet['overtime']['yearly']);
+});
+
+it('adds a "Csúszó" line to the printed sheet when the month\'s net overtime is negative, and omits it otherwise', function () {
+    // FONTOS: a cég/dolgozó nevében szándékosan NEM szerepel a "Csúszó" szó -- egy
+    // korábbi verzióban ez véletlenül volt benne, és a "Munkáltató: ... Kft." sorban
+    // való puszta megjelenése hamis pozitívan "megtalálta" volna a toContain('Csúszó')
+    // asszerciót, függetlenül a tényleges feltételes logikától.
+    $company = Company::create(['name' => 'Hiány Kft.']);
+    $employee = Employee::create(['name' => 'Hiány Teszt', 'company_id' => $company->id]);
+
+    // Rövid hónap: egyetlen, jóval a küszöb alatti nap -> negatív havi túlóra-egyenleg.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-05-05', 'start_time' => '08:00:00',
+        'end_date' => '2026-05-05', 'end_time' => '11:00:00', // 3:00 -> jóval a 8:30-as küszöb alatt
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $deficitSheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 5, 1), CarbonImmutable::create(2026, 5, 31));
+
+    expect($deficitSheet['overtime']['monthlyMinutes'])->toBeLessThan(0);
+
+    $deficitHtml = view('exports.attendance-sheet', ['sheets' => [$deficitSheet], 'printedAt' => '2026-05-31 10:00'])->render();
+    expect($deficitHtml)->toContain('Csúszó');
+
+    // Pozitív/nulla hónapnál NEM jelenik meg a "Csúszó" sor.
+    $emptyEmployee = Employee::create(['name' => 'Nulla Egyenleg Teszt', 'company_id' => $company->id]);
+    $flatSheet = $service->buildForEmployee($emptyEmployee, CarbonImmutable::create(2026, 5, 1), CarbonImmutable::create(2026, 5, 31));
+    expect($flatSheet['overtime']['monthlyMinutes'])->toBe(0);
+    $flatHtml = view('exports.attendance-sheet', ['sheets' => [$flatSheet], 'printedAt' => '2026-05-31 10:00'])->render();
+    expect($flatHtml)->not->toContain('Csúszó');
+});

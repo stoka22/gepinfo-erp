@@ -44,6 +44,14 @@
                     Aktuális havi: {{ $sheet['overtime']['monthly'] }}
                 </td>
             </tr>
+            @if ($sheet['overtime']['monthlyMinutes'] < 0)
+                <tr>
+                    <td colspan="3" style="color:#b00020;">
+                        <strong>Csúszó:</strong>
+                        {{ $sheet['overtime']['monthly'] }} -- a hiányzó óraszám levonva az éves túlóra-keretből.
+                    </td>
+                </tr>
+            @endif
             <tr>
                 <td colspan="3">
                     <strong>Ledolgozott munkaóra:</strong>

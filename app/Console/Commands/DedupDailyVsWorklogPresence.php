@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Employee;
 use App\Models\OvertimeBalance;
 use App\Models\TimeEntry;
+use App\Services\Overtime\OvertimeBalanceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +29,7 @@ class DedupDailyVsWorklogPresence extends Command
 
     protected $description = 'Törli a worklog-import jelenlét-duplikátumokat, amik egy már meglévő daily-import sort duplikálnak, és korrigálja az érintett dolgozók túlóra-egyenlegét.';
 
-    public function handle(): int
+    public function handle(OvertimeBalanceService $overtimeService): int
     {
         $dry = (bool) $this->option('dry');
 
@@ -80,11 +81,12 @@ class DedupDailyVsWorklogPresence extends Command
             $totalReduced += $reduceBy;
 
             if (! $dry) {
-                DB::transaction(function () use ($rows, $balance, $reduceBy) {
-                    if ($balance && $reduceBy !== 0) {
-                        $balance->decrement('balance_minutes', $reduceBy);
-                    }
+                DB::transaction(function () use ($rows, $employeeId, $employee, $overtimeService) {
                     TimeEntry::whereIn('id', $rows->pluck('worklog_id'))->delete();
+                    // Törlés UTÁN, a TELJES (immár duplikátum-mentes) adatbázis-állapotból
+                    // számoljuk újra az egyenleget -- NEM egy relatív decrement()-tel, ami
+                    // korábban (más kötegelt műveleteknél bizonyítottan) elcsúszhatott.
+                    $overtimeService->recomputeBalance($employeeId, $employee?->company_id);
                 });
             }
         }

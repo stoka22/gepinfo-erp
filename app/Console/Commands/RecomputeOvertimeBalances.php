@@ -2,33 +2,30 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\TimeEntryStatus;
-use App\Enums\TimeEntryType;
 use App\Models\Employee;
-use App\Models\TimeEntry;
+use App\Models\OvertimeBalance;
 use App\Services\Overtime\OvertimeBalanceService;
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\DB;
 
 class RecomputeOvertimeBalances extends Command
 {
     protected $signature = 'overtime:recompute-balances {--dry-run : csak kiírja a várható változást, nem ír az adatbázisba}';
 
-    protected $description = 'Nullától újraszámolja a jelenléti bejegyzésekből a napi túlóra-deltákat és az '
-        .'OvertimeBalance.balance_minutes értékeket a OvertimeBalanceService::segmentMinutesForDay() 2026-08-18-i '
-        .'javítása után (a fél órás "műszakkezdés" kerekítés korábban tévesen éjszakába nyúló műszaknak minősített '
-        .'rövid, ugyanaznapi szakaszokat, ~24 órás hamis túlórát írva jóvá). A manual_adjustment_minutes kézi '
-        .'korrekciót nem érinti.';
+    protected $description = 'Minden dolgozó OvertimeBalance.balance_minutes értékét NULLÁRÓL, a tényleges '
+        .'jelenlét- és túlóra-bejegyzésekből számolja újra (ld. OvertimeBalanceService::recomputeBalance()). '
+        .'2026-09-én élesben azonosított hiba javítására: a korábbi, relatív (increment-alapú) '
+        .'applyDelta()-mechanizmus kötegelt műveleteknél (tömeges import, tömeges admin-jóváhagyás) '
+        .'bizonyítottan elcsúszott -- egy dolgozó egyenlege 173 órával tért el a saját bejegyzéseinek '
+        .'tényleges összegétől. A manual_adjustment_minutes kézi korrekciót nem érinti.';
 
     public function handle(OvertimeBalanceService $service): int
     {
         $dryRun = (bool) $this->option('dry-run');
 
-        $employeeIds = TimeEntry::query()
-            ->where('type', TimeEntryType::Presence->value)
-            ->distinct()
-            ->pluck('employee_id');
+        $employeeIds = OvertimeBalance::query()->pluck('employee_id')
+            ->merge(\App\Models\TimeEntry::query()->distinct()->pluck('employee_id'))
+            ->unique()
+            ->values();
 
         $totalOld = 0;
         $totalNew = 0;
@@ -40,16 +37,31 @@ class RecomputeOvertimeBalances extends Command
                 continue;
             }
 
-            $entries = TimeEntry::where('employee_id', $employeeId)
-                ->where('type', TimeEntryType::Presence->value)
-                ->get();
+            $existing = OvertimeBalance::where('employee_id', $employeeId)->first();
+            $oldBalance = $existing?->balance_minutes ?? 0;
 
-            $oldSum = (int) $entries->sum('overtime_delta_minutes');
-            [$newSum, $assignments] = $this->recomputeForEmployee($service, $employee, $entries);
+            if ($dryRun) {
+                // Dry-run alatt NEM írunk -- a recomputeBalance() célzottan menti a
+                // számított értéket, ezért itt a szolgáltatás belső logikáját tükröző,
+                // de írásmentes számítást végzünk ugyanazokból a forrásokból.
+                $presenceMinutes = (int) \App\Models\TimeEntry::query()
+                    ->where('employee_id', $employeeId)
+                    ->where('type', \App\Enums\TimeEntryType::Presence->value)
+                    ->sum('overtime_delta_minutes');
+                $consumptionMinutes = (int) \App\Models\TimeEntry::query()
+                    ->where('employee_id', $employeeId)
+                    ->where('type', \App\Enums\TimeEntryType::Overtime->value)
+                    ->where('status', \App\Enums\TimeEntryStatus::Approved->value)
+                    ->get()
+                    ->sum(fn ($e) => (int) round(((float) $e->hours) * 60));
+                $newBalance = $presenceMinutes + $consumptionMinutes;
+            } else {
+                $newBalance = $service->recomputeBalance($employeeId, $employee->company_id)->balance_minutes;
+            }
 
-            $delta = $newSum - $oldSum;
-            $totalOld += $oldSum;
-            $totalNew += $newSum;
+            $delta = $newBalance - $oldBalance;
+            $totalOld += $oldBalance;
+            $totalNew += $newBalance;
 
             if ($delta === 0) {
                 continue;
@@ -57,22 +69,13 @@ class RecomputeOvertimeBalances extends Command
 
             $changedEmployees++;
             $this->line(sprintf(
-                '%s: régi=%d perc, új=%d perc, változás=%+d perc',
+                '%s: régi=%d perc, új=%d perc, változás=%+d perc (%+.1f óra)',
                 $employee->name,
-                $oldSum,
-                $newSum,
-                $delta
+                $oldBalance,
+                $newBalance,
+                $delta,
+                $delta / 60
             ));
-
-            if (! $dryRun) {
-                DB::transaction(function () use ($assignments, $employeeId, $employee, $delta, $service) {
-                    foreach ($assignments as $entryId => $newDelta) {
-                        TimeEntry::where('id', $entryId)->update(['overtime_delta_minutes' => $newDelta]);
-                    }
-
-                    $service->applyDelta($employeeId, $employee->company_id, $delta);
-                });
-            }
         }
 
         $this->newLine();
@@ -86,53 +89,5 @@ class RecomputeOvertimeBalances extends Command
         ));
 
         return self::SUCCESS;
-    }
-
-    /**
-     * @param  Collection<int, TimeEntry>  $entries  a dolgozó ÖSSZES presence bejegyzése
-     * @return array{0: int, 1: array<int, int>}  [új teljes delta-összeg, entry_id => új overtime_delta_minutes]
-     */
-    private function recomputeForEmployee(OvertimeBalanceService $service, Employee $employee, Collection $entries): array
-    {
-        $byDay = $entries->groupBy(fn (TimeEntry $e) => $e->start_date->toDateString());
-
-        $newSum = 0;
-        $assignments = [];
-
-        foreach ($byDay as $dayEntries) {
-            foreach ($dayEntries as $e) {
-                $assignments[$e->id] = 0; // alapértelmezés: nincs elszámolva (felülíródik lent, ha kell)
-            }
-
-            // Amíg a nap bármelyik szakasza felülvizsgálatra vár, a teljes napi ledolgozott idő
-            // bizonytalan – az observerrel megegyezően itt sem számolunk el (ld. TimeEntryObserver::settlePresence).
-            if ($dayEntries->contains(fn (TimeEntry $e) => $e->needs_review)) {
-                continue;
-            }
-
-            $closed = $dayEntries->filter(
-                fn (TimeEntry $e) => $e->end_date && $e->end_time && $e->status === TimeEntryStatus::CheckedOut
-            );
-            if ($closed->isEmpty()) {
-                continue;
-            }
-
-            // NEM array_sum(segmentMinutesForDay(...)) -- az egymásba ágyazott/átfedő aznapi
-            // szakaszoknál (ld. OvertimeBalanceService::totalWorkedMinutesForDay() dokblokkja)
-            // ez többszörösen számolná ugyanazt az időt.
-            $totalWorked = $service->totalWorkedMinutesForDay($dayEntries);
-            $standard = $service->standardMinutesFor($employee);
-            $dayDelta = $service->deltaMinutes($totalWorked, $standard);
-
-            // A teljes napi delta a legkésőbb záruló lezárt szakaszra kerül. Ez tisztán bookkeeping:
-            // a UI és a riportok (ld. EmployeeOvertimeCard, ShiftPresenceTable) mindig a napi/havi
-            // ÖSSZEGET nézik (SUM), sosem az egyes szakasz overtime_delta_minutes értékét önmagában.
-            $last = $closed->sortByDesc(fn (TimeEntry $e) => $e->end_date->toDateString().' '.$e->end_time->format('H:i:s'))->first();
-            $assignments[$last->id] = $dayDelta;
-
-            $newSum += $dayDelta;
-        }
-
-        return [$newSum, $assignments];
     }
 }

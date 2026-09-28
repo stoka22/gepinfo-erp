@@ -95,8 +95,17 @@ class AttendanceSheetService
         $yearlyWorkedMinutes = 0;
         $yearlyOvertimeMinutes = 0;
 
+        // FONTOS: a napi ciklus a periodEnd-ig fut, NEM a naptári év végéig (yearEnd) --
+        // korábban itt $yearEnd állt, ami azt jelentette, hogy a "yearly" összesítők
+        // (lásd lent) MINDIG a teljes naptári évet összegezték, függetlenül attól, melyik
+        // hónap ívét generáltuk. Emiatt pl. az augusztusi és a szeptemberi ív ugyanazt az
+        // "éves" túlórát/ledolgozott időt mutatta (a riport készítésének pillanatában
+        // ténylegesen létező adatok alapján, a jövőbeli hónapokat is beleértve, amik persze
+        // még 0-t adtak) -- a felhasználó ezt joggal "mindig állandó" értéknek látta. A
+        // helyes viselkedés: az éves összesítő a naptári év ELEJÉTŐL a RIPORT HÓNAPJÁNAK
+        // VÉGÉIG (periodEnd) göngyölve, hónapról hónapra ténylegesen változva.
         $d = $yearStart;
-        while ($d->lte($yearEnd)) {
+        while ($d->lte($periodEnd)) {
             $dateStr = $d->toDateString();
             $inRequestedPeriod = $d->gte($periodStart) && $d->lte($periodEnd);
 
@@ -247,6 +256,10 @@ class AttendanceSheetService
             'overtime' => [
                 'yearly'  => $this->formatMinutes($yearlyOvertimeMinutes),
                 'monthly' => $this->formatMinutes($monthlyOvertimeMinutes),
+                // Nyers (nem formázott) havi túlóra-eltérés -- a Blade sablon ez alapján
+                // dönti el, kell-e "Csúszó" (hiány) sor az ívre. Csak akkor negatív, ha a
+                // dolgozó a hónap egészében NETTÓ kevesebbet dolgozott a kötelezőnél.
+                'monthlyMinutes' => $monthlyOvertimeMinutes,
             ],
             'workedHours' => [
                 'yearly'  => $this->formatMinutes($yearlyWorkedMinutes),

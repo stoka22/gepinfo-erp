@@ -306,6 +306,89 @@ it('rounds only the first segment (the "műszakkezdés") of the day to the half 
     expect($morning->overtime_delta_minutes + $afternoon->overtime_delta_minutes)->toBe(83);
 });
 
+it('self-heals a corrupted stored balance to the absolute correct total instead of incrementing the corrupted value -- regression for the 2026-09 173-hour drift found in production', function () {
+    // Élesben azonosítva: kötegelt műveleteknél (tömeges import, tömeges admin
+    // jóváhagyás) a korábbi, RELATÍV (increment-alapú, applyDelta()) mechanizmus
+    // bizonyítottan elcsúszott -- egy dolgozó egyenlege 173 órával tért el a saját
+    // bejegyzéseinek tényleges összegétől. Az új mechanizmus minden tényleges
+    // változásnál a TELJES adatbázis-állapotból, NULLÁRÓL számolja újra az
+    // egyenleget (OvertimeBalanceService::recomputeBalance()) -- ezért egy már
+    // korábban elcsúszott/hibás tárolt érték nem halmozódik tovább, hanem a
+    // következő valódi elszámolási eseménynél automatikusan a helyes abszolút
+    // összegre íródik felül.
+    $employee = overtimeEmployee();
+
+    $entry = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '08:00:00',
+    ]);
+    $entry->update(['end_date' => '2026-01-05', 'end_time' => '19:00:00', 'status' => 'checked_out']);
+
+    $balance = OvertimeBalance::where('employee_id', $employee->id)->first();
+    expect($balance->balance_minutes)->toBe(150);
+
+    // Szimuláljuk a korábbi hibát: az egyenleg valahogy egy teljesen hibás értékre
+    // csúszott (pl. egy kötegelt művelet duplán/rossz sorrendben alkalmazott
+    // deltákat).
+    $balance->update(['balance_minutes' => 500000]);
+
+    // Egy VALÓDI korrekció ugyanezen a bejegyzésen (más kilépési idő) kiváltja az
+    // újraszámolást.
+    $entry->update(['end_time' => '20:00:00']); // 12 óra -> delta = 720-510 = 210
+    $entry->refresh();
+    $balance->refresh();
+
+    // A hibás 500000 NEM adódik hozzá semmihez -- az egyenleg pontosan a bejegyzés
+    // tényleges (egyetlen) deltájára áll vissza, függetlenül a korábban ott tárolt
+    // hibás értéktől.
+    expect($entry->overtime_delta_minutes)->toBe(210);
+    expect($balance->balance_minutes)->toBe(210);
+});
+
+it('deducts a banked overtime consumption from the balance only once approved, and corrects it if the hours are later changed', function () {
+    $employee = overtimeEmployee();
+    $user = overtimeUser($employee->company_id);
+
+    // Kezdő egyenleg egy sima jelenlétből.
+    $presence = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'presence',
+        'status' => 'checked_in',
+        'start_date' => '2026-01-05',
+        'start_time' => '08:00:00',
+    ]);
+    $presence->update(['end_date' => '2026-01-05', 'end_time' => '19:00:00', 'status' => 'checked_out']); // +150
+
+    $consumption = TimeEntry::create([
+        'employee_id' => $employee->id,
+        'company_id' => $employee->company_id,
+        'type' => 'overtime',
+        'status' => 'pending',
+        'start_date' => '2026-01-10',
+        'end_date' => '2026-01-10',
+        'hours' => -5, // 5 óra (a "hours" mező ÓRÁBAN tárol, nem percben) a keret terhére
+        'requested_by' => $user->id,
+    ]);
+
+    // Amíg 'pending', nem érinti a keretet.
+    $balance = OvertimeBalance::where('employee_id', $employee->id)->first();
+    expect($balance->balance_minutes)->toBe(150);
+
+    $consumption->update(['status' => 'approved', 'approved_by' => $user->id]);
+    $balance->refresh();
+    expect($balance->balance_minutes)->toBe(150 - 300);
+
+    // Utólagos korrekció: valójában csak 4 órát vett igénybe.
+    $consumption->update(['hours' => -4]);
+    $balance->refresh();
+    expect($balance->balance_minutes)->toBe(150 - 240);
+});
+
 it('ignores non-presence entries entirely', function () {
     $employee = overtimeEmployee();
     $user = overtimeUser($employee->company_id);
