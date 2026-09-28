@@ -339,3 +339,44 @@ it('adds a "Csúszó" line to the printed sheet when the month\'s net overtime i
     $flatHtml = view('exports.attendance-sheet', ['sheets' => [$flatSheet], 'printedAt' => '2026-05-31 10:00'])->render();
     expect($flatHtml)->not->toContain('Csúszó');
 });
+
+it('caps "Felhasznált" vacation days at the report period, not the whole calendar year -- same bug class as the yearly overtime cap', function () {
+    $company = Company::create(['name' => 'Szabi Göngyöleg Kft.']);
+    $employee = Employee::create(['name' => 'Szabi Göngyöleg Teszt', 'company_id' => $company->id]);
+
+    \App\Models\VacationBalance::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id, 'year' => 2026,
+        'base_days' => 20, 'age_extra_days' => 0, 'carried_over_days' => 0, 'manual_adjustment_days' => 0,
+    ]);
+
+    // Márciusban 3 munkanap szabadság (10-12., kedd-csütörtök).
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Vacation->value, 'status' => TimeEntryStatus::Approved->value,
+        'start_date' => '2026-03-10', 'end_date' => '2026-03-12',
+    ]);
+
+    // Szeptemberben egy MÁSIK, külön 2 munkanap szabadság -- ez a "jövőbeli" hónap a
+    // márciusi ívhez képest.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Vacation->value, 'status' => TimeEntryStatus::Approved->value,
+        'start_date' => '2026-09-07', 'end_date' => '2026-09-08',
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+
+    $marchSheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 3, 1), CarbonImmutable::create(2026, 3, 31));
+    $septemberSheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 9, 1), CarbonImmutable::create(2026, 9, 30));
+
+    // A márciusi ív csak a márciusi 3 napot látja -- a szeptemberi 2 nap MÉG NEM
+    // történt meg "március végéig göngyölve" nézőpontból.
+    expect($marchSheet['vacation']['used'])->toBe(3.0);
+    // A szeptemberi ív már mindkettőt látja: 3 + 2 = 5.
+    expect($septemberSheet['vacation']['used'])->toBe(5.0);
+    expect($marchSheet['vacation']['used'])->not->toBe($septemberSheet['vacation']['used']);
+
+    // "Kivehető" az adott riport-időszakra jellemző fennmaradó keret, nem a teljes éves felhasználásból számolt.
+    expect($marchSheet['vacation']['remaining'])->toBe(17.0);
+    expect($septemberSheet['vacation']['remaining'])->toBe(15.0);
+});

@@ -242,6 +242,13 @@ class AttendanceSheetService
         }
 
         $vb = VacationBalance::where('employee_id', $employee->id)->where('year', $year)->first();
+        $entitledDays = $vb?->entitled_days ?? 0.0;
+        // A "Felhasznált" a RIPORT HÓNAPJÁNAK VÉGÉIG (periodEnd) göngyölve -- NEM a
+        // VacationBalance::used_days teljes éves accessor, ami a naptári év egészét
+        // (a jövőbeli hónapokat is beleértve) összesíti, és emiatt minden hónap ívén
+        // ugyanazt az (év végi) állandó értéket mutatná. Lásd az analóg éves túlóra
+        // javítást feljebb ($periodEnd cap a napi ciklusban).
+        $usedDaysAsOfPeriod = $this->usedVacationDaysAsOf($employee->id, $year, $periodEnd);
 
         return [
             'employeeName' => $employee->name,
@@ -249,9 +256,9 @@ class AttendanceSheetService
             'periodLabel'  => mb_convert_case($periodStart->locale('hu')->isoFormat('YYYY. MMMM'), MB_CASE_TITLE, 'UTF-8'),
             'days'         => $days,
             'vacation'     => [
-                'entitled'  => $vb?->entitled_days ?? 0.0,
-                'used'      => $vb?->used_days ?? 0.0,
-                'remaining' => $vb?->remaining_days ?? 0.0,
+                'entitled'  => $entitledDays,
+                'used'      => $usedDaysAsOfPeriod,
+                'remaining' => max(0.0, $entitledDays - $usedDaysAsOfPeriod),
             ],
             'overtime' => [
                 'yearly'  => $this->formatMinutes($yearlyOvertimeMinutes),
@@ -266,6 +273,48 @@ class AttendanceSheetService
                 'monthly' => $this->formatMinutes($monthlyWorkedMinutes),
             ],
         ];
+    }
+
+    /**
+     * Felhasznált szabadságnapok a naptári év elejétől $periodEnd-ig göngyölve -- a
+     * TimeEntry::countBusinessDaysForEntry()-vel azonos (hétvége-kizáró) munkanap-számolás,
+     * de egy $periodEnd-en túlnyúló szabadság-bejegyzésnél a tartományt $periodEnd-nél
+     * levágva, hogy a jövőbeli (a riport hónapja utáni) napok ne számítsanak bele.
+     */
+    private function usedVacationDaysAsOf(int $employeeId, int $year, CarbonImmutable $periodEnd): float
+    {
+        return (float) TimeEntry::query()
+            ->where('employee_id', $employeeId)
+            ->whereYear('start_date', $year)
+            ->where('type', TimeEntryType::Vacation->value)
+            ->where('status', TimeEntryStatus::Approved->value)
+            ->where('start_date', '<=', $periodEnd->toDateString())
+            ->get()
+            ->sum(function (TimeEntry $entry) use ($periodEnd) {
+                if (! empty($entry->hours)) {
+                    return 0.0;
+                }
+
+                $start = CarbonImmutable::parse($entry->start_date);
+                $end = CarbonImmutable::parse($entry->end_date ?? $entry->start_date);
+                if ($end->gt($periodEnd)) {
+                    $end = $periodEnd;
+                }
+                if ($end->lt($start)) {
+                    return 0.0;
+                }
+
+                $days = 0;
+                $d = $start;
+                while ($d->lte($end)) {
+                    if (! $d->isWeekend()) {
+                        $days++;
+                    }
+                    $d = $d->addDay();
+                }
+
+                return $days;
+            });
     }
 
     /** Egy távollét jellegű bejegyzés magyar megnevezése a jelenléti íven, a jóváhagyás állapotával. */
