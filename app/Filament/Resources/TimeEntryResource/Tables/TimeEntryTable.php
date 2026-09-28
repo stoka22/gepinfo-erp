@@ -166,8 +166,31 @@ class TimeEntryTable
                                 // Presence kimarad → alapból rejtve
                             ])
                             ->columns(4),
+                        // Pontos keresés: ha egy konkrét dolgozó + dátum meg van adva, a típus-
+                        // szűrés (és a fenti "Presence alapból rejtve" alapértelmezés) TELJESEN
+                        // felülíródik -- enélkül egy hétköznapi, needs_review=false jelenlét-
+                        // bejegyzés hibás adata (pl. rossz érkezési idő) gyakorlatilag
+                        // megtalálhatatlan volt a listában, még adminként is (élesben azonosítva:
+                        // Nagy Noémi Pálma, 2026-07-07). A szerkesztési jogosultságot ez nem
+                        // változtatja -- azt továbbra is a TimeEntryPolicy dönti el.
+                        Forms\Components\Select::make('exact_employee_id')
+                            ->label('Pontos keresés: dolgozó (minden típus mutatása)')
+                            ->searchable()
+                            ->getSearchResultsUsing(fn (string $search) => \App\Models\Employee::query()
+                                ->where('name', 'like', "%{$search}%")
+                                ->orderBy('name')->limit(50)->pluck('name', 'id')->toArray())
+                            ->getOptionLabelUsing(fn ($value) => \App\Models\Employee::query()->whereKey($value)->value('name')),
+                        Forms\Components\DatePicker::make('exact_date')
+                            ->label('Pontos keresés: dátum')
+                            ->native(false),
                     ])
                     ->query(function (Builder $query, array $data) {
+                        if (! empty($data['exact_employee_id']) && ! empty($data['exact_date'])) {
+                            return $query
+                                ->where('employee_id', $data['exact_employee_id'])
+                                ->whereDate('start_date', $data['exact_date']);
+                        }
+
                         $selected = $data['types'] ?? [];
                         // A felülvizsgálandó sorok a típus-szűrőtől függetlenül mindig látszanak.
                         return $query->where(function (Builder $q) use ($selected) {
@@ -177,7 +200,13 @@ class TimeEntryTable
                             $q->orWhere('needs_review', true);
                         });
                     })
-                    ->indicateUsing(fn (array $data) => empty($data['types']) ? '0 típus' : count($data['types']).' típus'),
+                    ->indicateUsing(function (array $data) {
+                        if (! empty($data['exact_employee_id']) && ! empty($data['exact_date'])) {
+                            $name = \App\Models\Employee::query()->whereKey($data['exact_employee_id'])->value('name');
+                            return "Pontos keresés: {$name} — {$data['exact_date']}";
+                        }
+                        return empty($data['types']) ? '0 típus' : count($data['types']).' típus';
+                    }),
 
                 // Egységes státusz szűrő: mindkét domain opcióival
                 Tables\Filters\SelectFilter::make('status')
