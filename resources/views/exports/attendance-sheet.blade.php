@@ -39,9 +39,10 @@
             <tr>
                 <td colspan="3">
                     <strong>Szabadság:</strong>
-                    Keret: {{ number_format($sheet['vacation']['entitled'], 1) }} nap,
-                    Felhasznált: {{ number_format($sheet['vacation']['used'], 1) }} nap,
-                    Kivehető: {{ number_format($sheet['vacation']['remaining'], 1) }} nap
+                    Keret: {{ number_format($sheet['vacation']['entitled'], 0) }} nap,
+                    Össz. felh.: {{ number_format($sheet['vacation']['used'], 0) }} nap,
+                    Havi felh.: {{ number_format($sheet['vacation']['monthlyUsed'], 0) }} nap,
+                    Kivehető: {{ number_format($sheet['vacation']['remaining'], 0) }} nap
                 </td>
             </tr>
             <tr>

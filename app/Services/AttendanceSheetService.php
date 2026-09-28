@@ -179,6 +179,14 @@ class AttendanceSheetService
                 if (! $note && $d->isWeekend() && $entriesToday->isEmpty()) {
                     $note = 'Pihenőnap';
                 }
+                // Az adott napon hiányosan ledolgozott (a küszöb alatti) munkaidő soronkénti
+                // jelölése -- a havi összesítő "Csúszó" sortól (ld. lent, monthlyMinutes < 0)
+                // FÜGGETLENÜL, hiszen egy hónapon belül a napi hiányok és többletek
+                // kiegyenlíthetik egymást a havi nettó egyenlegben, miközben az EGYES napok
+                // hiánya a jelenléti íven soronként is látszania kell.
+                if (! $note && $overtimeMinutes !== null && $overtimeMinutes < 0) {
+                    $note = 'Csúszó';
+                }
 
                 $isModified = $entriesToday->contains(fn (TimeEntry $e) => (bool) $e->is_modified)
                     || (bool) ($absence['isModified'] ?? false);
@@ -248,7 +256,11 @@ class AttendanceSheetService
         // (a jövőbeli hónapokat is beleértve) összesíti, és emiatt minden hónap ívén
         // ugyanazt az (év végi) állandó értéket mutatná. Lásd az analóg éves túlóra
         // javítást feljebb ($periodEnd cap a napi ciklusban).
-        $usedDaysAsOfPeriod = $this->usedVacationDaysAsOf($employee->id, $year, $periodEnd);
+        $usedDaysAsOfPeriod = $this->usedVacationDaysInRange($employee->id, $yearStart, $periodEnd);
+        // Külön, a RIPORT HÓNAPJÁRA szűkített felhasználás -- a fenti (év eleje óta göngyölt)
+        // "used" mellett, mert önmagában a göngyölt szám nem egyértelmű (nem világos belőle,
+        // mennyi esik pont erre a hónapra) -- ld. a felhasználói visszajelzést.
+        $usedDaysThisPeriod = $this->usedVacationDaysInRange($employee->id, $periodStart, $periodEnd);
 
         return [
             'employeeName' => $employee->name,
@@ -256,9 +268,10 @@ class AttendanceSheetService
             'periodLabel'  => mb_convert_case($periodStart->locale('hu')->isoFormat('YYYY. MMMM'), MB_CASE_TITLE, 'UTF-8'),
             'days'         => $days,
             'vacation'     => [
-                'entitled'  => $entitledDays,
-                'used'      => $usedDaysAsOfPeriod,
-                'remaining' => max(0.0, $entitledDays - $usedDaysAsOfPeriod),
+                'entitled'    => $entitledDays,
+                'used'        => $usedDaysAsOfPeriod,
+                'monthlyUsed' => $usedDaysThisPeriod,
+                'remaining'   => max(0.0, $entitledDays - $usedDaysAsOfPeriod),
             ],
             'overtime' => [
                 'yearly'  => $this->formatMinutes($yearlyOvertimeMinutes),
@@ -276,29 +289,36 @@ class AttendanceSheetService
     }
 
     /**
-     * Felhasznált szabadságnapok a naptári év elejétől $periodEnd-ig göngyölve -- a
+     * Felhasznált szabadságnapok a $rangeStart..$rangeEnd tartományra levágva -- a
      * TimeEntry::countBusinessDaysForEntry()-vel azonos (hétvége-kizáró) munkanap-számolás,
-     * de egy $periodEnd-en túlnyúló szabadság-bejegyzésnél a tartományt $periodEnd-nél
-     * levágva, hogy a jövőbeli (a riport hónapja utáni) napok ne számítsanak bele.
+     * de egy a tartományon túlnyúló szabadság-bejegyzésnél MINDKÉT végén levágva, hogy se a
+     * tartomány előtti, se az utáni napok ne számítsanak bele. Ugyanez a metódus szolgálja
+     * az "év eleje óta göngyölt" (rangeStart=évkezdet) és a "csak ebben a hónapban" (rangeStart
+     * =periodStart) felhasználást is -- ld. a hívási helyeken.
      */
-    private function usedVacationDaysAsOf(int $employeeId, int $year, CarbonImmutable $periodEnd): float
+    private function usedVacationDaysInRange(int $employeeId, CarbonImmutable $rangeStart, CarbonImmutable $rangeEnd): float
     {
         return (float) TimeEntry::query()
             ->where('employee_id', $employeeId)
-            ->whereYear('start_date', $year)
             ->where('type', TimeEntryType::Vacation->value)
             ->where('status', TimeEntryStatus::Approved->value)
-            ->where('start_date', '<=', $periodEnd->toDateString())
+            ->where('start_date', '<=', $rangeEnd->toDateString())
+            ->where(function ($q) use ($rangeStart) {
+                $q->where('end_date', '>=', $rangeStart->toDateString())->orWhereNull('end_date');
+            })
             ->get()
-            ->sum(function (TimeEntry $entry) use ($periodEnd) {
+            ->sum(function (TimeEntry $entry) use ($rangeStart, $rangeEnd) {
                 if (! empty($entry->hours)) {
                     return 0.0;
                 }
 
                 $start = CarbonImmutable::parse($entry->start_date);
                 $end = CarbonImmutable::parse($entry->end_date ?? $entry->start_date);
-                if ($end->gt($periodEnd)) {
-                    $end = $periodEnd;
+                if ($start->lt($rangeStart)) {
+                    $start = $rangeStart;
+                }
+                if ($end->gt($rangeEnd)) {
+                    $end = $rangeEnd;
                 }
                 if ($end->lt($start)) {
                     return 0.0;

@@ -379,4 +379,46 @@ it('caps "Felhasznált" vacation days at the report period, not the whole calend
     // "Kivehető" az adott riport-időszakra jellemző fennmaradó keret, nem a teljes éves felhasználásból számolt.
     expect($marchSheet['vacation']['remaining'])->toBe(17.0);
     expect($septemberSheet['vacation']['remaining'])->toBe(15.0);
+
+    // "Havi felh." -- CSAK az adott riport hónapjára eső napok, nem a göngyölt "used".
+    // Márciusban mind a 3 nap ebben a hónapban esik; szeptemberben csak a saját 2 napja
+    // látszik, a márciusi 3 NEM számít bele (azok egy korábbi hónapé).
+    expect($marchSheet['vacation']['monthlyUsed'])->toBe(3.0);
+    expect($septemberSheet['vacation']['monthlyUsed'])->toBe(2.0);
+});
+
+it('flags each individually short-worked day with a "Csúszó" note in its own row, even when the month\'s net overtime is not negative', function () {
+    $company = Company::create(['name' => 'Napi Hiány Kft.']);
+    $employee = Employee::create(['name' => 'Napi Hiány Teszt', 'company_id' => $company->id]);
+
+    // 2026-05-04: jóval a küszöb alatt (3:00) -- egyedi napi hiány.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-05-04', 'start_time' => '08:00:00',
+        'end_date' => '2026-05-04', 'end_time' => '11:00:00',
+    ]);
+    // 2026-05-05: ugyanannyi PLUSSZAL kiegyenlítve -- a HAVI NETTÓ egyenleg 0, tehát a havi
+    // összesítő "Csúszó" sor NEM jelenik meg, de az 5-04-i sornak akkor is jeleznie kell.
+    TimeEntry::create([
+        'employee_id' => $employee->id, 'company_id' => $company->id,
+        'type' => TimeEntryType::Presence->value, 'status' => TimeEntryStatus::CheckedOut->value,
+        'start_date' => '2026-05-05', 'start_time' => '08:00:00',
+        'end_date' => '2026-05-05', 'end_time' => '22:00:00', // 14:00 -> +5:30 túlóra, kiegyenlíti az 5:30-as hiányt
+    ]);
+
+    $service = app(AttendanceSheetService::class);
+    $sheet = $service->buildForEmployee($employee, CarbonImmutable::create(2026, 5, 1), CarbonImmutable::create(2026, 5, 31));
+
+    expect($sheet['overtime']['monthlyMinutes'])->toBe(0);
+
+    $shortDay = collect($sheet['days'])->firstWhere('date', '2026-05-04');
+    expect($shortDay['note'])->toBe('Csúszó');
+    $surplusDay = collect($sheet['days'])->firstWhere('date', '2026-05-05');
+    expect($surplusDay['note'])->not->toBe('Csúszó');
+
+    $html = view('exports.attendance-sheet', ['sheets' => [$sheet], 'printedAt' => '2026-05-31 10:00'])->render();
+    // A soronkénti "Csúszó" megjelenik, DE a havi összesítő hiány-sor nem (nettó 0 a hónap).
+    expect($html)->toContain('Csúszó');
+    expect($html)->not->toContain('a hiányzó óraszám levonva az éves túlóra-keretből');
 });
