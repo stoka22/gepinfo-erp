@@ -136,9 +136,10 @@ class TimeEntryResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListTimeEntries::route('/'),
-            'create' => Pages\CreateTimeEntry::route('/create'),
-            'edit'   => Pages\EditTimeEntry::route('/{record}/edit'),
+            'index'    => Pages\ListTimeEntries::route('/'),
+            'calendar' => Pages\TimeEntriesCalendar::route('/calendar'),
+            'create'   => Pages\CreateTimeEntry::route('/create'),
+            'edit'     => Pages\EditTimeEntry::route('/{record}/edit'),
         ];
     }
 
