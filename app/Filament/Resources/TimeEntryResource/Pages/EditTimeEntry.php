@@ -84,6 +84,17 @@ class EditTimeEntry extends EditRecord
 
     protected function getRedirectUrl(): string
     {
-        return TimeEntryResource::getUrl('index');
+        // A Filament EditRecord::mount() már eltárolja a $this->previousUrl-t (a böngésző
+        // Referer fejlécéből, a "Mégse" gomb ezt használja) -- csak akkor bízunk benne, ha
+        // ténylegesen a lista oldaláról érkeztünk (a szűrők/lapszám a query stringjében
+        // utaznak), különben (pl. közvetlen link megnyitásakor) a sima index URL a visszaesés.
+        // Enélkül a mentés MINDIG a szűrő/lapszám nélküli index URL-re dobott vissza,
+        // elveszítve, hol tartott az admin a listában.
+        $indexUrl = static::getResource()::getUrl('index');
+        if ($this->previousUrl && str_starts_with($this->previousUrl, $indexUrl)) {
+            return $this->previousUrl;
+        }
+
+        return $indexUrl;
     }
 }
