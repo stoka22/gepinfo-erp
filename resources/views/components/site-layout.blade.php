@@ -11,7 +11,7 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="hu">
+<html lang="hu" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -73,17 +73,23 @@
 
     @stack('head')
 </head>
-<body class="bg-white text-slate-800 antialiased font-sans">
+<body class="h-full flex flex-col overflow-hidden bg-white text-slate-800 antialiased font-sans">
 
-    {{-- A márka-banner (fotó + logó + ikonos szolgáltatás-sor) minden oldalon,
-         ugyanabban a vizuális formában, mint eddig a főoldalon — lásd
-         components/site-hero-banner.blade.php. --}}
-    <x-site-hero-banner />
+    {{-- App-shell elrendezés: a fejléc (szolgáltatás-menü) és a lábléc mindig látható
+         (shrink-0, nem görgethető), kizárólag a köztük lévő <main> görgethető — benne a
+         fotós banner (ami így görgetéskor kigördül a látható területről) és az oldal
+         saját tartalma. A "min-h-0" trükk nélkül egy flex-child nem görgethetne
+         megfelelően egy flex-column szülőn belül. --}}
+    <x-site-header />
 
-    {{ $slot }}
+    <main class="flex-1 min-h-0 overflow-y-auto">
+        <x-site-hero-banner />
 
-    <footer style="background:#000000;" class="text-sm">
-        <div class="mx-auto max-w-6xl px-4 sm:px-6 py-8 flex flex-col items-center gap-3 text-center">
+        {{ $slot }}
+    </main>
+
+    <footer style="background:#000000;" class="shrink-0 text-sm">
+        <div class="mx-auto max-w-6xl px-4 sm:px-6 py-4 flex flex-col items-center gap-2 text-center">
             {{-- 1. sor: navigáció + logó (a "Gépinfo" felirat vezet a belépés oldalra) --}}
             <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
                 <a href="{{ route('filament.user.auth.login') }}"
