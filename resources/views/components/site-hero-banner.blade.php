@@ -23,17 +23,17 @@
         <div class="absolute" style="left: 16%; right: 0; top: 89.6%; bottom: 0; background: linear-gradient(135deg, #002036, #012948);"></div>
     </div>
 
-    <div class="border-t border-white/10">
-        <div class="mx-auto max-w-6xl px-2 sm:px-4 py-6 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-2 gap-y-6">
+    <div class="border-t border-white/10" style="background: radial-gradient(ellipse at top, #0d1b32 0%, #060b16 60%);">
+        <div class="mx-auto max-w-6xl px-4 sm:px-6 py-8 flex flex-col sm:flex-row sm:flex-wrap justify-center gap-3 sm:gap-3.5">
             @foreach ($services as $service)
                 <a href="{{ route('szolgaltatasok.show', $service['slug']) }}"
                    title="{{ $service['title'] }}"
-                   class="group flex flex-col items-center text-center gap-2">
-                    <span class="flex items-center justify-center w-12 h-12 rounded-full border-2 transition-colors"
-                          style="border-color:#2563eb; color:#60a5fa;">
-                        <x-service-icon :slug="$service['slug']" class="w-6 h-6 transition-transform group-hover:scale-110" />
+                   class="group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] pl-3 pr-5 py-3 w-full sm:w-auto transition-all duration-200 hover:bg-white/[0.08] hover:border-blue-400/50 sm:hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-500/10">
+                    <span class="flex items-center justify-center w-10 h-10 rounded-xl shrink-0 text-white shadow-inner transition-transform duration-200 group-hover:scale-105"
+                          style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+                        <x-service-icon :slug="$service['slug']" class="w-5 h-5" />
                     </span>
-                    <span class="text-[11px] sm:text-xs font-bold uppercase tracking-wide text-white leading-tight">
+                    <span class="sm:max-w-[9rem] text-xs sm:text-[13px] font-bold uppercase tracking-wide text-white leading-tight">
                         {{ $service['title'] }}
                     </span>
                 </a>
