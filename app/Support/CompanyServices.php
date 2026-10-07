@@ -60,6 +60,13 @@ class CompanyServices
                 'summary' => 'Meghibásodott gépek javítása és üzemi problémák megoldása, gyakran helyszíni kiszállással.',
                 'description' => "Meghibásodott gépek javítását és a felmerülő üzemi problémák megoldását vállaljuk, gyakran helyszíni kiszállással.\n\nCélunk, hogy a gép a lehető leggyorsabban, biztonságosan visszaálljon a termelésbe, és a hiba oka is tisztázódjon.\n\nJavítás után visszajelzést adunk arról is, mi okozta a hibát, és milyen egyszerű lépésekkel csökkenthető a hasonló meghibásodás esélye a jövőben.",
             ],
+            [
+                'slug' => 'weblap-keszites',
+                'title' => 'Weblap készítés',
+                'icon' => 'web',
+                'summary' => 'Professzionális, gyorsan betöltő weboldal készítése vállalkozásoknak — a tervezéstől az üzemeltetésig.',
+                'description' => "Modern, mobilbarát weboldalakat készítünk kis- és középvállalkozásoknak, hogy a céget könnyen megtalálják a Google-ben és a térképen, és a látogatókból valódi megkeresés legyen.\n\nA munka egy rövid igényfelmérővel indul, amiből pontosan kiderül, milyen aloldalakra, funkciókra és tartalomra van szükség — ez alapján készül a konkrét árajánlat, feleslegesen hosszú egyeztetés nélkül.\n\nA kész oldalhoz kérésre tárhelyet, domain-kezelést és folyamatos karbantartást is biztosítunk, hogy a weboldal elindulás után is naprakész és biztonságos maradjon.",
+            ],
         ];
     }
 

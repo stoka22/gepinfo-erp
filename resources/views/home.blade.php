@@ -30,6 +30,7 @@
 
         <div class="absolute inset-0">
             @foreach ($services as $service)
+                @continue (! isset($navBoxes[$service['slug']]))
                 @php $box = $navBoxes[$service['slug']]; @endphp
                 <a href="{{ route('szolgaltatasok.show', $service['slug']) }}"
                    title="{{ $service['title'] }}"

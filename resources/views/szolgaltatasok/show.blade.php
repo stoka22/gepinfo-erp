@@ -55,10 +55,23 @@
                 @endforeach
             </div>
 
-            <a href="{{ route('kapcsolat') }}"
-               class="mt-10 inline-flex items-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-blue-500 transition">
-                Kérdésem van, kapcsolatfelvétel
-            </a>
+            <div class="mt-10 flex flex-wrap gap-3">
+                @if ($service['slug'] === 'weblap-keszites')
+                    <a href="{{ route('weboldal-igenyfelmero') }}"
+                       class="inline-flex items-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-blue-500 transition">
+                        Igényfelmérő kérdőív kitöltése
+                    </a>
+                    <a href="{{ route('kapcsolat') }}"
+                       class="inline-flex items-center rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                        Kérdésem van, kapcsolatfelvétel
+                    </a>
+                @else
+                    <a href="{{ route('kapcsolat') }}"
+                       class="inline-flex items-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-blue-500 transition">
+                        Kérdésem van, kapcsolatfelvétel
+                    </a>
+                @endif
+            </div>
 
             @php $otherServices = array_filter(\App\Support\CompanyServices::all(), fn ($s) => $s['slug'] !== $service['slug']); @endphp
             <div class="mt-16 pt-8 border-t border-slate-200">

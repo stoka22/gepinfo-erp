@@ -14,6 +14,7 @@ use App\Http\Controllers\AttendanceSheetBatchDownloadController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\Admin\FirmwareUploadController;
+use App\Http\Controllers\WebsiteInquiryController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 
 Route::get('/my-attendance-sheet/{monthsAgo?}', [MyAttendanceSheetController::class, 'download'])
@@ -58,7 +59,12 @@ Route::middleware('track.visit')->group(function () {
     Route::get('/kapcsolat', [PageController::class, 'contact'])->name('kapcsolat');
     Route::get('/oktatas', [PageController::class, 'training'])->name('oktatas');
     Route::get('/oktatas/letoltes/{trainingMaterial}', [PageController::class, 'downloadMaterial'])->name('oktatas.download');
+    Route::get('/weboldal-igenyfelmero', [WebsiteInquiryController::class, 'show'])->name('weboldal-igenyfelmero');
 });
+
+Route::post('/weboldal-igenyfelmero', [WebsiteInquiryController::class, 'store'])
+    ->middleware('throttle:5,1')
+    ->name('weboldal-igenyfelmero.store');
 
 // Jogi/tájékoztató oldal — szándékosan a látogatás-mérésen kívül.
 Route::get('/adatvedelem', [PageController::class, 'privacy'])->name('adatvedelem');
