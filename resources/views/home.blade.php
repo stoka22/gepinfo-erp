@@ -1,47 +1,6 @@
 <x-site-layout description="Gépinfo – kínai fémmegmunkáló gépek telepítése, ipari automatizálás, PLC- és HMI-programozás, korszerűsítés, hibakeresés és javítás 25 éves szakmai tapasztalattal.">
 
-    <x-slot:hero>
     <h1 class="sr-only">Gépinfo – Ipari automatizálás és gépkorszerűsítés Dombóváron, 25 éves tapasztalattal</h1>
-    @php
-        // A gepinfo.png (2056x765px, jobb minőségű banner) alsó ikon-sorának pontos
-        // pixel-koordinátái, százalékra átszámítva, hogy a kép fölé rétegzett linkek
-        // reszponzívan pontosan a megfelelő ikon+felirat fölé essenek.
-        $navBoxes = [
-            'telepites'     => ['x0' => 325,  'x1' => 581],
-            'atalakitas'    => ['x0' => 581,  'x1' => 821],
-            'automatizalas' => ['x0' => 821,  'x1' => 1050],
-            'plc-hmi'       => ['x0' => 1050, 'x1' => 1279],
-            'korszerusites' => ['x0' => 1279, 'x1' => 1506],
-            'hibakereses'   => ['x0' => 1506, 'x1' => 1746],
-            'javitas'       => ['x0' => 1746, 'x1' => 1998],
-        ];
-        $imgW = 2056; $imgH = 765; $navY0 = 435; $navY1 = 615;
-        $navTop    = $navY0 / $imgH * 100;
-        $navHeight = ($navY1 - $navY0) / $imgH * 100;
-    @endphp
-
-    {{-- A hero kép változatlan (pixelpontos, ugyanaz mint a Facebook borítókép),
-         az alsó sötétkék ikon-sora fölé pedig láthatatlan linkek vannak rétegezve,
-         így maga a képi navigáció lesz kattintható — nincs rá kódolt külön navsáv. --}}
-    <section class="relative bg-[#060b16]">
-        <img src="{{ asset('images/branding/gepinfo.png') }}"
-             alt="Gépinfo – Ipari automatizálás és gépkorszerűsítés. Hatékonyabb gépek. Biztosabb működés. Nagyobb lehetőségek."
-             class="w-full h-auto block">
-
-        <div class="absolute inset-0">
-            @foreach ($services as $service)
-                @continue (! isset($navBoxes[$service['slug']]))
-                @php $box = $navBoxes[$service['slug']]; @endphp
-                <a href="{{ route('szolgaltatasok.show', $service['slug']) }}"
-                   title="{{ $service['title'] }}"
-                   aria-label="{{ $service['title'] }}"
-                   class="absolute block hover:bg-white/10 transition-colors"
-                   style="left: {{ $box['x0'] / $imgW * 100 }}%; width: {{ ($box['x1'] - $box['x0']) / $imgW * 100 }}%; top: {{ $navTop }}%; height: {{ $navHeight }}%;">
-                </a>
-            @endforeach
-        </div>
-    </section>
-    </x-slot:hero>
 
     <section id="rolunk" class="py-16 sm:py-20">
         <div class="mx-auto max-w-3xl px-4 sm:px-6">

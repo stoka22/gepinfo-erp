@@ -75,28 +75,10 @@
 </head>
 <body class="bg-white text-slate-800 antialiased font-sans">
 
-    {{-- Állandó fejléc minden oldalon — ugyanaz a sötétkék sáv és logó-stílus, mint a
-         lábléc navigációja és a főoldal hero-bannere, hogy a megjelenés egységes legyen
-         akkor is, ha valaki közvetlenül egy aloldalra érkezik (pl. keresőből). --}}
-    <header style="background:#060b16;" class="text-sm">
-        <div class="mx-auto max-w-6xl px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-            <a href="{{ route('home') }}"
-               style="color:#ffffff;"
-               class="font-extrabold text-xl tracking-tight hover:opacity-80 transition">
-                Gép<span style="color:#60a5fa;">info</span>
-            </a>
-            <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold">
-                <a href="{{ route('home') }}#rolunk" style="color:#e2e8f0;" class="hover:opacity-80 transition">Rólunk</a>
-                <a href="{{ route('szolgaltatasok.index') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Szolgáltatások</a>
-                <a href="{{ route('oktatas') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Oktatás</a>
-                <a href="{{ route('kapcsolat') }}" style="color:#e2e8f0;" class="hover:opacity-80 transition">Kapcsolat</a>
-            </nav>
-        </div>
-    </header>
-
-    {{-- Ha az oldalnak van hero-képe/bannere, az a fejléc alatt következik — a főoldal
-         fotós bannere és ikon-sora a jelenlegi formátumában, változatlanul marad. --}}
-    {{ $hero ?? '' }}
+    {{-- A márka-banner (fotó + logó + ikonos szolgáltatás-sor) minden oldalon,
+         ugyanabban a vizuális formában, mint eddig a főoldalon — lásd
+         components/site-hero-banner.blade.php. --}}
+    <x-site-hero-banner />
 
     {{ $slot }}
 

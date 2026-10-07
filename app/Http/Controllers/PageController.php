@@ -13,7 +13,7 @@ class PageController extends Controller
 {
     public function home(): View
     {
-        return view('home', ['services' => CompanyServices::all()]);
+        return view('home');
     }
 
     public function training(): View
