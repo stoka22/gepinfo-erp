@@ -29,14 +29,6 @@
         </script>
     @endpush
 
-    <x-slot:hero>
-        <section class="bg-[#060b16]">
-            <img src="{{ asset('images/services/' . $service['slug'] . '.svg') }}"
-                 alt="{{ $service['title'] }}"
-                 class="w-full h-auto block">
-        </section>
-    </x-slot:hero>
-
     <section class="py-16 sm:py-20">
         <div class="mx-auto max-w-3xl px-4 sm:px-6">
             <nav aria-label="Morzsamenü" class="text-sm text-slate-500">
@@ -47,7 +39,7 @@
                 <span class="text-slate-700">{{ $service['title'] }}</span>
             </nav>
 
-            <h1 class="mt-4 text-2xl sm:text-3xl font-extrabold text-slate-900">{{ $service['title'] }}</h1>
+            <h1 id="szolgaltatas-cim" class="mt-4 text-2xl sm:text-3xl font-extrabold text-slate-900 scroll-mt-4">{{ $service['title'] }}</h1>
 
             <div class="mt-6 text-lg leading-relaxed text-slate-600 space-y-4">
                 @foreach (explode("\n\n", $service['description']) as $paragraph)
